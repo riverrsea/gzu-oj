@@ -1,0 +1,10 @@
+.git
+.gradle
+.gradle-user-home
+.idea
+**/build
+web/node_modules
+web/dist
+artifacts
+backups
+.env

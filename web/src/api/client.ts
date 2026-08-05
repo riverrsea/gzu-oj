@@ -1,0 +1,119 @@
+import type {
+  ApiErrorBody,
+  AiRun,
+  Contest,
+  ContestVisibility,
+  CreatedProblemVersion,
+  CurrentUser,
+  Difficulty,
+  ImportBatch,
+  JudgeLanguage,
+  ProblemDetail,
+  ProblemSummary,
+  Submission,
+  TimedAttempt,
+  TimedPaper,
+  UserProblemSummary,
+  WrongProblem,
+} from "./types";
+
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+let csrfToken: string | null = null;
+
+async function ensureCsrf(): Promise<string> {
+  if (csrfToken) return csrfToken;
+  const response = await fetch("/api/v1/csrf", { credentials: "same-origin" });
+  if (!response.ok) throw new ApiError(response.status, "CSRF_UNAVAILABLE", "安全令牌加载失败");
+  const body = (await response.json()) as { token: string };
+  csrfToken = body.token;
+  return csrfToken;
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
+  if (init.method && !["GET", "HEAD"].includes(init.method.toUpperCase())) {
+    headers.set("X-XSRF-TOKEN", await ensureCsrf());
+  }
+  const response = await fetch(path, { ...init, headers, credentials: "same-origin" });
+  if (!response.ok) {
+    const error = (await response.json().catch(() => null)) as ApiErrorBody | null;
+    throw new ApiError(response.status, error?.code ?? "REQUEST_FAILED", error?.message ?? "请求失败");
+  }
+  if (response.status === 204) return undefined as T;
+  // Kotlin 控制器返回 Unit 时可能没有响应体；成功请求不应因此在前端解析阶段失败。
+  const payload = await response.text();
+  return (payload ? JSON.parse(payload) : undefined) as T;
+}
+
+export const api = {
+  me: () => request<CurrentUser>("/api/v1/auth/me"),
+  login: (body: { identity: string; password: string; captcha: string }) =>
+    request<CurrentUser>("/api/v1/auth/login", { method: "POST", body: JSON.stringify(body) }),
+  register: (body: { username: string; email: string; password: string; captcha: string }) =>
+    request<{ message: string }>("/api/v1/auth/register", { method: "POST", body: JSON.stringify(body) }),
+  verifyEmail: (body: { email: string; code: string }) =>
+    request<{ message: string }>("/api/v1/auth/verify-email", { method: "POST", body: JSON.stringify(body) }),
+  logout: () => request<void>("/api/v1/auth/logout", { method: "POST" }),
+  problems: (filters: { school?: string; year?: number; tag?: string; difficulty?: Difficulty }) => {
+    const query = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== "") query.set(key, String(value));
+    });
+    return request<ProblemSummary[]>("/api/v1/problems?" + query.toString());
+  },
+  problem: (id: string) => request<ProblemDetail>("/api/v1/problems/" + id),
+  problemVersion: (id: string) => request<ProblemDetail>("/api/v1/problems/versions/" + id),
+  submit: (body: { problemId: string; language: JudgeLanguage; sourceCode: string; contestId?: string; timedPaperAttemptId?: string }) =>
+    request<Submission>("/api/v1/submissions", {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+      body: JSON.stringify(body),
+    }),
+  run: (body: { problemId: string; problemVersionId?: string; language: JudgeLanguage; sourceCode: string; inputs: string[] }) =>
+    request<Submission>("/api/v1/runs", {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+      body: JSON.stringify(body),
+    }),
+  submission: (id: string) => request<Submission>("/api/v1/submissions/" + id),
+  submissions: () => request<Submission[]>("/api/v1/submissions?limit=50"),
+  favorite: (problemId: string) => request<void>("/api/v1/favorites/" + problemId, { method: "POST" }),
+  unfavorite: (problemId: string) => request<void>("/api/v1/favorites/" + problemId, { method: "DELETE" }),
+  favorites: () => request<UserProblemSummary[]>("/api/v1/favorites"),
+  wrongProblems: () => request<WrongProblem[]>("/api/v1/wrong-problems"),
+  contests: () => request<Contest[]>("/api/v1/contests"),
+  contest: (id: string) => request<Contest>("/api/v1/contests/" + id),
+  createContest: (body: { title: string; visibility: ContestVisibility; password?: string; startsAt: string; durationMinutes: number; problemIds: string[] }) =>
+    request<Contest>("/api/v1/contests", { method: "POST", body: JSON.stringify(body) }),
+  joinContest: (id: string, password?: string) =>
+    request<Contest>("/api/v1/contests/" + id + "/participants", { method: "POST", body: JSON.stringify({ password }) }),
+  timedPapers: () => request<TimedPaper[]>("/api/v1/timed-papers"),
+  createTimedPaper: (body: { title: string; durationMinutes: number; problemIds: string[] }) =>
+    request<TimedPaper>("/api/v1/timed-papers", { method: "POST", body: JSON.stringify(body) }),
+  startTimedPaper: (id: string) => request<TimedAttempt>("/api/v1/timed-papers/" + id + "/attempts", { method: "POST" }),
+  timedAttempt: (id: string) => request<TimedAttempt>("/api/v1/timed-papers/attempts/" + id),
+  shareTimedAttempt: (id: string) => request<{ token: string }>("/api/v1/timed-papers/attempts/" + id + "/share", { method: "POST" }),
+  sharedTimedAttempt: (token: string) => request<TimedAttempt>("/api/v1/shares/timed-papers/" + token),
+  stageImport: (file: File) => {
+    const body = new FormData();
+    body.append("file", file);
+    return request<ImportBatch>("/api/v1/admin/imports", { method: "POST", body });
+  },
+  commitImport: (id: string) => request<{ imported: number; skipped: number; invalid: number }>("/api/v1/admin/imports/" + id + "/commit", { method: "POST" }),
+  createProblem: (body: unknown) => request<CreatedProblemVersion>("/api/v1/admin/problems", { method: "POST", body: JSON.stringify(body) }),
+  startAiRun: (problemVersionId: string) => request<AiRun>("/api/v1/admin/ai-runs", { method: "POST", body: JSON.stringify({ problemVersionId }) }),
+};
+
+export function captchaUrl(): string {
+  return "/api/v1/auth/captcha?nonce=" + Date.now();
+}

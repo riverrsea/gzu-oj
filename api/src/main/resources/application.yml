@@ -1,0 +1,82 @@
+spring:
+  application:
+    name: gzu-oj-api
+  datasource:
+    url: ${GZU_OJ_DB_URL:jdbc:postgresql://127.0.0.1:5432/gzu_oj}
+    username: ${GZU_OJ_DB_USER:riversea}
+    password: ${GZU_OJ_DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 12
+      minimum-idle: 2
+      connection-timeout: 3000
+  flyway:
+    enabled: true
+  session:
+    timeout: 12h
+    jdbc:
+      initialize-schema: never
+      table-name: spring_session
+  mail:
+    host: ${GZU_OJ_MAIL_HOST:localhost}
+    port: ${GZU_OJ_MAIL_PORT:1025}
+    username: ${GZU_OJ_MAIL_USERNAME:}
+    password: ${GZU_OJ_MAIL_PASSWORD:}
+  servlet:
+    multipart:
+      max-file-size: 64MB
+      max-request-size: 64MB
+  # Spring AI 默认关闭；启用 AI 时将 GZU_OJ_AI_CHAT_PROVIDER 设置为 openai。
+  ai:
+    model:
+      chat: ${GZU_OJ_AI_CHAT_PROVIDER:none}
+    openai:
+      base-url: ${GZU_OJ_AI_BASE_URL:http://127.0.0.1:11434/v1}
+      api-key: ${GZU_OJ_AI_API_KEY:disabled}
+      chat:
+        options:
+          model: ${GZU_OJ_AI_MODEL:gpt-4.1-mini}
+server:
+  port: ${GZU_OJ_API_PORT:8080}
+  forward-headers-strategy: framework
+  servlet:
+    session:
+      cookie:
+        name: GZUOJSESSION
+        http-only: true
+        secure: ${GZU_OJ_SECURE_COOKIE:false}
+        same-site: lax
+management:
+  health:
+    mail:
+      # 默认开发环境不投递邮件，避免未启动 SMTP 时健康检查发生长时间阻塞。
+      enabled: ${GZU_OJ_MAIL_HEALTH_ENABLED:false}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+gzu-oj:
+  public-base-url: ${GZU_OJ_PUBLIC_BASE_URL:http://localhost:8080}
+  artifact-root: ${GZU_OJ_ARTIFACT_ROOT:./artifacts}
+  registration-enabled: ${GZU_OJ_REGISTRATION_ENABLED:true}
+  mail-delivery-enabled: ${GZU_OJ_MAIL_DELIVERY_ENABLED:false}
+  worker:
+    long-poll-seconds: 15
+    lease-seconds: 60
+    heartbeat-seconds: 20
+  contest:
+    max-participants: 5
+    max-active-owned: 3
+    minimum-create-interval-minutes: 10
+  ai:
+    enabled: ${GZU_OJ_AI_ENABLED:false}
+    base-url: ${GZU_OJ_AI_BASE_URL:http://127.0.0.1:11434/v1}
+    api-key: ${GZU_OJ_AI_API_KEY:}
+    model: ${GZU_OJ_AI_MODEL:gpt-4.1-mini}
+    prompt-version: ${GZU_OJ_AI_PROMPT_VERSION:v1}
+    max-cost-microunits: ${GZU_OJ_AI_MAX_COST_MICROUNITS:1000000}
+    max-concurrent: ${GZU_OJ_AI_MAX_CONCURRENT:1}
+    timeout-seconds: ${GZU_OJ_AI_TIMEOUT_SECONDS:120}

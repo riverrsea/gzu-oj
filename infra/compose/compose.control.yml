@@ -1,0 +1,75 @@
+name: gzu-oj-control
+
+services:
+  database:
+    image: postgres:18.4-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${GZU_OJ_DB_NAME:-gzu_oj}
+      POSTGRES_USER: ${GZU_OJ_DB_USER:-gzu_oj}
+      POSTGRES_PASSWORD: ${GZU_OJ_DB_PASSWORD:?请设置数据库密码}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [control]
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/api.Dockerfile
+    restart: unless-stopped
+    environment:
+      GZU_OJ_DB_URL: jdbc:postgresql://database:5432/${GZU_OJ_DB_NAME:-gzu_oj}
+      GZU_OJ_DB_USER: ${GZU_OJ_DB_USER:-gzu_oj}
+      GZU_OJ_DB_PASSWORD: ${GZU_OJ_DB_PASSWORD:?请设置数据库密码}
+      GZU_OJ_PUBLIC_BASE_URL: ${GZU_OJ_SITE_ADDRESS:-http://localhost}
+      GZU_OJ_ARTIFACT_ROOT: /data/artifacts
+      GZU_OJ_SECURE_COOKIE: ${GZU_OJ_SECURE_COOKIE:-false}
+      GZU_OJ_MAIL_DELIVERY_ENABLED: ${GZU_OJ_MAIL_DELIVERY_ENABLED:-false}
+      GZU_OJ_MAIL_HOST: ${GZU_OJ_MAIL_HOST:-mailpit}
+      GZU_OJ_MAIL_PORT: ${GZU_OJ_MAIL_PORT:-1025}
+      GZU_OJ_MAIL_USERNAME: ${GZU_OJ_MAIL_USERNAME:-}
+      GZU_OJ_MAIL_PASSWORD: ${GZU_OJ_MAIL_PASSWORD:-}
+      GZU_OJ_AI_ENABLED: ${GZU_OJ_AI_ENABLED:-false}
+      GZU_OJ_AI_CHAT_PROVIDER: ${GZU_OJ_AI_CHAT_PROVIDER:-none}
+      GZU_OJ_AI_BASE_URL: ${GZU_OJ_AI_BASE_URL:-http://127.0.0.1:11434/v1}
+      GZU_OJ_AI_API_KEY: ${GZU_OJ_AI_API_KEY:-}
+      GZU_OJ_AI_MODEL: ${GZU_OJ_AI_MODEL:-gpt-4.1-mini}
+      GZU_OJ_AI_MAX_COST_MICROUNITS: ${GZU_OJ_AI_MAX_COST_MICROUNITS:-1000000}
+    volumes:
+      - artifact-data:/data/artifacts
+    depends_on:
+      database:
+        condition: service_healthy
+    expose: ["8080"]
+    networks: [control]
+
+  caddy:
+    build:
+      context: ../..
+      dockerfile: infra/docker/control.Dockerfile
+    restart: unless-stopped
+    environment:
+      GZU_OJ_SITE_ADDRESS: ${GZU_OJ_SITE_ADDRESS:-http://localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [api]
+    networks: [control]
+
+networks:
+  control:
+
+volumes:
+  postgres-data:
+  artifact-data:
+  caddy-data:
+  caddy-config:

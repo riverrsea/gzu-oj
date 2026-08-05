@@ -1,0 +1,95 @@
+# go-judge 用户程序容器的最小只读挂载配置。
+mount:
+  # 提供各语言运行时、动态库和基础命令；JDK、Python、GCC 都位于这些路径内。
+  - type: bind
+    source: /bin
+    target: /bin
+    readonly: true
+  - type: bind
+    source: /lib
+    target: /lib
+    readonly: true
+  - type: bind
+    source: /lib64
+    target: /lib64
+    readonly: true
+  - type: bind
+    source: /usr
+    target: /usr
+    readonly: true
+  # 动态链接器缓存和工具链替代链接必须与运行时保持一致。
+  - type: bind
+    source: /etc/ld.so.cache
+    target: /etc/ld.so.cache
+    readonly: true
+  - type: bind
+    source: /etc/alternatives
+    target: /etc/alternatives
+    readonly: true
+  # 只提供用户程序运行所需的基础设备，容器不配置网络设备。
+  - type: bind
+    source: /dev/null
+    target: /dev/null
+  - type: bind
+    source: /dev/urandom
+    target: /dev/urandom
+  - type: bind
+    source: /dev/random
+    target: /dev/random
+  - type: bind
+    source: /dev/zero
+    target: /dev/zero
+  - type: bind
+    source: /dev/full
+    target: /dev/full
+  # 工作目录和临时目录均为独立 tmpfs，大小由 go-judge 的启动参数覆盖。
+  - type: tmpfs
+    target: /w
+    data: size=128m,nr_inodes=4k
+  - type: tmpfs
+    target: /tmp
+    data: size=128m,nr_inodes=4k
+  # go-judge 运行时生成低权限用户和受控环境文件。
+  - type: bind
+    source: containerPasswd.txt
+    target: /etc/passwd
+  - type: bind
+    source: dotenv
+    target: /.env
+
+# Java 运行时依赖 /proc/self/exe，保留只读 proc 挂载。
+proc: true
+
+# 将标准文件描述符映射到受控 proc 节点。
+symLink:
+  - linkPath: /dev/fd
+    target: /proc/self/fd
+  - linkPath: /dev/stdin
+    target: /proc/self/fd/0
+  - linkPath: /dev/stdout
+    target: /proc/self/fd/1
+  - linkPath: /dev/stderr
+    target: /proc/self/fd/2
+
+# 遮蔽与判题无关、可能泄漏宿主环境的内核和 WSL 路径。
+maskPath:
+  - /sys/firmware
+  - /sys/devices/virtual/powercap
+  - /proc/acpi
+  - /proc/asound
+  - /proc/kcore
+  - /proc/keys
+  - /proc/latency_stats
+  - /proc/timer_list
+  - /proc/timer_stats
+  - /proc/sched_debug
+  - /proc/scsi
+  - /usr/lib/wsl/drivers
+  - /usr/lib/wsl/lib
+
+# 判题程序使用固定临时工作目录和匿名主机名。
+workDir: /w
+hostName: go-judge
+domainName: go-judge
+uid: 1536
+gid: 1536

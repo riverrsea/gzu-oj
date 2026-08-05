@@ -30,6 +30,22 @@ docker compose -f infra/compose/compose.judge.yml up -d --build
 
 `go-judge:5050` 只存在于 `judge-internal` 网络，没有宿主机端口。Worker 同时连接内部网络和出站网络，通过 HTTPS 访问控制端。初始 `GZU_OJ_WORKER_SLOTS=4`；主机需要日常使用时可以停止 Worker，未领取任务继续保留在 PostgreSQL，过期租约会重新入队。
 
+### 定制 go-judge 镜像
+
+`infra/docker/go-judge.Dockerfile` 不执行 `apt`、`apk` 或其他包管理器下载。它固定拉取 GCC 14.2.0 Bookworm、CPython 3.13 Bookworm、Temurin OpenJDK 21 和官方 go-judge 的内容摘要，在多阶段构建中复制已经安装好的语言工具链。构建产物的默认标签为 `gzu-oj/go-judge:v1.12.2-toolchains`。
+
+```bash
+docker compose -f infra/compose/compose.judge.yml build --pull go-judge
+docker run --rm --entrypoint /bin/sh gzu-oj/go-judge:v1.12.2-toolchains -ceu '
+  gcc --version
+  g++ --version
+  javac --version
+  python3 --version
+'
+```
+
+若要在镜像仓库或另一台 WSL 主机复用已构建产物，推送该标签后设置 `GZU_OJ_GO_JUDGE_IMAGE=registry.example/gzu-oj/go-judge:v1.12.2-toolchains`。Compose 仍保留 `build` 定义，首次部署或本地无此镜像时可复现构建；生产环境建议先在受控构建机生成并签名镜像。
+
 ## 一体化
 
 一体化适合开发或资源充足的 Linux 主机：

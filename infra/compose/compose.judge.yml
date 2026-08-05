@@ -2,6 +2,8 @@ name: gzu-oj-judge
 
 services:
   go-judge:
+    # 本地构建的定制判题镜像；可通过环境变量覆盖为已推送到私有仓库的同一标签镜像。
+    image: ${GZU_OJ_GO_JUDGE_IMAGE:-gzu-oj/go-judge:v1.12.2-toolchains}
     build:
       context: ../..
       dockerfile: infra/docker/go-judge.Dockerfile

@@ -14,6 +14,8 @@ data class AppProperties(
     val registrationEnabled: Boolean = true,
     /** 是否实际投递验证邮件；关闭时仅写入日志。 */
     val mailDeliveryEnabled: Boolean = false,
+    /** 邮件 From 头使用的发件人地址；为空时由邮件服务器决定。 */
+    val mailFrom: String = "",
     /** Worker 租约参数。 */
     val worker: WorkerProperties = WorkerProperties(),
     /** 公开训练赛限制。 */

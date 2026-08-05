@@ -165,6 +165,9 @@ class AccountMailService(
         }
         mailSender.send(SimpleMailMessage().also {
             it.setTo(email)
+            if (properties.mailFrom.isNotBlank()) {
+                it.from = properties.mailFrom
+            }
             it.subject = subject
             it.text = content
         })

@@ -21,6 +21,21 @@ spring:
     port: ${GZU_OJ_MAIL_PORT:1025}
     username: ${GZU_OJ_MAIL_USERNAME:}
     password: ${GZU_OJ_MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          # SMTP 服务是否需要 AUTH 登录；QQ SMTP 需启用。
+          auth: ${GZU_OJ_MAIL_SMTP_AUTH:false}
+          # 465 端口使用隐式 TLS，不能与 STARTTLS 同时启用。
+          ssl:
+            enable: ${GZU_OJ_MAIL_SSL_ENABLED:false}
+          # 587 等显式 TLS 端口使用 STARTTLS。
+          starttls:
+            enable: ${GZU_OJ_MAIL_STARTTLS_ENABLED:false}
+          # 防止不可达 SMTP 服务长期阻塞注册、找回密码请求。
+          connectiontimeout: ${GZU_OJ_MAIL_CONNECTION_TIMEOUT_MS:10000}
+          timeout: ${GZU_OJ_MAIL_TIMEOUT_MS:10000}
+          writetimeout: ${GZU_OJ_MAIL_WRITE_TIMEOUT_MS:10000}
   servlet:
     multipart:
       max-file-size: 64MB
@@ -63,6 +78,8 @@ gzu-oj:
   artifact-root: ${GZU_OJ_ARTIFACT_ROOT:./artifacts}
   registration-enabled: ${GZU_OJ_REGISTRATION_ENABLED:true}
   mail-delivery-enabled: ${GZU_OJ_MAIL_DELIVERY_ENABLED:false}
+  # 未配置时使用 SMTP 用户名，确保远程服务收到明确的发件人地址。
+  mail-from: ${GZU_OJ_MAIL_FROM:${GZU_OJ_MAIL_USERNAME:}}
   worker:
     long-poll-seconds: 15
     lease-seconds: 60

@@ -29,6 +29,9 @@ services:
       context: ../..
       dockerfile: infra/docker/worker.Dockerfile
     restart: unless-stopped
+    # Linux Docker 通过 host-gateway 访问宿主机上本地运行的控制端 API。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       GZU_OJ_CONTROL_BASE_URL: ${GZU_OJ_CONTROL_BASE_URL:?请设置控制端 HTTPS 地址}
       GZU_OJ_WORKER_TOKEN: ${GZU_OJ_WORKER_TOKEN:?请设置 Worker Token}

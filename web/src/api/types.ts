@@ -173,3 +173,15 @@ export interface AiRun {
   failureReason: string | null;
   completedRoles: string[];
 }
+
+/** 创建判题 Worker 后返回的节点凭据。Token 只在本次响应中返回。 */
+export interface CreatedWorker {
+  /** Worker 节点标识。 */
+  id: string;
+  /** Worker 节点名称。 */
+  name: string;
+  /** 只展示一次的 Worker Bearer Token。 */
+  token: string;
+  /** Worker 并发判题槽数量。 */
+  slots: number;
+}

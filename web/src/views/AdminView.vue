@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Bot, FileArchive, Plus, Upload } from "@lucide/vue";
+import { Bot, FileArchive, Plus, ServerCog, Upload } from "@lucide/vue";
 import { ElMessage } from "element-plus";
 import { api } from "../api/client";
 import type { AiRun, ImportBatch } from "../api/types";
@@ -80,7 +80,7 @@ async function startAi(): Promise<void> {
 
 <template>
   <section class="content-page admin-page">
-    <div class="page-heading"><div><h1>管理</h1><p>题目版本、批量导入和可审计的 AI 录题流程</p></div><el-button type="primary" @click="$router.push('/admin/problems/new')"><Plus :size="16" />新建题目</el-button></div>
+    <div class="page-heading"><div><h1>管理</h1><p>题目版本、批量导入和可审计的 AI 录题流程</p></div><div class="heading-actions"><el-button plain @click="$router.push('/admin/workers')"><ServerCog :size="16" />判题 Worker</el-button><el-button type="primary" @click="$router.push('/admin/problems/new')"><Plus :size="16" />新建题目</el-button></div></div>
 
     <div class="admin-grid">
       <article class="tool-card tool-card--wide">

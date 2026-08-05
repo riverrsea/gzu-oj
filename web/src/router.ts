@@ -14,6 +14,7 @@ const router = createRouter({
     { path: "/shares/timed-papers/:token", component: () => import("./views/TimedShareView.vue"), meta: { public: true } },
     { path: "/admin", component: () => import("./views/AdminView.vue"), meta: { admin: true } },
     { path: "/admin/problems/new", component: () => import("./views/AdminProblemView.vue"), meta: { admin: true } },
+    { path: "/admin/workers", component: () => import("./views/AdminWorkerView.vue"), meta: { admin: true } },
   ],
 });
 

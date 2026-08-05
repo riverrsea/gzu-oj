@@ -4,6 +4,7 @@ import type {
   Contest,
   ContestVisibility,
   CreatedProblemVersion,
+  CreatedWorker,
   CurrentUser,
   Difficulty,
   ImportBatch,
@@ -112,6 +113,8 @@ export const api = {
   commitImport: (id: string) => request<{ imported: number; skipped: number; invalid: number }>("/api/v1/admin/imports/" + id + "/commit", { method: "POST" }),
   createProblem: (body: unknown) => request<CreatedProblemVersion>("/api/v1/admin/problems", { method: "POST", body: JSON.stringify(body) }),
   startAiRun: (problemVersionId: string) => request<AiRun>("/api/v1/admin/ai-runs", { method: "POST", body: JSON.stringify({ problemVersionId }) }),
+  createWorker: (body: { name: string; slots: number }) =>
+    request<CreatedWorker>("/api/v1/admin/workers", { method: "POST", body: JSON.stringify(body) }),
 };
 
 export function captchaUrl(): string {

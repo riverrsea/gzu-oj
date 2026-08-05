@@ -61,6 +61,61 @@ async function mockApi(page: Page): Promise<void> {
   });
 }
 
+/** 验证注销后服务端清除旧令牌时，下一次登录会重新请求 CSRF。 */
+test("退出后重新登录会刷新 CSRF 令牌", async ({ page }) => {
+  let authenticated = true;
+  let currentCsrf: string | null = null;
+  let csrfRequests = 0;
+  const user = { id: "user-id", username: "管理员", role: "ADMIN" };
+
+  await page.route("**/api/v1/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    const json = (body: unknown, status = 200) => route.fulfill({
+      status,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
+
+    if (path === "/api/v1/auth/me") return authenticated ? json(user) : json({ code: "UNAUTHENTICATED", message: "请先登录" }, 401);
+    if (path === "/api/v1/csrf") {
+      csrfRequests += 1;
+      currentCsrf = `csrf-${csrfRequests}`;
+      return json({ headerName: "X-XSRF-TOKEN", token: currentCsrf });
+    }
+    if (path === "/api/v1/auth/captcha") {
+      return route.fulfill({ status: 200, contentType: "image/svg+xml", body: "<svg xmlns='http://www.w3.org/2000/svg' />" });
+    }
+    if (path === "/api/v1/problems") return json([]);
+    if (path === "/api/v1/auth/logout" && request.method() === "POST") {
+      if (request.headers()["x-xsrf-token"] !== currentCsrf) return json({ code: "CSRF_INVALID", message: "CSRF 令牌无效" }, 403);
+      authenticated = false;
+      currentCsrf = null;
+      return route.fulfill({ status: 204, body: "" });
+    }
+    if (path === "/api/v1/auth/login" && request.method() === "POST") {
+      if (request.headers()["x-xsrf-token"] !== currentCsrf) return json({ code: "CSRF_INVALID", message: "CSRF 令牌无效" }, 403);
+      authenticated = true;
+      return json(user);
+    }
+    return json({ code: "UNMOCKED", message: "未配置的浏览器测试请求", timestamp: "2026-08-05T09:00:00Z" }, 404);
+  });
+
+  await page.goto("/problems");
+  await expect(page.getByTitle("退出登录")).toBeVisible();
+  await page.getByTitle("退出登录").click();
+  await page.goto("/login");
+
+  const inputs = page.locator("input");
+  await inputs.nth(0).fill("admin");
+  await inputs.nth(1).fill("password");
+  await inputs.nth(2).fill("12345");
+  await page.locator("form button[type='submit']").click();
+
+  await expect(page.getByTitle("退出登录")).toBeVisible();
+  expect(csrfRequests).toBe(2);
+});
+
 /** 验证桌面题库、做题工作区和公开运行抽屉。 */
 test("桌面端题库和做题工作区可操作", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "此用例只验证桌面工作区");

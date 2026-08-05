@@ -30,6 +30,11 @@ export class ApiError extends Error {
 
 let csrfToken: string | null = null;
 
+/** 清除当前浏览器会话中缓存的 CSRF 令牌。注销后服务端会同时清除对应 Cookie。 */
+function clearCsrfToken(): void {
+  csrfToken = null;
+}
+
 async function ensureCsrf(): Promise<string> {
   if (csrfToken) return csrfToken;
   const response = await fetch("/api/v1/csrf", { credentials: "same-origin" });
@@ -39,15 +44,23 @@ async function ensureCsrf(): Promise<string> {
   return csrfToken;
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+/** 发起 API 请求；CSRF 令牌失效时只对变更请求自动刷新并重试一次。 */
+async function request<T>(path: string, init: RequestInit = {}, retryAfterCsrf = true): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
-  if (init.method && !["GET", "HEAD"].includes(init.method.toUpperCase())) {
+  const method = (init.method ?? "GET").toUpperCase();
+  const changesState = !["GET", "HEAD", "OPTIONS"].includes(method);
+  if (changesState) {
     headers.set("X-XSRF-TOKEN", await ensureCsrf());
   }
   const response = await fetch(path, { ...init, headers, credentials: "same-origin" });
   if (!response.ok) {
     const error = (await response.json().catch(() => null)) as ApiErrorBody | null;
+    // Spring Security 的注销处理器会清除 CSRF Cookie；缓存令牌会导致下一次登录 403。
+    if (response.status === 403 && changesState && retryAfterCsrf) {
+      clearCsrfToken();
+      return request(path, init, false);
+    }
     throw new ApiError(response.status, error?.code ?? "REQUEST_FAILED", error?.message ?? "请求失败");
   }
   if (response.status === 204) return undefined as T;
@@ -64,7 +77,14 @@ export const api = {
     request<{ message: string }>("/api/v1/auth/register", { method: "POST", body: JSON.stringify(body) }),
   verifyEmail: (body: { email: string; code: string }) =>
     request<{ message: string }>("/api/v1/auth/verify-email", { method: "POST", body: JSON.stringify(body) }),
-  logout: () => request<void>("/api/v1/auth/logout", { method: "POST" }),
+  /** 注销后清除页面级 CSRF 缓存，确保下一次登录重新获取令牌。 */
+  logout: async () => {
+    try {
+      return await request<void>("/api/v1/auth/logout", { method: "POST" });
+    } finally {
+      clearCsrfToken();
+    }
+  },
   problems: (filters: { school?: string; year?: number; tag?: string; difficulty?: Difficulty }) => {
     const query = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => {

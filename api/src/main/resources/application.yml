@@ -40,7 +40,7 @@ spring:
     multipart:
       max-file-size: 64MB
       max-request-size: 64MB
-  # Spring AI 默认关闭；启用 AI 时将 GZU_OJ_AI_CHAT_PROVIDER 设置为 openai。
+  # Spring AI 默认关闭；选择的聊天模型由 GZU_OJ_AI_CHAT_PROVIDER 决定。
   ai:
     model:
       chat: ${GZU_OJ_AI_CHAT_PROVIDER:none}
@@ -50,6 +50,11 @@ spring:
       chat:
         options:
           model: ${GZU_OJ_AI_MODEL:gpt-4.1-mini}
+    deepseek:
+      base-url: ${GZU_OJ_AI_BASE_URL:https://api.deepseek.com}
+      api-key: ${GZU_OJ_AI_API_KEY:disabled}
+      chat:
+        model: ${GZU_OJ_AI_MODEL:deepseek-chat}
 server:
   port: ${GZU_OJ_API_PORT:8080}
   forward-headers-strategy: framework
@@ -90,6 +95,8 @@ gzu-oj:
     minimum-create-interval-minutes: 10
   ai:
     enabled: ${GZU_OJ_AI_ENABLED:false}
+    # 与 Spring AI 的 model.chat 共用取值，只允许 openai、deepseek 和 none。
+    provider: ${GZU_OJ_AI_CHAT_PROVIDER:none}
     base-url: ${GZU_OJ_AI_BASE_URL:http://127.0.0.1:11434/v1}
     api-key: ${GZU_OJ_AI_API_KEY:}
     model: ${GZU_OJ_AI_MODEL:gpt-4.1-mini}

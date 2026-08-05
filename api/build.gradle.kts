@@ -25,6 +25,7 @@ dependencies {
     implementation("org.bouncycastle:bcprov-jdk18on:1.82")
     implementation("org.apache.commons:commons-csv:1.14.1")
     implementation("org.springframework.ai:spring-ai-starter-model-openai")
+    implementation("org.springframework.ai:spring-ai-starter-model-deepseek")
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-api:3.1.0")
     runtimeOnly("org.postgresql:postgresql")
 

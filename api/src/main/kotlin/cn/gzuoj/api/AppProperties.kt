@@ -44,11 +44,23 @@ data class ContestProperties(
     val minimumCreateIntervalMinutes: Long = 10,
 )
 
-/** 站点统一的 OpenAI 兼容 AI 配置。 */
+/** Spring AI 可选择的聊天模型服务商。 */
+enum class AiChatProvider {
+    /** 不创建聊天模型客户端。 */
+    NONE,
+    /** OpenAI 原生服务或 OpenAI 兼容网关。 */
+    OPENAI,
+    /** DeepSeek 原生 Spring AI Starter。 */
+    DEEPSEEK,
+}
+
+/** 站点统一的 Spring AI 配置。 */
 data class AiProperties(
     /** 是否允许自动调用模型。 */
     val enabled: Boolean = false,
-    /** OpenAI 兼容服务地址。 */
+    /** 当前启用的 Spring AI 聊天模型服务商。 */
+    val provider: AiChatProvider = AiChatProvider.NONE,
+    /** 当前 Spring AI 服务商的服务地址。 */
     val baseUrl: String = "http://127.0.0.1:11434/v1",
     /** 只从环境变量读取的 API 密钥。 */
     val apiKey: String = "",

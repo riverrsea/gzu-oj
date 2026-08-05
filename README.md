@@ -36,14 +36,14 @@ cd web && npm run dev
 
 ## Spring AI
 
-可以使用 Spring AI。项目锁定 Spring AI 2.0.0，并通过 OpenAI 兼容 Provider 接入。默认完全关闭模型调用；启用时设置：
+可以使用 Spring AI。项目锁定 Spring AI 2.0.0，原生支持 OpenAI 和 DeepSeek。`GZU_OJ_AI_CHAT_PROVIDER` 可选 `openai`、`deepseek` 或 `none`。默认完全关闭模型调用；启用时选择一个聊天模型：
 
 ```bash
 GZU_OJ_AI_ENABLED=true
-GZU_OJ_AI_CHAT_PROVIDER=openai
-GZU_OJ_AI_BASE_URL=https://api.openai.com/v1
+GZU_OJ_AI_CHAT_PROVIDER=deepseek
+GZU_OJ_AI_BASE_URL=https://api.deepseek.com
 GZU_OJ_AI_API_KEY=...
-GZU_OJ_AI_MODEL=gpt-4.1-mini
+GZU_OJ_AI_MODEL=deepseek-chat
 ```
 
 模型仅生成候选分析、标程、生成器和测试计划。标准输出必须由已通过差分校验的标程在 go-judge 中计算，发布仍受固定种子、双标程/暴力差分、资源余量和制品哈希门禁约束。

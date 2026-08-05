@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpSession
 import jakarta.validation.Valid
 import org.springframework.security.authentication.AuthenticationManager
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
+import org.springframework.security.core.AuthenticationException
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository
 import org.springframework.web.bind.annotation.GetMapping
@@ -63,9 +64,13 @@ class AuthController(
         rateLimiter.check("login-ip:${request.remoteAddr}", 30, 600)
         rateLimiter.check("login-account:${body.identity.trim().lowercase()}", 10, 600)
         captchaService.verify(session, body.captcha)
-        val authentication = authenticationManager.authenticate(
-            UsernamePasswordAuthenticationToken.unauthenticated(body.identity.trim(), body.password),
-        )
+        val authentication = try {
+            authenticationManager.authenticate(
+                UsernamePasswordAuthenticationToken.unauthenticated(body.identity.trim(), body.password),
+            )
+        } catch (_: AuthenticationException) {
+            throw ApiException(org.springframework.http.HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "用户名或密码错误")
+        }
         request.changeSessionId()
         val context = SecurityContextHolder.createEmptyContext().also { it.authentication = authentication }
         SecurityContextHolder.setContext(context)

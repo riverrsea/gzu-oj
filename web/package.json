@@ -1,0 +1,36 @@
+{
+  "name": "gzu-oj-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test:e2e": "playwright test",
+    "openapi:generate": "openapi-typescript http://127.0.0.1:8080/v3/api-docs -o src/api/openapi.d.ts"
+  },
+  "dependencies": {
+    "@codemirror/commands": "6.10.2",
+    "@codemirror/lang-cpp": "6.0.3",
+    "@codemirror/lang-java": "6.0.2",
+    "@codemirror/lang-python": "6.2.1",
+    "@codemirror/state": "6.7.1",
+    "@codemirror/view": "6.43.8",
+    "dompurify": "3.4.13",
+    "element-plus": "2.14.3",
+    "@lucide/vue": "1.28.0",
+    "marked": "18.0.9",
+    "vue": "3.5.40",
+    "vue-router": "5.2.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.58.2",
+    "@types/node": "24.10.13",
+    "@vitejs/plugin-vue": "6.0.8",
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3",
+    "vite": "8.2.0",
+    "vue-tsc": "3.3.9"
+  }
+}

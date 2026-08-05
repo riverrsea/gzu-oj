@@ -1,0 +1,63 @@
+package cn.gzuoj.api
+
+import org.springframework.boot.context.properties.ConfigurationProperties
+import java.nio.file.Path
+
+/** 应用级可调参数。 */
+@ConfigurationProperties("gzu-oj")
+data class AppProperties(
+    /** 用户和 Worker 可访问的控制端根地址。 */
+    val publicBaseUrl: String,
+    /** 本地制品存储根目录。 */
+    val artifactRoot: Path,
+    /** 是否开放用户注册。 */
+    val registrationEnabled: Boolean = true,
+    /** 是否实际投递验证邮件；关闭时仅写入日志。 */
+    val mailDeliveryEnabled: Boolean = false,
+    /** Worker 租约参数。 */
+    val worker: WorkerProperties = WorkerProperties(),
+    /** 公开训练赛限制。 */
+    val contest: ContestProperties = ContestProperties(),
+    /** AI 供应商、模型和费用门禁。 */
+    val ai: AiProperties = AiProperties(),
+)
+
+/** Worker 长轮询、续租和过期参数。 */
+data class WorkerProperties(
+    /** 领取接口最长等待秒数。 */
+    val longPollSeconds: Long = 15,
+    /** 单次任务租约秒数。 */
+    val leaseSeconds: Long = 60,
+    /** Worker 推荐心跳间隔秒数。 */
+    val heartbeatSeconds: Long = 20,
+)
+
+/** 用户创建公开训练赛的限制参数。 */
+data class ContestProperties(
+    /** 单场默认最大参与人数。 */
+    val maxParticipants: Int = 5,
+    /** 单个用户最多拥有的待开始或进行中比赛数。 */
+    val maxActiveOwned: Int = 3,
+    /** 两次创建比赛之间的最短分钟数。 */
+    val minimumCreateIntervalMinutes: Long = 10,
+)
+
+/** 站点统一的 OpenAI 兼容 AI 配置。 */
+data class AiProperties(
+    /** 是否允许自动调用模型。 */
+    val enabled: Boolean = false,
+    /** OpenAI 兼容服务地址。 */
+    val baseUrl: String = "http://127.0.0.1:11434/v1",
+    /** 只从环境变量读取的 API 密钥。 */
+    val apiKey: String = "",
+    /** 默认模型名称。 */
+    val model: String = "gpt-4.1-mini",
+    /** 提示词版本，变更后用于审计。 */
+    val promptVersion: String = "v1",
+    /** 单次录题运行费用上限，单位微美元。 */
+    val maxCostMicrounits: Long = 1_000_000,
+    /** API 内协调器并发上限。 */
+    val maxConcurrent: Int = 1,
+    /** 模型调用超时秒数。 */
+    val timeoutSeconds: Long = 120,
+)

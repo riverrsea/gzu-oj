@@ -1,0 +1,16 @@
+.gradle/
+.gradle-user-home/
+build/
+**/build/
+.idea/
+*.iml
+*.log
+.env
+.env.*
+!.env.example
+artifacts/
+backups/
+web/node_modules/
+web/dist/
+web/playwright-report/
+web/test-results/

@@ -1,0 +1,19 @@
+{$GZU_OJ_SITE_ADDRESS:http://localhost} {
+    encode zstd gzip
+
+    @backend path /api/* /internal/worker/* /actuator/* /v3/api-docs*
+    reverse_proxy @backend api:8080 {
+        flush_interval -1
+    }
+
+    root * /srv
+    try_files {path} /index.html
+    file_server
+
+    header {
+        -Server
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    }
+}

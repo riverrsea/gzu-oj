@@ -1,0 +1,46 @@
+name: gzu-oj-judge
+
+services:
+  go-judge:
+    build:
+      context: ../..
+      dockerfile: infra/docker/go-judge.Dockerfile
+    restart: unless-stopped
+    privileged: true
+    cgroup: host
+    shm_size: 512m
+    command:
+      - -http-addr=:5050
+      - -auth-token=${GZU_OJ_GO_JUDGE_TOKEN:?请设置 go-judge Token}
+      - -no-fallback
+      - -parallelism=${GZU_OJ_WORKER_SLOTS:-4}
+      - -output-limit=16m
+      - -copy-out-limit=16m
+      - -open-file-limit=64
+      - -tmp-fs-param=size=128m,nr_inodes=4k
+      - -file-timeout=30m
+    expose: ["5050"]
+    networks: [judge-internal]
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/worker.Dockerfile
+    restart: unless-stopped
+    environment:
+      GZU_OJ_CONTROL_BASE_URL: ${GZU_OJ_CONTROL_BASE_URL:?请设置控制端 HTTPS 地址}
+      GZU_OJ_WORKER_TOKEN: ${GZU_OJ_WORKER_TOKEN:?请设置 Worker Token}
+      GZU_OJ_GO_JUDGE_URL: http://go-judge:5050
+      GZU_OJ_GO_JUDGE_TOKEN: ${GZU_OJ_GO_JUDGE_TOKEN:?请设置 go-judge Token}
+      GZU_OJ_WORKER_SLOTS: ${GZU_OJ_WORKER_SLOTS:-4}
+      GZU_OJ_CGROUP_ROOT: /sys/fs/cgroup
+      GZU_OJ_REQUIRE_NO_FALLBACK: "true"
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+    depends_on: [go-judge]
+    networks: [worker-egress, judge-internal]
+
+networks:
+  worker-egress:
+  judge-internal:
+    internal: true

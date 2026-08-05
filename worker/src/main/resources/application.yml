@@ -1,0 +1,17 @@
+spring:
+  application:
+    name: gzu-oj-worker
+  main:
+    web-application-type: none
+    banner-mode: off
+gzu-oj:
+  worker:
+    control-base-url: ${GZU_OJ_CONTROL_BASE_URL:http://127.0.0.1:8080}
+    control-token: ${GZU_OJ_WORKER_TOKEN:}
+    go-judge-base-url: ${GZU_OJ_GO_JUDGE_URL:http://127.0.0.1:5050}
+    go-judge-token: ${GZU_OJ_GO_JUDGE_TOKEN:}
+    slots: ${GZU_OJ_WORKER_SLOTS:4}
+    renew-seconds: 20
+    request-timeout-seconds: 90
+    cgroup-root: ${GZU_OJ_CGROUP_ROOT:/sys/fs/cgroup}
+    require-no-fallback: ${GZU_OJ_REQUIRE_NO_FALLBACK:true}

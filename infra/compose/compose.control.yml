@@ -26,7 +26,10 @@ services:
       GZU_OJ_DB_URL: jdbc:postgresql://database:5432/${GZU_OJ_DB_NAME:-gzu_oj}
       GZU_OJ_DB_USER: ${GZU_OJ_DB_USER:-gzu_oj}
       GZU_OJ_DB_PASSWORD: ${GZU_OJ_DB_PASSWORD:?请设置数据库密码}
-      GZU_OJ_PUBLIC_BASE_URL: ${GZU_OJ_SITE_ADDRESS:-http://localhost}
+      # 公开地址用于浏览器和邮件；可显式覆盖站点监听地址。
+      GZU_OJ_PUBLIC_BASE_URL: ${GZU_OJ_PUBLIC_BASE_URL:-${GZU_OJ_SITE_ADDRESS:-http://localhost}}
+      # 未设置时与公开地址相同；混合部署可设为 Worker 实际可访问的控制端地址。
+      GZU_OJ_WORKER_ARTIFACT_BASE_URL: ${GZU_OJ_WORKER_ARTIFACT_BASE_URL:-${GZU_OJ_PUBLIC_BASE_URL:-${GZU_OJ_SITE_ADDRESS:-http://localhost}}}
       GZU_OJ_ARTIFACT_ROOT: /data/artifacts
       GZU_OJ_SECURE_COOKIE: ${GZU_OJ_SECURE_COOKIE:-false}
       GZU_OJ_MAIL_DELIVERY_ENABLED: ${GZU_OJ_MAIL_DELIVERY_ENABLED:-false}

@@ -8,6 +8,7 @@ import cn.gzuoj.shared.JudgeLanguage
 import cn.gzuoj.shared.JudgeLease
 import cn.gzuoj.shared.JudgeStatus
 import cn.gzuoj.shared.OutputComparator
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -80,14 +81,17 @@ class JudgeEngine(
         }
     }
 
-    /** 形成基础设施异常结算。 */
-    private fun systemFailure(lease: JudgeLease, message: String): JudgeCompletion = JudgeCompletion(
-        attemptId = lease.attemptId,
-        leaseToken = lease.leaseToken,
-        status = JudgeStatus.SYSTEM_ERROR,
-        score = 0,
-        systemMessage = message.take(SYSTEM_MESSAGE_LIMIT),
-    )
+    /** 形成基础设施异常结算；详细原因只写 Worker 日志，不冒充编译结果返回给用户。 */
+    private fun systemFailure(lease: JudgeLease, message: String): JudgeCompletion {
+        logger.error("判题基础设施失败，jobId={}，原因={}", lease.jobId, message)
+        return JudgeCompletion(
+            attemptId = lease.attemptId,
+            leaseToken = lease.leaseToken,
+            status = JudgeStatus.SYSTEM_ERROR,
+            score = 0,
+            systemMessage = message.take(SYSTEM_MESSAGE_LIMIT),
+        )
+    }
 
     /** 按语言编译源代码并把产物留在 go-judge 缓存。 */
     private fun compile(lease: JudgeLease): CompiledProgram {
@@ -313,6 +317,9 @@ class JudgeEngine(
     )
 
     private companion object {
+        /** 判题基础设施日志。 */
+        val logger = LoggerFactory.getLogger(JudgeEngine::class.java)
+
         /** go-judge 成功状态。 */
         const val ACCEPTED: String = "Accepted"
 

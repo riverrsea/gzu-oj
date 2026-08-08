@@ -406,7 +406,8 @@ class PostgresJudgeQueue(
         WHERE j.id = ? ORDER BY tc.ordinal
         """.trimIndent(),
         { result, _ ->
-            val base = properties.publicBaseUrl.trimEnd('/') + "/internal/worker/v1/jobs/$jobId/artifacts"
+            // 隐藏制品下载地址必须从 Worker 可达的部署配置生成，不能假定为 localhost。
+            val base = properties.workerArtifactBaseUrl.trimEnd('/') + "/internal/worker/v1/jobs/$jobId/artifacts"
             val query = "attemptId=$attemptId&leaseToken=${java.net.URLEncoder.encode(leaseToken, Charsets.UTF_8)}"
             JudgeCaseLease(
                 caseId = result.getObject("id", UUID::class.java),

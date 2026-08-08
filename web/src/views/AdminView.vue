@@ -1,9 +1,79 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { Bot, FileArchive, Plus, ServerCog, Upload } from "@lucide/vue";
+import { computed, onMounted, reactive, ref } from "vue";
+import { Bot, ExternalLink, FileArchive, Plus, Search, ServerCog, Upload } from "@lucide/vue";
 import { ElMessage } from "element-plus";
 import { api } from "../api/client";
-import type { AiRun, ImportBatch } from "../api/types";
+import type { AdminProblemSummary, AiRun, Difficulty, ImportBatch, ProblemVersionStatus } from "../api/types";
+
+/** 管理员题库的分页大小。 */
+const adminProblemPageSize = 20;
+/** 管理员题库加载状态。 */
+const adminProblemsLoading = ref(false);
+/** 当前页的管理员题目版本。 */
+const adminProblems = ref<AdminProblemSummary[]>([]);
+/** 管理员题目版本总数。 */
+const adminProblemTotal = ref(0);
+/** 当前管理员题库页码，从一开始计数。 */
+const adminProblemPage = ref(1);
+/** 管理员题库筛选条件。 */
+const adminProblemFilters = reactive<{
+  keyword: string;
+  school: string;
+  year?: number;
+  tag: string;
+  difficulty?: Difficulty;
+  status?: ProblemVersionStatus;
+}>({ keyword: "", school: "", year: undefined, tag: "", difficulty: undefined, status: undefined });
+
+/** 难度显示文本。 */
+const difficultyText: Record<Difficulty, string> = { EASY: "简单", MEDIUM: "中等", HARD: "困难" };
+/** 题目版本状态显示文本。 */
+const versionStatusText: Record<ProblemVersionStatus, string> = { DRAFT: "草稿", PUBLISHED: "已发布", WITHDRAWN: "已撤回" };
+
+/** 将后端状态转换为管理员页面显示文本。 */
+function versionStatusLabel(status: string): string {
+  return versionStatusText[status as ProblemVersionStatus] ?? status;
+}
+
+/** 将后端难度转换为管理员页面显示文本。 */
+function difficultyLabel(difficulty: string): string {
+  return difficultyText[difficulty as Difficulty] ?? difficulty;
+}
+
+/** 格式化管理员列表中的时间。 */
+function formatAdminDate(value: string): string {
+  return new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+}
+
+/** 加载管理员可见的题目版本列表。 */
+async function loadAdminProblems(resetPage = false): Promise<void> {
+  if (resetPage) adminProblemPage.value = 1;
+  adminProblemsLoading.value = true;
+  try {
+    const result = await api.adminProblems({
+      ...adminProblemFilters,
+      page: adminProblemPage.value - 1,
+      size: adminProblemPageSize,
+    });
+    adminProblems.value = result.items;
+    adminProblemTotal.value = result.total;
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "管理员题库加载失败");
+  } finally {
+    adminProblemsLoading.value = false;
+  }
+}
+
+/** 提交管理员题库筛选条件。 */
+function searchAdminProblems(): void {
+  void loadAdminProblems(true);
+}
+
+/** 切换管理员题库页码。 */
+function changeAdminProblemPage(page: number): void {
+  adminProblemPage.value = page;
+  void loadAdminProblems();
+}
 
 /** 待上传的标准导入包。 */
 const file = ref<File>();
@@ -76,11 +146,41 @@ async function startAi(): Promise<void> {
     startingAi.value = false;
   }
 }
+
+onMounted(() => {
+  void loadAdminProblems();
+});
 </script>
 
 <template>
   <section class="content-page admin-page">
     <div class="page-heading"><div><h1>管理</h1><p>题目版本、批量导入和可审计的 AI 录题流程</p></div><div class="heading-actions"><el-button plain @click="$router.push('/admin/workers')"><ServerCog :size="16" />判题 Worker</el-button><el-button type="primary" @click="$router.push('/admin/problems/new')"><Plus :size="16" />新建题目</el-button></div></div>
+
+    <article class="tool-card tool-card--wide admin-catalog-card">
+      <header><Search :size="21" /><div><h2>题库目录</h2><p>管理员可以查看所有题目版本，包括草稿、已发布版本和历史版本。</p></div><span class="result-count">{{ adminProblemTotal }} 个版本</span></header>
+      <form class="admin-catalog-filters" @submit.prevent="searchAdminProblems">
+        <el-input v-model="adminProblemFilters.keyword" clearable placeholder="标题或来源键" />
+        <el-input v-model="adminProblemFilters.school" clearable placeholder="学校" />
+        <el-input-number v-model="adminProblemFilters.year" :min="1900" :max="2200" :controls="false" placeholder="年份" />
+        <el-input v-model="adminProblemFilters.tag" clearable placeholder="标签" />
+        <el-select v-model="adminProblemFilters.status" clearable placeholder="版本状态"><el-option label="草稿" value="DRAFT" /><el-option label="已发布" value="PUBLISHED" /><el-option label="已撤回" value="WITHDRAWN" /></el-select>
+        <el-select v-model="adminProblemFilters.difficulty" clearable placeholder="难度"><el-option label="简单" value="EASY" /><el-option label="中等" value="MEDIUM" /><el-option label="困难" value="HARD" /></el-select>
+        <el-button native-type="submit" type="primary" :loading="adminProblemsLoading"><Search :size="16" />筛选</el-button>
+      </form>
+      <el-table v-loading="adminProblemsLoading" :data="adminProblems" row-key="versionId" class="problem-table admin-catalog-table">
+        <el-table-column label="题目" min-width="280"><template #default="{ row }"><div class="problem-title"><strong>{{ row.title }}</strong><span>{{ row.sourceKey }}</span></div></template></el-table-column>
+        <el-table-column prop="school" label="学校" min-width="150" />
+        <el-table-column prop="year" label="年份" width="78" />
+        <el-table-column label="版本" width="78"><template #default="{ row }">v{{ row.versionNumber }}</template></el-table-column>
+        <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag size="small" :type="row.status === 'PUBLISHED' ? 'success' : row.status === 'DRAFT' ? 'warning' : 'info'">{{ versionStatusLabel(row.status) }}</el-tag></template></el-table-column>
+        <el-table-column label="测点" width="110"><template #default="{ row }">{{ row.testCaseCount }} 个 / {{ row.scoreSum }} 分</template></el-table-column>
+        <el-table-column label="难度" width="84"><template #default="{ row }"><span :class="['difficulty', 'difficulty--' + row.difficulty.toLowerCase()]">{{ difficultyLabel(row.difficulty) }}</span></template></el-table-column>
+        <el-table-column label="创建时间" width="170"><template #default="{ row }">{{ formatAdminDate(row.createdAt) }}</template></el-table-column>
+        <el-table-column label="操作" width="110" fixed="right"><template #default="{ row }"><el-button v-if="row.status === 'PUBLISHED'" text type="primary" @click.stop="$router.push('/problems/' + row.problemId)">查看题面<ExternalLink :size="14" /></el-button><span v-else class="muted-action">暂无公开题面</span></template></el-table-column>
+      </el-table>
+      <el-empty v-if="!adminProblemsLoading && adminProblems.length === 0" description="没有符合条件的题目版本" />
+      <div v-if="adminProblemTotal > adminProblemPageSize" class="admin-catalog-pagination"><el-pagination background layout="prev, pager, next" :current-page="adminProblemPage" :page-size="adminProblemPageSize" :total="adminProblemTotal" @current-change="changeAdminProblemPage" /></div>
+    </article>
 
     <div class="admin-grid">
       <article class="tool-card tool-card--wide">

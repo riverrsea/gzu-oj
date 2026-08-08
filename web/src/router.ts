@@ -12,9 +12,19 @@ const router = createRouter({
     { path: "/practice", component: () => import("./views/PracticeView.vue") },
     { path: "/training", component: () => import("./views/TrainingView.vue") },
     { path: "/shares/timed-papers/:token", component: () => import("./views/TimedShareView.vue"), meta: { public: true } },
-    { path: "/admin", component: () => import("./views/AdminView.vue"), meta: { admin: true } },
-    { path: "/admin/problems/new", component: () => import("./views/AdminProblemView.vue"), meta: { admin: true } },
-    { path: "/admin/workers", component: () => import("./views/AdminWorkerView.vue"), meta: { admin: true } },
+    {
+      path: "/admin",
+      component: () => import("./views/AdminLayoutView.vue"),
+      meta: { admin: true },
+      children: [
+        { path: "", redirect: "/admin/problems" },
+        { path: "problems", component: () => import("./views/AdminView.vue") },
+        { path: "problems/new", component: () => import("./views/AdminProblemView.vue") },
+        { path: "imports", component: () => import("./views/AdminImportView.vue") },
+        { path: "ai", component: () => import("./views/AdminAiView.vue") },
+        { path: "workers", component: () => import("./views/AdminWorkerView.vue") },
+      ],
+    },
   ],
 });
 

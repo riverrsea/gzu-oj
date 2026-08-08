@@ -42,6 +42,17 @@ async function mockApi(page: Page): Promise<void> {
 
     if (path === "/api/v1/auth/me") return json({ id: "admin-id", username: "管理员", role: "ADMIN" });
     if (path === "/api/v1/csrf") return json({ headerName: "X-XSRF-TOKEN", token: "e2e-csrf-token" });
+    if (path === "/api/v1/admin/problems") return json({
+      items: [{
+        problemId: problem.id, versionId: problem.versionId, sourceKey: problem.sourceKey, title: problem.title,
+        school: problem.school, year: problem.year, tags: problem.tags, difficulty: problem.difficulty,
+        versionNumber: 1, status: "PUBLISHED", testCaseCount: 8, scoreSum: 100, sampleCount: 1,
+        createdAt: "2026-08-05T09:00:00Z", publishedAt: "2026-08-05T09:10:00Z",
+      }],
+      page: 0,
+      size: 20,
+      total: 1,
+    });
     if (path === "/api/v1/problems") return json([problem]);
     if (path === "/api/v1/problems/" + problem.id || path === "/api/v1/problems/versions/" + problem.versionId) return json(problemDetail);
     if (path === "/api/v1/contests") return json([{
@@ -156,4 +167,28 @@ test("管理员录题与训练中心可加载", async ({ page }) => {
   await page.goto("/training");
   await expect(page.getByRole("heading", { name: "训练中心" })).toBeVisible();
   await expect(page.getByText("公开训练赛")).toBeVisible();
+});
+
+/** 验证管理功能使用独立路由，并在桌面和移动端保持可操作布局。 */
+test("管理端功能页相互独立且没有水平溢出", async ({ page }, testInfo) => {
+  await mockApi(page);
+  await page.goto("/admin");
+  await expect(page).toHaveURL(/\/admin\/problems$/);
+  await expect(page.getByRole("heading", { name: "题库管理" })).toBeVisible();
+  await expect(page.getByText("A + B").first()).toBeVisible();
+
+  await page.getByRole("link", { name: "批量导入" }).click();
+  await expect(page.getByRole("heading", { name: "批量导入", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "题库管理" })).toHaveCount(0);
+
+  await page.getByRole("link", { name: "AI 录题" }).click();
+  await expect(page.getByRole("heading", { name: "AI 录题", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "批量导入", exact: true })).toHaveCount(0);
+
+  const dimensions = await page.evaluate(() => ({
+    width: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }));
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.width + 1);
+  await page.screenshot({ path: testInfo.outputPath(`admin-${testInfo.project.name}.png`), fullPage: true });
 });

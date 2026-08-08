@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
-import { ArrowLeft, Bot, Plus, Save, Trash2 } from "@lucide/vue";
+import { Bot, Plus, Save, Trash2 } from "@lucide/vue";
 import { ElMessage } from "element-plus";
 import { useRouter } from "vue-router";
 import { api } from "../api/client";
@@ -22,8 +22,6 @@ interface TestCaseForm {
 const router = useRouter();
 /** 表单提交状态。 */
 const saving = ref(false);
-/** AI 流程启动状态。 */
-const startingAi = ref(false);
 /** 最近创建的不可变题目版本。 */
 const created = ref<CreatedProblemVersion>();
 /** 逗号分隔的标签输入。 */
@@ -83,19 +81,10 @@ async function save(): Promise<void> {
   }
 }
 
-/** 为刚创建的草稿启动 Spring AI 多角色工作流。 */
-async function startAi(): Promise<void> {
+/** 前往 AI 录题页面并携带刚创建的草稿版本标识。 */
+function openAi(): void {
   if (!created.value || created.value.status !== "DRAFT") return;
-  startingAi.value = true;
-  try {
-    const run = await api.startAiRun(created.value.versionId);
-    ElMessage.success("AI 流程已启动：" + run.state);
-    await router.push({ path: "/admin", query: { aiRunId: run.id } });
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "AI 流程启动失败");
-  } finally {
-    startingAi.value = false;
-  }
+  void router.push({ path: "/admin/ai", query: { versionId: created.value.versionId } });
 }
 </script>
 
@@ -103,7 +92,6 @@ async function startAi(): Promise<void> {
   <section class="content-page admin-problem-page">
     <div class="page-heading">
       <div><h1>单题录入</h1><p>保存后形成不可变版本；修改已发布题目时请使用相同来源键创建新版本</p></div>
-      <el-button @click="router.push('/admin')"><ArrowLeft :size="16" />返回管理</el-button>
     </div>
 
     <el-form label-position="top" class="problem-form" @submit.prevent="save">
@@ -127,7 +115,6 @@ async function startAi(): Promise<void> {
         <el-form-item label="Markdown 题面"><el-input v-model="form.statementMarkdown" type="textarea" :rows="14" resize="vertical" /></el-form-item>
         <div class="form-grid form-grid--three">
           <el-form-item label="基准时间限制（ms）"><el-input-number v-model="form.timeLimitMs" :min="100" :max="60000" :step="100" /></el-form-item>
-          <el-form-item label="基准内存限制（MiB）"><el-input-number v-model="form.memoryLimitMiB" :min="16" :max="2048" :step="16" /></el-form-item>
           <el-form-item label="数据声明"><el-input v-model="form.dataNotice" maxlength="200" placeholder="AI 数据请注明非官方" /></el-form-item>
         </div>
       </section>
@@ -151,7 +138,7 @@ async function startAi(): Promise<void> {
 
     <section v-if="created" class="created-result">
       <div><strong>版本 {{ created.versionNumber }} 已创建</strong><p>{{ created.versionId }} · {{ created.status }}</p></div>
-      <el-button v-if="created.status === 'DRAFT'" :loading="startingAi" @click="startAi"><Bot :size="16" />启动 AI 录题</el-button>
+      <el-button v-if="created.status === 'DRAFT'" @click="openAi"><Bot :size="16" />前往 AI 录题</el-button>
     </section>
   </section>
 </template>

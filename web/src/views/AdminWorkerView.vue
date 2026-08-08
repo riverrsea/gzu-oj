@@ -1,12 +1,9 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
-import { useRouter } from "vue-router";
-import { ArrowLeft, Copy, KeyRound, ServerCog, ShieldCheck } from "@lucide/vue";
+import { Copy, KeyRound, ServerCog, ShieldCheck } from "@lucide/vue";
 import { ElMessage } from "element-plus";
 import { api } from "../api/client";
 import type { CreatedWorker } from "../api/types";
-
-const router = useRouter();
 
 /** 新节点表单。 */
 const form = reactive({
@@ -72,7 +69,6 @@ async function copyToken(): Promise<void> {
         <h1>判题 Worker</h1>
         <p>创建供独立 WSL 判题节点使用的 Bearer Token。</p>
       </div>
-      <el-button plain @click="router.push('/admin')"><ArrowLeft :size="16" />返回管理</el-button>
     </div>
 
     <div class="worker-layout">

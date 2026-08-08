@@ -182,6 +182,52 @@ data class CreatedProblemVersionResponse(
     val status: String,
 )
 
+/** 管理员题库中的题目版本摘要。 */
+data class AdminProblemSummary(
+    /** 跨版本稳定的题目标识。 */
+    val problemId: UUID,
+    /** 不可变题目版本标识。 */
+    val versionId: UUID,
+    /** 稳定来源键。 */
+    val sourceKey: String,
+    /** 题目标题。 */
+    val title: String,
+    /** 学校名称。 */
+    val school: String,
+    /** 真题年份。 */
+    val year: Int,
+    /** 题目标签。 */
+    val tags: List<String>,
+    /** 题目难度。 */
+    val difficulty: ProblemDifficulty,
+    /** 版本号。 */
+    val versionNumber: Int,
+    /** 版本状态。 */
+    val status: String,
+    /** 测试点数量。 */
+    val testCaseCount: Int,
+    /** 测试点分值总和。 */
+    val scoreSum: Int,
+    /** 公开样例数量。 */
+    val sampleCount: Int,
+    /** 创建时间。 */
+    val createdAt: Instant,
+    /** 发布时间；草稿和未发布版本为空。 */
+    val publishedAt: Instant?,
+)
+
+/** 管理员题库分页结果。 */
+data class AdminProblemPage(
+    /** 当前页的题目版本。 */
+    val items: List<AdminProblemSummary>,
+    /** 从零开始的页码。 */
+    val page: Int,
+    /** 每页条数。 */
+    val size: Int,
+    /** 符合筛选条件的总版本数。 */
+    val total: Long,
+)
+
 /** 题库、版本和测试数据事务服务。 */
 @Service
 class ProblemService(
@@ -206,6 +252,90 @@ class ProblemService(
         if (difficulty != null) { sql.append(" AND pv.difficulty = ?"); args += difficulty.name }
         sql.append(" ORDER BY pv.year DESC, pv.title ASC LIMIT 500")
         return jdbc.query(sql.toString(), ::mapSummary, *args.toTypedArray())
+    }
+
+    /** 按状态和元数据筛选管理员可见的全部题目版本。 */
+    fun adminList(
+        keyword: String?,
+        school: String?,
+        year: Int?,
+        tag: String?,
+        difficulty: ProblemDifficulty?,
+        status: String?,
+        page: Int,
+        size: Int,
+    ): AdminProblemPage {
+        val normalizedPage = page.coerceAtLeast(0)
+        val normalizedSize = size.coerceIn(1, 100)
+        val filters = adminProblemFilters(keyword, school, year, tag, difficulty, status)
+        val total = jdbc.queryForObject(
+            "SELECT count(*) FROM problem p JOIN problem_version pv ON pv.problem_id = p.id ${filters.first}",
+            Long::class.javaObjectType,
+            *filters.second.toTypedArray(),
+        ) ?: 0L
+        val items = jdbc.query(
+            """
+            SELECT p.id AS problem_id, pv.id AS version_id, p.source_key, pv.title, pv.school, pv.year,
+                   pv.tags, pv.difficulty, pv.version_number, pv.status,
+                   count(tc.id) AS test_case_count,
+                   coalesce(sum(tc.score), 0) AS score_sum,
+                   count(tc.id) FILTER (WHERE tc.sample) AS sample_count,
+                   pv.created_at, pv.published_at
+            FROM problem p
+            JOIN problem_version pv ON pv.problem_id = p.id
+            LEFT JOIN problem_test_case tc ON tc.problem_version_id = pv.id
+            ${filters.first}
+            GROUP BY p.id, pv.id
+            ORDER BY pv.created_at DESC, pv.version_number DESC
+            LIMIT ? OFFSET ?
+            """.trimIndent(),
+            ::mapAdminSummary,
+            *(filters.second + listOf(normalizedSize, normalizedPage.toLong() * normalizedSize)).toTypedArray(),
+        )
+        return AdminProblemPage(items, normalizedPage, normalizedSize, total)
+    }
+
+    /** 构造管理员题库查询的安全筛选条件和参数。 */
+    private fun adminProblemFilters(
+        keyword: String?,
+        school: String?,
+        year: Int?,
+        tag: String?,
+        difficulty: ProblemDifficulty?,
+        status: String?,
+    ): Pair<String, List<Any>> {
+        val where = StringBuilder("WHERE 1 = 1")
+        val args = mutableListOf<Any>()
+        keyword?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            where.append(" AND (p.source_key ILIKE ? OR pv.title ILIKE ?)")
+            val pattern = "%$it%"
+            args += pattern
+            args += pattern
+        }
+        school?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            where.append(" AND pv.school ILIKE ?")
+            args += "%$it%"
+        }
+        if (year != null) {
+            where.append(" AND pv.year = ?")
+            args += year
+        }
+        tag?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            where.append(" AND ? = ANY(pv.tags)")
+            args += it
+        }
+        if (difficulty != null) {
+            where.append(" AND pv.difficulty = ?")
+            args += difficulty.name
+        }
+        status?.trim()?.uppercase()?.takeIf { it.isNotEmpty() }?.let {
+            if (it !in setOf("DRAFT", "PUBLISHED", "WITHDRAWN")) {
+                throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_PROBLEM_STATUS", "题目版本状态不合法")
+            }
+            where.append(" AND pv.status = ?")
+            args += it
+        }
+        return where.toString() to args
     }
 
     /** 读取当前已发布版本及公开样例。 */
@@ -443,6 +573,25 @@ class ProblemService(
         tags = (result.getArray("tags").array as Array<*>).map { it.toString() },
         difficulty = ProblemDifficulty.valueOf(result.getString("difficulty")),
     )
+
+    /** 将管理员题库查询结果映射为版本摘要。 */
+    private fun mapAdminSummary(result: java.sql.ResultSet, ignored: Int): AdminProblemSummary = AdminProblemSummary(
+        problemId = result.getObject("problem_id", UUID::class.java),
+        versionId = result.getObject("version_id", UUID::class.java),
+        sourceKey = result.getString("source_key"),
+        title = result.getString("title"),
+        school = result.getString("school"),
+        year = result.getInt("year"),
+        tags = (result.getArray("tags").array as Array<*>).map { it.toString() },
+        difficulty = ProblemDifficulty.valueOf(result.getString("difficulty")),
+        versionNumber = result.getInt("version_number"),
+        status = result.getString("status"),
+        testCaseCount = result.getInt("test_case_count"),
+        scoreSum = result.getInt("score_sum"),
+        sampleCount = result.getInt("sample_count"),
+        createdAt = result.getTimestamp("created_at").toInstant(),
+        publishedAt = result.getTimestamp("published_at")?.toInstant(),
+    )
 }
 
 /** 公开题库接口。 */
@@ -478,6 +627,19 @@ class AdminProblemController(
     /** 题库服务。 */
     private val service: ProblemService,
 ) {
+    /** 分页查询全部题目版本，供管理员查看草稿、发布版本和历史版本。 */
+    @GetMapping
+    fun list(
+        @RequestParam(required = false) keyword: String?,
+        @RequestParam(required = false) school: String?,
+        @RequestParam(required = false) year: Int?,
+        @RequestParam(required = false) tag: String?,
+        @RequestParam(required = false) difficulty: ProblemDifficulty?,
+        @RequestParam(required = false) status: String?,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "50") size: Int,
+    ): AdminProblemPage = service.adminList(keyword, school, year, tag, difficulty, status, page, size)
+
     /** 创建题目草稿或新版本。 */
     @PostMapping
     fun create(

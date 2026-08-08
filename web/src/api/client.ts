@@ -1,6 +1,7 @@
 import type {
   ApiErrorBody,
   AiRun,
+  AdminProblemPage,
   Contest,
   ContestVisibility,
   CreatedProblemVersion,
@@ -10,6 +11,7 @@ import type {
   ImportBatch,
   JudgeLanguage,
   ProblemDetail,
+  ProblemVersionStatus,
   ProblemSummary,
   Submission,
   TimedAttempt,
@@ -91,6 +93,23 @@ export const api = {
       if (value !== undefined && value !== "") query.set(key, String(value));
     });
     return request<ProblemSummary[]>("/api/v1/problems?" + query.toString());
+  },
+  /** 查询管理员可见的全部题目版本，包括草稿和历史版本。 */
+  adminProblems: (filters: {
+    keyword?: string;
+    school?: string;
+    year?: number;
+    tag?: string;
+    difficulty?: Difficulty;
+    status?: ProblemVersionStatus;
+    page?: number;
+    size?: number;
+  }) => {
+    const query = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== "") query.set(key, String(value));
+    });
+    return request<AdminProblemPage>("/api/v1/admin/problems?" + query.toString());
   },
   problem: (id: string) => request<ProblemDetail>("/api/v1/problems/" + id),
   problemVersion: (id: string) => request<ProblemDetail>("/api/v1/problems/versions/" + id),

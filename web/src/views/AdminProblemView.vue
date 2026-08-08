@@ -5,6 +5,7 @@ import { ElMessage } from "element-plus";
 import { useRouter } from "vue-router";
 import { api } from "../api/client";
 import type { CreatedProblemVersion, Difficulty } from "../api/types";
+import MarkdownEditor from "../components/MarkdownEditor.vue";
 
 /** 管理员录入的测试点表单。 */
 interface TestCaseForm {
@@ -112,9 +113,10 @@ function openAi(): void {
 
       <section class="form-section">
         <h2>题面与限制</h2>
-        <el-form-item label="Markdown 题面"><el-input v-model="form.statementMarkdown" type="textarea" :rows="14" resize="vertical" /></el-form-item>
+        <el-form-item label="Markdown 题面" class="markdown-form-item"><MarkdownEditor v-model="form.statementMarkdown" /></el-form-item>
         <div class="form-grid form-grid--three">
           <el-form-item label="基准时间限制（ms）"><el-input-number v-model="form.timeLimitMs" :min="100" :max="60000" :step="100" /></el-form-item>
+          <el-form-item label="基准内存限制（MiB）"><el-input-number v-model="form.memoryLimitMiB" :min="16" :max="2048" :step="16" /></el-form-item>
           <el-form-item label="数据声明"><el-input v-model="form.dataNotice" maxlength="200" placeholder="AI 数据请注明非官方" /></el-form-item>
         </div>
       </section>

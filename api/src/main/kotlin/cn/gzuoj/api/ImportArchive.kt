@@ -11,8 +11,8 @@ import java.util.zip.ZipInputStream
 
 /** 导入包中一行规范题目元数据。 */
 data class ImportProblem(
-    /** 稳定来源键。 */
-    val sourceKey: String,
+    /** 外部导入题目标识；批量导入必须提供。 */
+    val externalKey: String,
     /** 题目标题。 */
     val title: String,
     /** 学校名称。 */
@@ -140,23 +140,25 @@ class ProblemImportParser {
             .setIgnoreEmptyLines(true)
             .get()
         val parser = format.parse(csv.reader())
-        require(parser.headerNames == REQUIRED_HEADERS) {
-            "problems.csv 表头必须严格为：" + REQUIRED_HEADERS.joinToString(",")
+        val externalKeyHeader = when {
+            parser.headerNames == REQUIRED_HEADERS -> "externalKey"
+            parser.headerNames == LEGACY_HEADERS -> "sourceKey"
+            else -> throw IllegalArgumentException("problems.csv 表头必须为：" + REQUIRED_HEADERS.joinToString(","))
         }
-        val sourceKeys = mutableSetOf<String>()
+        val externalKeys = mutableSetOf<String>()
         return parser.records.map { record ->
             runCatching {
-                val parsed = parseRecord(record, archive)
-                require(sourceKeys.add(parsed.sourceKey)) { "批次内 sourceKey 重复" }
+                val parsed = parseRecord(record, archive, externalKeyHeader)
+                require(externalKeys.add(parsed.externalKey)) { "批次内 externalKey 重复" }
                 parsed
             }
         }
     }
 
     /** 解析单条元数据并校验所有引用路径。 */
-    private fun parseRecord(record: CSVRecord, archive: SafeImportArchive): ImportProblem {
-        val sourceKey = record.required("sourceKey")
-        require(sourceKey.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$"))) { "sourceKey 格式不正确" }
+    private fun parseRecord(record: CSVRecord, archive: SafeImportArchive, externalKeyHeader: String): ImportProblem {
+        val externalKey = record.required(externalKeyHeader)
+        require(externalKey.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"))) { "externalKey 格式不正确" }
         val title = record.required("title")
         require(title.length <= 200) { "title 过长" }
         val school = record.required("school")
@@ -176,7 +178,9 @@ class ProblemImportParser {
         val dataPath = record["dataPath"].trim().takeIf(String::isNotEmpty)?.let(SafeImportArchive::validatePath)
         val tests = dataPath?.let { parseTests(it, archive) }.orEmpty()
         val canonical = buildString {
-            REQUIRED_HEADERS.forEach { append(record[it].trim()).append('\n') }
+            append(externalKey).append('\n')
+            listOf("title", "school", "year", "tags", "difficulty", "sourceUrl", "timeLimitMs", "memoryLimitMiB", "statementPath", "dataPath")
+                .forEach { append(record[it].trim()).append('\n') }
             append(statement.replace("\r\n", "\n")).append('\n')
             tests.forEach {
                 append(SecureValues.sha256(it.input))
@@ -186,7 +190,7 @@ class ProblemImportParser {
             }
         }
         return ImportProblem(
-            sourceKey = sourceKey,
+            externalKey = externalKey,
             title = title,
             school = school,
             year = year,
@@ -243,7 +247,7 @@ class ProblemImportParser {
     companion object {
         /** 批量导入唯一允许的固定列，明确不包含学院字段。 */
         val REQUIRED_HEADERS: List<String> = listOf(
-            "sourceKey",
+            "externalKey",
             "title",
             "school",
             "year",
@@ -255,5 +259,7 @@ class ProblemImportParser {
             "statementPath",
             "dataPath",
         )
+        /** 兼容迁移前生成的 sourceKey 导入包。 */
+        val LEGACY_HEADERS: List<String> = REQUIRED_HEADERS.map { if (it == "externalKey") "sourceKey" else it }
     }
 }

@@ -16,6 +16,8 @@ type DrawerTab = "cases" | "result";
 const route = useRoute();
 const router = useRouter();
 const problem = ref<ProblemDetail>();
+const latestVersion = ref<ProblemDetail>();
+const resumedPreviousVersion = ref(false);
 const loading = ref(true);
 const language = ref<JudgeLanguage>((localStorage.getItem("gzu-oj.language") as JudgeLanguage | null) ?? "CPP17");
 const code = ref("");
@@ -50,12 +52,43 @@ const templates: Record<JudgeLanguage, string> = {
 };
 
 function draftKey(selected = language.value): string {
-  const version = typeof route.query.versionId === "string" ? route.query.versionId : route.params.id;
+  const version = problem.value?.versionId ?? (typeof route.query.versionId === "string" ? route.query.versionId : route.params.id);
   return "gzu-oj.draft." + version + "." + selected;
+}
+
+function versionBookmarkKey(): string {
+  return "gzu-oj.problem-version." + String(route.params.id);
+}
+
+function saveVersionBookmark(versionId: string): void {
+  localStorage.setItem(versionBookmarkKey(), JSON.stringify({ versionId, lastOpenedAt: new Date().toISOString() }));
+}
+
+function bookmarkedVersionId(): string | null {
+  try {
+    const value = JSON.parse(localStorage.getItem(versionBookmarkKey()) ?? "null") as { versionId?: string } | null;
+    return value?.versionId ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function loadDraft(): void {
   code.value = localStorage.getItem(draftKey()) ?? templates[language.value];
+}
+
+/** 切换到当前公开版本，并同步该版本的样例、草稿和判题状态。 */
+function switchToLatestVersion(): void {
+  const latest = latestVersion.value;
+  if (!latest) return;
+  window.clearTimeout(pollTimer);
+  problem.value = latest;
+  latestVersion.value = undefined;
+  resumedPreviousVersion.value = false;
+  submission.value = undefined;
+  runInputs.value = latest.samples.length ? latest.samples.map((sample) => sample.input) : [""];
+  saveVersionBookmark(latest.versionId);
+  loadDraft();
 }
 
 function resetCode(): void {
@@ -115,7 +148,7 @@ async function runSamples(): Promise<void> {
   try {
     submission.value = await api.run({
       problemId: problem.value.id,
-      problemVersionId: route.query.versionId ? problem.value.versionId : undefined,
+      problemVersionId: problem.value.versionId,
       language: language.value,
       sourceCode: code.value,
       inputs: runInputs.value,
@@ -141,6 +174,7 @@ async function submit(): Promise<void> {
   try {
     submission.value = await api.submit({
       problemId: problem.value.id,
+      problemVersionId: problem.value.versionId,
       language: language.value,
       sourceCode: code.value,
       contestId: typeof route.query.contestId === "string" ? route.query.contestId : undefined,
@@ -172,9 +206,29 @@ function schedulePoll(): void {
 async function loadProblem(): Promise<void> {
   loading.value = true;
   try {
-    problem.value = typeof route.query.versionId === "string"
-      ? await api.problemVersion(route.query.versionId)
-      : await api.problem(String(route.params.id));
+    if (typeof route.query.versionId === "string") {
+      const locked = await api.problemVersion(route.query.versionId);
+      if (locked.id !== String(route.params.id)) throw new Error("题目版本与当前题目不匹配");
+      problem.value = locked;
+    } else {
+      const current = await api.problem(String(route.params.id));
+      const bookmarked = bookmarkedVersionId();
+      if (bookmarked && bookmarked !== current.versionId) {
+        try {
+          const previous = await api.problemVersion(bookmarked);
+          if (previous.id !== current.id) throw new Error("本地保存的版本不属于当前题目");
+          problem.value = previous;
+          latestVersion.value = current;
+          resumedPreviousVersion.value = true;
+        } catch {
+          problem.value = current;
+          saveVersionBookmark(current.versionId);
+        }
+      } else {
+        problem.value = current;
+      }
+    }
+    saveVersionBookmark(problem.value.versionId);
     runInputs.value = problem.value.samples.length
       ? problem.value.samples.map((sample) => sample.input)
       : [""];
@@ -216,9 +270,13 @@ onBeforeUnmount(() => {
       <button :class="{ active: mobileTab === 'result' }" @click="mobileTab = 'result'">结果</button>
     </div>
     <div v-if="problem" ref="workspace" class="workspace-grid" :style="{ '--problem-width': split + '%' }">
+      <div v-if="resumedPreviousVersion && latestVersion" class="version-notice">
+        正在继续你上次打开的版本 v{{ problem.versionNumber }}；当前最新版本为 v{{ latestVersion.versionNumber }}。
+        <button type="button" @click="switchToLatestVersion">开始最新版本</button>
+      </div>
       <article class="statement-panel" :class="{ 'mobile-hidden': mobileTab !== 'problem' }">
         <header class="statement-header">
-          <div><span class="source-key">{{ problem.sourceKey }}</span><h1>{{ problem.title }}</h1><p>{{ problem.school }} · {{ problem.year }} · 版本 {{ problem.versionNumber }}</p></div>
+          <div><span class="source-key">{{ problem.externalKey || '手工题目' }}</span><h1>{{ problem.title }}</h1><p>{{ problem.school }} · {{ problem.year }} · 版本 {{ problem.versionNumber }}</p></div>
           <button class="icon-button" type="button" title="收藏题目" @click="session.user ? api.favorite(problem.id).then(() => ElMessage.success('已收藏')) : router.push('/login')"><Heart :size="19" /></button>
         </header>
         <div class="problem-meta"><span v-for="tag in problem.tags" :key="tag" class="plain-tag">{{ tag }}</span><span v-if="problem.dataNotice" class="data-notice">{{ problem.dataNotice }}</span></div>

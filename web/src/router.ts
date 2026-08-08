@@ -20,6 +20,7 @@ const router = createRouter({
         { path: "", redirect: "/admin/problems" },
         { path: "problems", component: () => import("./views/AdminView.vue") },
         { path: "problems/new", component: () => import("./views/AdminProblemView.vue") },
+        { path: "problems/:versionId/edit", component: () => import("./views/AdminProblemEditView.vue") },
         { path: "imports", component: () => import("./views/AdminImportView.vue") },
         { path: "ai", component: () => import("./views/AdminAiView.vue") },
         { path: "workers", component: () => import("./views/AdminWorkerView.vue") },

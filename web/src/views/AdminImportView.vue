@@ -59,10 +59,10 @@ async function commitImport(): Promise<void> {
   <section class="content-page admin-page">
     <div class="page-heading"><div><h1>批量导入</h1><p>上传标准 ZIP，先完成安全校验和预览，再写入题目草稿</p></div></div>
     <section class="admin-tool-surface">
-      <header><FileArchive :size="21" /><div><h2>标准 ZIP 导入</h2><p>服务端检查编码、目录穿越、压缩炸弹、重复来源键、题面与测试数据。</p></div></header>
+      <header><FileArchive :size="21" /><div><h2>标准 ZIP 导入</h2><p>服务端检查编码、目录穿越、压缩炸弹、重复外部题目标识、题面与测试数据。</p></div></header>
       <div class="upload-row"><label class="upload-command"><Upload :size="18" />选择 ZIP<input type="file" accept=".zip,application/zip" @change="selectFile" /></label><span>{{ file?.name ?? '尚未选择文件' }}</span><el-button :loading="staging" :disabled="!file" @click="stageImport">校验预览</el-button></div>
       <template v-if="batch">
-        <el-table :data="batch.items" size="small" row-key="sourceKey"><el-table-column prop="sourceKey" label="来源键" min-width="150" /><el-table-column prop="title" label="标题" min-width="180" /><el-table-column prop="testCaseCount" label="测点" width="70" /><el-table-column prop="status" label="状态" width="90" /><el-table-column label="错误" min-width="190"><template #default="{ row }">{{ row.errors.join('；') || '—' }}</template></el-table-column></el-table>
+        <el-table :data="batch.items" size="small" row-key="externalKey"><el-table-column prop="externalKey" label="外部题目标识" min-width="150" /><el-table-column prop="title" label="标题" min-width="180" /><el-table-column prop="testCaseCount" label="测点" width="70" /><el-table-column prop="status" label="状态" width="90" /><el-table-column label="错误" min-width="190"><template #default="{ row }">{{ row.errors.join('；') || '—' }}</template></el-table-column></el-table>
         <div class="tool-actions"><span>批次 {{ batch.id }} · {{ batch.status }}</span><el-button type="primary" :loading="committing" :disabled="hasInvalidItems || batch.status !== 'VALIDATED'" @click="commitImport">提交导入</el-button></div>
       </template>
     </section>

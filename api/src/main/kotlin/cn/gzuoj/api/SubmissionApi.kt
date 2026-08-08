@@ -28,8 +28,10 @@ import java.util.concurrent.ConcurrentHashMap
 
 /** 创建判题提交的请求。 */
 data class CreateSubmissionRequest(
-    /** 稳定题目标识；服务会锁定其当前发布版本。 */
+    /** 稳定题目标识；用于校验版本归属。 */
     val problemId: UUID,
+    /** 做题页面已经锁定的题目版本；普通练习也必须显式绑定。 */
+    val problemVersionId: UUID,
     /** 编程语言。 */
     val language: JudgeLanguage,
     /** 用户源代码。 */
@@ -44,10 +46,10 @@ data class CreateSubmissionRequest(
 
 /** 使用用户可编辑公开输入运行代码的请求。 */
 data class CreateRunRequest(
-    /** 稳定题目标识；运行时锁定当前发布版本及其资源限制。 */
+    /** 稳定题目标识；用于校验版本归属。 */
     val problemId: UUID,
-    /** 可选的已发布历史版本；比赛或套卷工作区使用。 */
-    val problemVersionId: UUID? = null,
+    /** 做题页面已经锁定的已发布版本或历史版本。 */
+    val problemVersionId: UUID,
     /** 编程语言。 */
     val language: JudgeLanguage,
     /** 用户源代码。 */
@@ -201,7 +203,7 @@ class SubmissionService(
         val requestHash = SecureValues.sha256(
             listOf(
                 request.problemId,
-                request.problemVersionId ?: "",
+                request.problemVersionId,
                 request.language,
                 SecureValues.sha256(request.sourceCode),
                 request.inputs.joinToString("") { SecureValues.sha256(it) },
@@ -219,18 +221,16 @@ class SubmissionService(
             }
             return get(existing.second, userId, false)
         }
-        val versionId = request.problemVersionId?.let { requestedVersion ->
-            jdbc.query(
-                "SELECT id FROM problem_version WHERE id = ? AND problem_id = ? AND status = 'PUBLISHED'",
-                { result, _ -> result.getObject("id", UUID::class.java) },
-                requestedVersion,
-                request.problemId,
-            ).firstOrNull() ?: throw ApiException(
-                HttpStatus.BAD_REQUEST,
-                "INVALID_PROBLEM_VERSION",
-                "公开运行版本不属于该题或尚未发布",
-            )
-        } ?: currentPublishedVersion(request.problemId)
+        val versionId = jdbc.query(
+            "SELECT id FROM problem_version WHERE id = ? AND problem_id = ? AND status IN ('PUBLISHED', 'WITHDRAWN')",
+            { result, _ -> result.getObject("id", UUID::class.java) },
+            request.problemVersionId,
+            request.problemId,
+        ).firstOrNull() ?: throw ApiException(
+            HttpStatus.BAD_REQUEST,
+            "INVALID_PROBLEM_VERSION",
+            "公开运行版本不属于该题或尚未发布",
+        )
         val submissionId = UUID.randomUUID()
         jdbc.update(
             """
@@ -374,7 +374,7 @@ class SubmissionService(
     /** 按比赛、套卷或普通练习上下文选择不可变题目版本。 */
     private fun resolveSubmissionVersion(request: CreateSubmissionRequest, userId: UUID): UUID {
         if (request.contestId != null) {
-            return jdbc.query(
+            val lockedVersion = jdbc.query(
                 """
                 SELECT cp.problem_version_id
                 FROM contest_participant participant
@@ -387,9 +387,13 @@ class SubmissionService(
                 userId,
                 request.problemId,
             ).firstOrNull() ?: throw ApiException(HttpStatus.FORBIDDEN, "CONTEST_SUBMISSION_FORBIDDEN", "比赛未包含该题或用户未加入")
+            if (request.problemVersionId != lockedVersion) {
+                throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_PROBLEM_VERSION", "提交版本与比赛锁定版本不一致")
+            }
+            return lockedVersion
         }
         if (request.timedPaperAttemptId != null) {
-            return jdbc.query(
+            val lockedVersion = jdbc.query(
                 """
                 SELECT tpp.problem_version_id
                 FROM timed_paper_attempt attempt
@@ -402,8 +406,17 @@ class SubmissionService(
                 userId,
                 request.problemId,
             ).firstOrNull() ?: throw ApiException(HttpStatus.FORBIDDEN, "TIMED_PAPER_SUBMISSION_FORBIDDEN", "套卷未包含该题或作答不属于当前用户")
+            if (request.problemVersionId != lockedVersion) {
+                throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_PROBLEM_VERSION", "提交版本与套卷锁定版本不一致")
+            }
+            return lockedVersion
         }
-        return currentPublishedVersion(request.problemId)
+        return jdbc.query(
+            "SELECT id FROM problem_version WHERE id = ? AND problem_id = ? AND status IN ('PUBLISHED', 'WITHDRAWN')",
+            { result, _ -> result.getObject("id", UUID::class.java) },
+            request.problemVersionId,
+            request.problemId,
+        ).firstOrNull() ?: throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_PROBLEM_VERSION", "题目版本不属于该题或尚未发布")
     }
 
     /** 读取脱敏测点结果。 */
@@ -462,17 +475,11 @@ class SubmissionService(
         }
     }
 
-    /** 返回题目当前发布版本。 */
-    private fun currentPublishedVersion(problemId: UUID): UUID = jdbc.query(
-        "SELECT current_published_version_id FROM problem WHERE id = ? AND current_published_version_id IS NOT NULL",
-        { result, _ -> result.getObject("current_published_version_id", UUID::class.java) },
-        problemId,
-    ).firstOrNull() ?: throw ApiException(HttpStatus.NOT_FOUND, "PROBLEM_NOT_FOUND", "题目不存在或尚未发布")
-
     /** 生成幂等请求哈希。 */
     private fun requestHash(request: CreateSubmissionRequest): String = SecureValues.sha256(
         listOf(
             request.problemId,
+            request.problemVersionId,
             request.language,
             request.contestId ?: "",
             request.timedPaperAttemptId ?: "",

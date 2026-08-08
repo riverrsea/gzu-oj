@@ -39,9 +39,9 @@ class ImportArchiveTest {
         assertEquals("# A", SafeImportArchive(output.toByteArray()).requiredText("statements/a.md"))
     }
 
-    /** 重复来源键会让后出现的条目进入无效结果。 */
+    /** 重复外部题目标识会让后出现的条目进入无效结果。 */
     @Test
-    fun rejectsDuplicateSourceKey() {
+    fun rejectsDuplicateExternalKey() {
         val header = ProblemImportParser.REQUIRED_HEADERS.joinToString(",")
         val row = "same-key,题目,贵州大学,2025,数组,EASY,,1000,256,statements/a.md,"
         val bytes = archive(
@@ -55,6 +55,32 @@ class ImportArchiveTest {
         assertEquals(true, result.first().isSuccess)
         assertEquals(true, result.last().isFailure)
     }
+
+    /** 外部键允许采用站点与源站题号组合，不要求为纯数字。 */
+    @Test
+    fun acceptsCompositeExternalKey() {
+        val header = ProblemImportParser.REQUIRED_HEADERS.joinToString(",")
+        val row = "noobdream:1006,题目,贵州大学,2025,数组,EASY,,1000,256,statements/a.md,"
+        val result = ProblemImportParser().parse(importArchive(header, row)).single().getOrThrow()
+        assertEquals("noobdream:1006", result.externalKey)
+    }
+
+    /** 迁移期间仍可读取旧版 sourceKey 表头，避免既有导入包失效。 */
+    @Test
+    fun acceptsLegacySourceKeyHeader() {
+        val header = ProblemImportParser.LEGACY_HEADERS.joinToString(",")
+        val row = "legacy-1006,题目,贵州大学,2025,数组,EASY,,1000,256,statements/a.md,"
+        val result = ProblemImportParser().parse(importArchive(header, row)).single().getOrThrow()
+        assertEquals("legacy-1006", result.externalKey)
+    }
+
+    /** 构造包含一条题目记录的标准导入包。 */
+    private fun importArchive(header: String, row: String): ByteArray = archive(
+        mapOf(
+            "problems.csv" to (header + "\n" + row + "\n").toByteArray(StandardCharsets.UTF_8),
+            "statements/a.md" to "# 题目".toByteArray(StandardCharsets.UTF_8),
+        ),
+    )
 
     /** 构造仅供测试使用的小型 ZIP。 */
     private fun archive(entries: Map<String, ByteArray>): ByteArray {

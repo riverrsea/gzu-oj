@@ -18,8 +18,8 @@ import java.util.UUID
 
 /** 暂存导入的逐题预览。 */
 data class ImportItemResponse(
-    /** 来源键。 */
-    val sourceKey: String,
+    /** 外部题目标识。 */
+    val externalKey: String,
     /** 校验状态。 */
     val status: String,
     /** 内容哈希。 */
@@ -98,7 +98,7 @@ class ImportService(
             parsed.forEachIndexed { index, result ->
                 val problem = result.getOrNull()
                 val error = result.exceptionOrNull()?.message ?: "未知校验错误"
-                val sourceKey = problem?.sourceKey ?: "invalid-" + (index + 1)
+                val externalKey = problem?.externalKey ?: "invalid-" + (index + 1)
                 val preview = if (problem == null) {
                     emptyMap<String, Any>()
                 } else {
@@ -111,12 +111,12 @@ class ImportService(
                 }
                 jdbc.update(
                     """
-                    INSERT INTO import_item(id, batch_id, source_key, content_sha256, status, errors, preview)
+                    INSERT INTO import_item(id, batch_id, external_key, content_sha256, status, errors, preview)
                     VALUES (?, ?, ?, ?, ?, ?::jsonb, ?::jsonb)
                     """.trimIndent(),
                     UUID.randomUUID(),
                     batchId,
-                    sourceKey,
+                    externalKey,
                     problem?.contentSha256,
                     if (problem == null) "INVALID" else "VALID",
                     mapper.writeValueAsString(if (problem == null) listOf(error) else emptyList<String>()),
@@ -139,13 +139,13 @@ class ImportService(
             creator,
         ).firstOrNull() ?: throw ApiException(HttpStatus.NOT_FOUND, "IMPORT_BATCH_NOT_FOUND", "导入批次不存在")
         val items = jdbc.query(
-            "SELECT source_key, status, content_sha256, errors::text, preview::text FROM import_item WHERE batch_id = ? ORDER BY source_key",
+            "SELECT external_key, status, content_sha256, errors::text, preview::text FROM import_item WHERE batch_id = ? ORDER BY external_key",
             { result, _ ->
                 val errors = mapper.readerForListOf(String::class.java)
                     .readValue<List<String>>(result.getString("errors"))
                 val preview = mapper.readTree(result.getString("preview"))
                 ImportItemResponse(
-                    sourceKey = result.getString("source_key"),
+                    externalKey = result.getString("external_key"),
                     status = result.getString("status"),
                     contentSha256 = result.getString("content_sha256"),
                     errors = errors,
@@ -188,28 +188,28 @@ class ImportService(
                 """
                 SELECT EXISTS(
                     SELECT 1 FROM problem p JOIN problem_version pv ON pv.problem_id = p.id
-                    WHERE p.source_key = ? AND pv.content_sha256 = ?
+                    WHERE p.external_key = ? AND pv.content_sha256 = ?
                 )
                 """.trimIndent(),
                 Boolean::class.java,
-                problem.sourceKey,
+                problem.externalKey,
                 problem.contentSha256,
             ) ?: false
             if (unchanged) {
                 skipped++
                 jdbc.update(
-                    "UPDATE import_item SET status = 'SKIPPED' WHERE batch_id = ? AND source_key = ?",
+                    "UPDATE import_item SET status = 'SKIPPED' WHERE batch_id = ? AND external_key = ?",
                     batchId,
-                    problem.sourceKey,
+                    problem.externalKey,
                 )
                 return@forEach
             }
             problems.createVersion(problem.toCreateRequest(), creator, problem.contentSha256)
             imported++
             jdbc.update(
-                "UPDATE import_item SET status = 'IMPORTED' WHERE batch_id = ? AND source_key = ?",
+                "UPDATE import_item SET status = 'IMPORTED' WHERE batch_id = ? AND external_key = ?",
                 batchId,
-                problem.sourceKey,
+                problem.externalKey,
             )
         }
         jdbc.update(
@@ -222,7 +222,7 @@ class ImportService(
 
     /** 将规范导入模型转换为题目草稿请求。 */
     private fun ImportProblem.toCreateRequest(): CreateProblemVersionRequest = CreateProblemVersionRequest(
-        sourceKey = sourceKey,
+        externalKey = externalKey,
         title = title,
         school = school,
         year = year,

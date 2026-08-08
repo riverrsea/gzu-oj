@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { Bot, Plus, Save, Trash2 } from "@lucide/vue";
 import { ElMessage } from "element-plus";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { api } from "../api/client";
-import type { CreatedProblemVersion, Difficulty } from "../api/types";
+import type { AdminProblemVersionDetail, CreatedProblemVersion, Difficulty } from "../api/types";
 import MarkdownEditor from "../components/MarkdownEditor.vue";
 
 /** 管理员录入的测试点表单。 */
@@ -21,6 +21,12 @@ interface TestCaseForm {
 
 /** 页面路由器。 */
 const router = useRouter();
+/** 当前路由，用于读取被复制的基础版本。 */
+const route = useRoute();
+/** 页面初始数据加载状态。 */
+const loading = ref(false);
+/** 被复制版本的完整信息；为空时表示创建全新逻辑题目。 */
+const baseVersion = ref<AdminProblemVersionDetail>();
 /** 表单提交状态。 */
 const saving = ref(false);
 /** 最近创建的不可变题目版本。 */
@@ -29,7 +35,7 @@ const created = ref<CreatedProblemVersion>();
 const tagText = ref("");
 /** 单题录入表单。 */
 const form = reactive({
-  sourceKey: "",
+  externalKey: "",
   title: "",
   school: "贵州大学",
   year: new Date().getFullYear(),
@@ -45,6 +51,36 @@ const form = reactive({
 
 /** 当前测试点总分。 */
 const totalScore = computed(() => form.testCases.reduce((sum, item) => sum + Number(item.score || 0), 0));
+/** 页面是否正在为已有逻辑题目创建新版本。 */
+const creatingNextVersion = computed(() => Boolean(baseVersion.value));
+
+/** 从已有版本复制元数据、题面和测试点，随后保存为新的草稿版本。 */
+async function loadBaseVersion(): Promise<void> {
+  if (typeof route.query.fromVersionId !== "string") return;
+  loading.value = true;
+  try {
+    const loaded = await api.adminProblemVersion(route.query.fromVersionId);
+    baseVersion.value = loaded;
+    form.externalKey = loaded.externalKey ?? "";
+    form.title = loaded.title;
+    form.school = loaded.school;
+    form.year = loaded.year;
+    form.difficulty = loaded.difficulty;
+    form.sourceUrl = loaded.sourceUrl ?? "";
+    form.statementMarkdown = loaded.statementMarkdown;
+    form.timeLimitMs = loaded.timeLimitMs;
+    form.memoryLimitMiB = loaded.memoryLimitMiB;
+    form.dataNotice = loaded.dataNotice ?? "";
+    form.publish = false;
+    form.testCases = loaded.testCases.map(({ input, output, score, sample }) => ({ input, output, score, sample }));
+    tagText.value = loaded.tags.join(", ");
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "基础版本加载失败");
+    await router.replace("/admin/problems");
+  } finally {
+    loading.value = false;
+  }
+}
 
 /** 增加一个默认测试点。 */
 function addCase(): void {
@@ -68,12 +104,16 @@ async function save(): Promise<void> {
   }
   saving.value = true;
   try {
-    created.value = await api.createProblem({
+    const body = {
       ...form,
+      externalKey: form.externalKey.trim() || null,
       sourceUrl: form.sourceUrl.trim() || null,
       dataNotice: form.dataNotice.trim() || null,
       tags: tagText.value.split(/[，,]/).map((tag) => tag.trim()).filter(Boolean),
-    });
+    };
+    created.value = baseVersion.value
+      ? await api.createProblemVersion(baseVersion.value.problemId, body)
+      : await api.createProblem(body);
     ElMessage.success(form.publish ? "题目版本已发布" : "题目草稿已创建");
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "题目保存失败");
@@ -87,19 +127,21 @@ function openAi(): void {
   if (!created.value || created.value.status !== "DRAFT") return;
   void router.push({ path: "/admin/ai", query: { versionId: created.value.versionId } });
 }
+
+onMounted(() => void loadBaseVersion());
 </script>
 
 <template>
-  <section class="content-page admin-problem-page">
+  <section v-loading="loading" class="content-page admin-problem-page">
     <div class="page-heading">
-      <div><h1>单题录入</h1><p>保存后形成不可变版本；修改已发布题目时请使用相同来源键创建新版本</p></div>
+      <div><h1>{{ creatingNextVersion ? '新建题目版本' : '单题录入' }}</h1><p>{{ creatingNextVersion ? `复制 v${baseVersion?.versionNumber}，新草稿仍归属于原题目 ID` : '保存后形成不可变版本；外部导入题目使用 externalKey 归并版本，手工题目可留空' }}</p></div>
     </div>
 
     <el-form label-position="top" class="problem-form" @submit.prevent="save">
       <section class="form-section">
         <h2>题目元数据</h2>
         <div class="form-grid form-grid--three">
-          <el-form-item label="来源键"><el-input v-model="form.sourceKey" maxlength="128" placeholder="gzu-2025-001" /></el-form-item>
+          <el-form-item label="外部题目标识"><el-input v-model="form.externalKey" maxlength="128" placeholder="noobdream:1006（手工题可留空）" :disabled="creatingNextVersion" /></el-form-item>
           <el-form-item label="学校"><el-input v-model="form.school" maxlength="200" /></el-form-item>
           <el-form-item label="年份"><el-input-number v-model="form.year" :min="1900" :max="2200" /></el-form-item>
         </div>

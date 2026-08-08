@@ -7,6 +7,10 @@ include:
 
 # 一体化部署中 Worker 通过 Docker 内部控制网络直接访问 API。
 services:
+  api:
+    environment:
+      # 一体化模式中制品只能经 Compose 内部 API 地址提供给 Worker。
+      GZU_OJ_WORKER_ARTIFACT_BASE_URL: http://api:8080
   worker:
     environment:
       GZU_OJ_CONTROL_BASE_URL: http://api:8080

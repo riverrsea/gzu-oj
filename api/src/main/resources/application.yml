@@ -80,6 +80,8 @@ management:
         enabled: true
 gzu-oj:
   public-base-url: ${GZU_OJ_PUBLIC_BASE_URL:http://localhost:8080}
+  # 未单独指定时，Worker 下载隐藏测试数据也使用站点公开地址。
+  worker-artifact-base-url: ${GZU_OJ_WORKER_ARTIFACT_BASE_URL:${GZU_OJ_PUBLIC_BASE_URL:http://localhost:8080}}
   artifact-root: ${GZU_OJ_ARTIFACT_ROOT:./artifacts}
   registration-enabled: ${GZU_OJ_REGISTRATION_ENABLED:true}
   mail-delivery-enabled: ${GZU_OJ_MAIL_DELIVERY_ENABLED:false}

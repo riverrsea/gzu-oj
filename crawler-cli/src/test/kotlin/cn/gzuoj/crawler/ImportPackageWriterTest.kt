@@ -16,7 +16,7 @@ class ImportPackageWriterTest {
             ImportPackageWriter().write(
                 listOf(
                     CanonicalProblem(
-                        sourceKey = "local-two-sum",
+                        externalKey = "noobdream:1006",
                         title = "两数之和",
                         school = "贵州大学",
                         year = 2025,
@@ -32,11 +32,12 @@ class ImportPackageWriterTest {
             )
             ZipFile(target.toFile()).use { zip ->
                 assertTrue(zip.getEntry("problems.csv") != null)
-                assertTrue(zip.getEntry("statements/local-two-sum.md") != null)
-                assertTrue(zip.getEntry("tests/local-two-sum/cases.csv") != null)
+                assertTrue(zip.getEntry("statements/problem-1.md") != null)
+                assertTrue(zip.getEntry("tests/problem-1/cases.csv") != null)
                 val csv = zip.getInputStream(zip.getEntry("problems.csv")).bufferedReader().readText()
-                assertTrue(csv.startsWith("sourceKey,title,school,year,tags,difficulty,sourceUrl,timeLimitMs,memoryLimitMiB,statementPath,dataPath"))
-                assertEquals("# 两数之和", zip.getInputStream(zip.getEntry("statements/local-two-sum.md")).bufferedReader().readText())
+                assertTrue(csv.startsWith("externalKey,title,school,year,tags,difficulty,sourceUrl,timeLimitMs,memoryLimitMiB,statementPath,dataPath"))
+                assertTrue(csv.contains("noobdream:1006"))
+                assertEquals("# 两数之和", zip.getInputStream(zip.getEntry("statements/problem-1.md")).bufferedReader().readText())
             }
         } finally {
             Files.deleteIfExists(target)

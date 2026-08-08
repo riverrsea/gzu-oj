@@ -4,7 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 const problem = {
   id: "11111111-1111-4111-8111-111111111111",
   versionId: "22222222-2222-4222-8222-222222222222",
-  sourceKey: "e2e-a-plus-b",
+  externalKey: "e2e-a-plus-b",
   title: "A + B",
   school: "贵州大学",
   year: 2026,
@@ -44,7 +44,7 @@ async function mockApi(page: Page): Promise<void> {
     if (path === "/api/v1/csrf") return json({ headerName: "X-XSRF-TOKEN", token: "e2e-csrf-token" });
     if (path === "/api/v1/admin/problems") return json({
       items: [{
-        problemId: problem.id, versionId: problem.versionId, sourceKey: problem.sourceKey, title: problem.title,
+        problemId: problem.id, versionId: problem.versionId, externalKey: problem.externalKey, title: problem.title,
         school: problem.school, year: problem.year, tags: problem.tags, difficulty: problem.difficulty,
         versionNumber: 1, status: "PUBLISHED", testCaseCount: 8, scoreSum: 100, sampleCount: 1,
         createdAt: "2026-08-05T09:00:00Z", publishedAt: "2026-08-05T09:10:00Z",
@@ -52,6 +52,26 @@ async function mockApi(page: Page): Promise<void> {
       page: 0,
       size: 20,
       total: 1,
+    });
+    if (path === "/api/v1/admin/problems/versions/" + problem.versionId) return json({
+      problemId: problem.id,
+      versionId: problem.versionId,
+      versionNumber: 1,
+      externalKey: problem.externalKey,
+      title: problem.title,
+      school: problem.school,
+      year: problem.year,
+      tags: problem.tags,
+      difficulty: problem.difficulty,
+      sourceUrl: null,
+      statementMarkdown: problemDetail.statementMarkdown,
+      timeLimitMs: 1000,
+      memoryLimitMiB: 128,
+      status: "PUBLISHED",
+      contentSha256: "a".repeat(64),
+      activeAiRun: false,
+      dataNotice: null,
+      testCases: [{ ordinal: 1, input: "1 2\n", output: "3\n", score: 100, sample: true }],
     });
     if (path === "/api/v1/problems") return json([problem]);
     if (path === "/api/v1/problems/" + problem.id || path === "/api/v1/problems/versions/" + problem.versionId) return json(problemDetail);
@@ -61,9 +81,15 @@ async function mockApi(page: Page): Promise<void> {
       maxParticipants: 5, participantCount: 1, joined: true, problems: [{ ordinal: 1, problemId: problem.id, versionId: problem.versionId, title: problem.title }], myScores: null, ranking: null,
     }]);
     if (path === "/api/v1/timed-papers") return json([{ id: "44444444-4444-4444-8444-444444444444", title: "模拟套卷", durationMinutes: 90, problems: [{ ordinal: 1, problemId: problem.id, versionId: problem.versionId, title: problem.title }] }]);
-    if (path === "/api/v1/runs" && request.method() === "POST") return json({
-      id: "55555555-5555-4555-8555-555555555555", problemId: problem.id, problemVersionId: problem.versionId, executionMode: "RUN", language: "CPP17", status: "QUEUED", score: 0, compileMessage: null, createdAt: "2026-08-05T09:00:00Z", finishedAt: null, testCases: [],
-    });
+    if (path === "/api/v1/runs" && request.method() === "POST") {
+      const body = request.postDataJSON() as { problemId?: string; problemVersionId?: string };
+      if (body.problemId !== problem.id || body.problemVersionId !== problem.versionId) {
+        return json({ code: "INVALID_PROBLEM_VERSION", message: "运行请求未锁定工作区版本" }, 400);
+      }
+      return json({
+        id: "55555555-5555-4555-8555-555555555555", problemId: problem.id, problemVersionId: problem.versionId, executionMode: "RUN", language: "CPP17", status: "QUEUED", score: 0, compileMessage: null, createdAt: "2026-08-05T09:00:00Z", finishedAt: null, testCases: [],
+      });
+    }
     if (path === "/api/v1/submissions/55555555-5555-4555-8555-555555555555") return json({
       id: "55555555-5555-4555-8555-555555555555", problemId: problem.id, problemVersionId: problem.versionId, executionMode: "RUN", language: "CPP17", status: "AC", score: 0, compileMessage: null, createdAt: "2026-08-05T09:00:00Z", finishedAt: "2026-08-05T09:00:01Z",
       testCases: [{ ordinal: 1, status: "AC", score: 0, timeMs: 1, memoryKiB: 1024, message: null, input: "1 2\n", actualOutput: "3\n" }],
@@ -179,6 +205,10 @@ test("管理端功能页相互独立且没有水平溢出", async ({ page }, tes
   await expect(page).toHaveURL(/\/admin\/problems$/);
   await expect(page.getByRole("heading", { name: "题库管理" })).toBeVisible();
   await expect(page.getByText("A + B").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "新版本" }).click();
+  await expect(page.getByRole("heading", { name: "新建题目版本" })).toBeVisible();
+  await expect(page.getByLabel("标题")).toHaveValue("A + B");
 
   await page.getByRole("link", { name: "批量导入" }).click();
   await expect(page.getByRole("heading", { name: "批量导入", exact: true })).toBeVisible();

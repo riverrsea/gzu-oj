@@ -47,7 +47,7 @@ onMounted(load);
     </form>
     <el-table v-loading="loading" :data="problems" class="problem-table" row-key="id" @row-click="(row: ProblemSummary) => $router.push('/problems/' + row.id)">
       <el-table-column label="题目" min-width="280">
-        <template #default="{ row }"><div class="problem-title"><strong>{{ row.title }}</strong><span>{{ row.sourceKey }}</span></div></template>
+        <template #default="{ row }"><div class="problem-title"><strong>{{ row.title }}</strong><span>{{ row.externalKey || '手工题目' }}</span></div></template>
       </el-table-column>
       <el-table-column prop="school" label="学校" min-width="170" />
       <el-table-column prop="year" label="年份" width="90" />

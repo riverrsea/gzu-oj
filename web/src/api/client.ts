@@ -2,6 +2,7 @@ import type {
   ApiErrorBody,
   AiRun,
   AdminProblemPage,
+  AdminProblemVersionDetail,
   Contest,
   ContestVisibility,
   CreatedProblemVersion,
@@ -111,15 +112,16 @@ export const api = {
     });
     return request<AdminProblemPage>("/api/v1/admin/problems?" + query.toString());
   },
+  adminProblemVersion: (versionId: string) => request<AdminProblemVersionDetail>("/api/v1/admin/problems/versions/" + versionId),
   problem: (id: string) => request<ProblemDetail>("/api/v1/problems/" + id),
   problemVersion: (id: string) => request<ProblemDetail>("/api/v1/problems/versions/" + id),
-  submit: (body: { problemId: string; language: JudgeLanguage; sourceCode: string; contestId?: string; timedPaperAttemptId?: string }) =>
+  submit: (body: { problemId: string; problemVersionId: string; language: JudgeLanguage; sourceCode: string; contestId?: string; timedPaperAttemptId?: string }) =>
     request<Submission>("/api/v1/submissions", {
       method: "POST",
       headers: { "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify(body),
     }),
-  run: (body: { problemId: string; problemVersionId?: string; language: JudgeLanguage; sourceCode: string; inputs: string[] }) =>
+  run: (body: { problemId: string; problemVersionId: string; language: JudgeLanguage; sourceCode: string; inputs: string[] }) =>
     request<Submission>("/api/v1/runs", {
       method: "POST",
       headers: { "Idempotency-Key": crypto.randomUUID() },
@@ -151,6 +153,9 @@ export const api = {
   },
   commitImport: (id: string) => request<{ imported: number; skipped: number; invalid: number }>("/api/v1/admin/imports/" + id + "/commit", { method: "POST" }),
   createProblem: (body: unknown) => request<CreatedProblemVersion>("/api/v1/admin/problems", { method: "POST", body: JSON.stringify(body) }),
+  createProblemVersion: (problemId: string, body: unknown) => request<CreatedProblemVersion>("/api/v1/admin/problems/" + problemId + "/versions", { method: "POST", body: JSON.stringify(body) }),
+  updateDraftProblem: (versionId: string, body: unknown) => request<CreatedProblemVersion>("/api/v1/admin/problems/versions/" + versionId, { method: "PUT", body: JSON.stringify(body) }),
+  publishDraft: (versionId: string) => request<CreatedProblemVersion>("/api/v1/admin/problems/versions/" + versionId + "/publish", { method: "POST" }),
   startAiRun: (problemVersionId: string) => request<AiRun>("/api/v1/admin/ai-runs", { method: "POST", body: JSON.stringify({ problemVersionId }) }),
   /** 查询单次 AI 录题流程的最新状态。 */
   aiRun: (runId: string) => request<AiRun>("/api/v1/admin/ai-runs/" + runId),

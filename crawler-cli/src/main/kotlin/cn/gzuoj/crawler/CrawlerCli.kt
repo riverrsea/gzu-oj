@@ -30,8 +30,8 @@ data class CanonicalTestCase(
 
 /** 与具体来源网站无关的规范题目。 */
 data class CanonicalProblem(
-    /** 稳定来源键。 */
-    val sourceKey: String,
+    /** 外部题目标识；爬虫导入必须提供。 */
+    val externalKey: String,
     /** 题目标题。 */
     val title: String,
     /** 学校名称。 */
@@ -84,9 +84,9 @@ class LocalSampleAdapter(
     /** 在写包前校验与 API 导入契约一致的核心字段。 */
     private fun validate(problems: List<CanonicalProblem>) {
         require(problems.isNotEmpty()) { "题目列表不能为空" }
-        require(problems.map { it.sourceKey }.distinct().size == problems.size) { "sourceKey 不能重复" }
+        require(problems.map { it.externalKey }.distinct().size == problems.size) { "externalKey 不能重复" }
         problems.forEach { problem ->
-            require(problem.sourceKey.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$"))) { "sourceKey 格式不正确" }
+            require(problem.externalKey.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"))) { "externalKey 格式不正确" }
             require(problem.title.isNotBlank() && problem.school.isNotBlank()) { "标题和学校不能为空" }
             require(problem.year in 1900..2200) { "年份超出范围" }
             require(problem.difficulty in setOf("EASY", "MEDIUM", "HARD")) { "难度不合法" }
@@ -114,9 +114,10 @@ class ImportPackageWriter {
         ).use { file ->
             ZipOutputStream(file, StandardCharsets.UTF_8).use { zip ->
                 add(zip, "problems.csv", problemsCsv(problems))
-                problems.forEach { problem ->
-                    add(zip, "statements/${problem.sourceKey}.md", problem.statementMarkdown.toByteArray(StandardCharsets.UTF_8))
-                    if (problem.testCases.isNotEmpty()) writeCases(zip, problem)
+                problems.forEachIndexed { index, problem ->
+                    val stem = artifactStem(index)
+                    add(zip, "statements/$stem.md", problem.statementMarkdown.toByteArray(StandardCharsets.UTF_8))
+                    if (problem.testCases.isNotEmpty()) writeCases(zip, problem, stem)
                 }
             }
         }
@@ -128,10 +129,11 @@ class ImportPackageWriter {
         BufferedWriter(OutputStreamWriter(output, StandardCharsets.UTF_8)).use { writer ->
             CSVPrinter(writer, CSVFormat.DEFAULT).use { csv ->
                 csv.printRecord(HEADERS)
-                problems.forEach { problem ->
-                    val dataPath = if (problem.testCases.isEmpty()) "" else "tests/${problem.sourceKey}"
+                problems.forEachIndexed { index, problem ->
+                    val stem = artifactStem(index)
+                    val dataPath = if (problem.testCases.isEmpty()) "" else "tests/$stem"
                     csv.printRecord(
-                        problem.sourceKey,
+                        problem.externalKey,
                         problem.title,
                         problem.school,
                         problem.year,
@@ -140,7 +142,7 @@ class ImportPackageWriter {
                         problem.sourceUrl.orEmpty(),
                         problem.timeLimitMs,
                         problem.memoryLimitMiB,
-                        "statements/${problem.sourceKey}.md",
+                        "statements/$stem.md",
                         dataPath,
                     )
                 }
@@ -150,8 +152,8 @@ class ImportPackageWriter {
     }
 
     /** 写入固定 cases.csv 及对应输入输出。 */
-    private fun writeCases(zip: ZipOutputStream, problem: CanonicalProblem) {
-        val prefix = "tests/${problem.sourceKey}"
+    private fun writeCases(zip: ZipOutputStream, problem: CanonicalProblem, stem: String) {
+        val prefix = "tests/$stem"
         val output = ByteArrayOutputStream()
         BufferedWriter(OutputStreamWriter(output, StandardCharsets.UTF_8)).use { writer ->
             CSVPrinter(writer, CSVFormat.DEFAULT).use { csv ->
@@ -169,6 +171,9 @@ class ImportPackageWriter {
         add(zip, "$prefix/cases.csv", output.toByteArray())
     }
 
+    /** 生成与外部键无关的安全文件名，兼容 Windows 解压和跨平台导入。 */
+    private fun artifactStem(index: Int): String = "problem-" + (index + 1)
+
     /** 向 ZIP 写入单个规范相对路径。 */
     private fun add(zip: ZipOutputStream, path: String, content: ByteArray) {
         zip.putNextEntry(ZipEntry(path))
@@ -179,7 +184,7 @@ class ImportPackageWriter {
     private companion object {
         /** 与 API 导入解析器严格一致的表头。 */
         val HEADERS: List<String> = listOf(
-            "sourceKey", "title", "school", "year", "tags", "difficulty", "sourceUrl",
+            "externalKey", "title", "school", "year", "tags", "difficulty", "sourceUrl",
             "timeLimitMs", "memoryLimitMiB", "statementPath", "dataPath",
         )
     }

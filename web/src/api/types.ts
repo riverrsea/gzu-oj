@@ -24,7 +24,7 @@ export interface CurrentUser { id: string; username: string; role: Role }
 export interface ProblemSummary {
   id: string;
   versionId: string;
-  sourceKey: string;
+  externalKey: string | null;
   title: string;
   school: string;
   year: number;
@@ -142,7 +142,7 @@ export interface TimedAttempt {
 }
 
 export interface ImportItem {
-  sourceKey: string;
+  externalKey: string;
   status: string;
   contentSha256: string | null;
   errors: string[];
@@ -169,8 +169,8 @@ export interface AdminProblemSummary {
   problemId: string;
   /** 不可变题目版本标识。 */
   versionId: string;
-  /** 稳定来源键。 */
-  sourceKey: string;
+  /** 可选的外部题目标识。 */
+  externalKey: string | null;
   /** 题目标题。 */
   title: string;
   /** 学校名称。 */
@@ -207,6 +207,35 @@ export interface AdminProblemPage {
   size: number;
   /** 符合筛选条件的总版本数。 */
   total: number;
+}
+
+export interface AdminTestCaseDetail {
+  ordinal: number;
+  input: string;
+  output: string;
+  score: number;
+  sample: boolean;
+}
+
+export interface AdminProblemVersionDetail {
+  problemId: string;
+  versionId: string;
+  versionNumber: number;
+  externalKey: string | null;
+  title: string;
+  school: string;
+  year: number;
+  tags: string[];
+  difficulty: Difficulty;
+  sourceUrl: string | null;
+  statementMarkdown: string;
+  timeLimitMs: number;
+  memoryLimitMiB: number;
+  status: ProblemVersionStatus;
+  contentSha256: string;
+  activeAiRun: boolean;
+  dataNotice: string | null;
+  testCases: AdminTestCaseDetail[];
 }
 
 export interface AiRun {

@@ -418,7 +418,9 @@ class AiRunService(
             lease.runId,
             lease.lease,
         )
-        if (current != null) recordStateTransition(lease.runId, current, AiWorkflowState.NEEDS_REVIEW, reason)
+        if (current != null && current !in setOf(AiWorkflowState.PUBLISHED, AiWorkflowState.FAILED, AiWorkflowState.CANCELED)) {
+            recordStateTransition(lease.runId, current, AiWorkflowState.NEEDS_REVIEW, reason)
+        }
     }
 
     /** 在差分阶段记录外部沙箱形成的确定性门禁证据。 */

@@ -163,6 +163,12 @@ data class StartAiRunRequest(
     @field:Min(1)
     @field:Max(200)
     val testCaseCount: Int = 10,
+    /** 差分通过后是否自动发布题目版本。 */
+    val autoPublish: Boolean = false,
+    /** 自动发布时从生成测试点开头选择为公开样例的数量。 */
+    @field:Min(0)
+    @field:Max(200)
+    val sampleCount: Int = 0,
 )
 
 /** 差分与资源校验的可审计证据。 */
@@ -205,6 +211,10 @@ data class AiRunResponse(
     val repairRound: Int,
     /** 管理员启动流程时要求生成的测试点数量。 */
     val requestedTestCaseCount: Int,
+    /** 是否在差分通过后自动发布。 */
+    val autoPublish: Boolean,
+    /** 自动发布时选择的公开样例数量。 */
+    val requestedSampleCount: Int,
     /** 模型名称。 */
     val model: String,
     /** 提示词版本。 */
@@ -235,6 +245,8 @@ data class AiGeneratedTestCaseResponse(
     val output: String,
     /** 自动分配的测试点分值。 */
     val score: Int,
+    /** 是否作为公开样例返回。 */
+    val sample: Boolean,
 )
 
 /** 单个 Agent 步骤的管理员可见返回。 */
@@ -283,6 +295,10 @@ internal data class AiRunLease(
     val statement: String,
     /** 管理员要求生成的测试点数量。 */
     val requestedTestCaseCount: Int,
+    /** 是否在差分通过后自动发布。 */
+    val autoPublish: Boolean,
+    /** 自动发布时选择的公开样例数量。 */
+    val requestedSampleCount: Int,
 )
 
 /** AI 运行当前状态的数据库行。 */
@@ -297,6 +313,10 @@ private data class AiRunRecord(
     val repairRound: Int,
     /** 管理员要求生成的测试点数量。 */
     val requestedTestCaseCount: Int,
+    /** 是否在差分通过后自动发布。 */
+    val autoPublish: Boolean,
+    /** 自动发布时选择的公开样例数量。 */
+    val requestedSampleCount: Int,
     /** 模型名称。 */
     val model: String,
     /** 提示词版本。 */
@@ -311,6 +331,20 @@ private data class AiRunRecord(
     val createdAt: Instant,
 )
 
+/** AI 差分结算时锁定的发布和公开样例选项。 */
+private data class AiPublicationOptions(
+    /** 需要写入测试点的草稿版本。 */
+    val problemVersionId: UUID,
+    /** 当前 AI 小状态。 */
+    val state: AiWorkflowState,
+    /** 制品创建者。 */
+    val createdBy: UUID,
+    /** 是否自动发布。 */
+    val autoPublish: Boolean,
+    /** 需要标记为公开样例的测试点数量。 */
+    val sampleCount: Int,
+)
+
 /** AI 协调器领取运行时的最小数据库投影。 */
 private data class ClaimRow(
     /** 运行标识。 */
@@ -321,6 +355,10 @@ private data class ClaimRow(
     val statement: String,
     /** 管理员要求生成的测试点数量。 */
     val requestedTestCaseCount: Int,
+    /** 是否在差分通过后自动发布。 */
+    val autoPublish: Boolean,
+    /** 自动发布时选择的公开样例数量。 */
+    val requestedSampleCount: Int,
 )
 
 /** AI 状态、审计步骤和发布门禁持久化服务。 */
@@ -344,6 +382,12 @@ class AiRunService(
             request.problemVersionId,
         ) ?: false
         if (!draftExists) throw ApiException(HttpStatus.CONFLICT, "AI_REQUIRES_DRAFT", "AI 录题只能处理草稿版本")
+        if (request.sampleCount > request.testCaseCount) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_SAMPLE_COUNT", "公开样例数量不能超过生成测试点数量")
+        }
+        if (request.sampleCount > 0 && !request.autoPublish) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_SAMPLE_COUNT", "只有自动发布时才能预先设置公开样例数量")
+        }
         val active = jdbc.queryForObject(
             """
             SELECT EXISTS(
@@ -359,12 +403,15 @@ class AiRunService(
         jdbc.update(
             """
             INSERT INTO ai_problem_run(
-                id, problem_version_id, state, requested_test_case_count, provider_base_url, model, prompt_version, created_by
-            ) VALUES (?, ?, 'ANALYZING', ?, ?, ?, ?, ?)
+                id, problem_version_id, state, requested_test_case_count, auto_publish, requested_sample_count,
+                provider_base_url, model, prompt_version, created_by
+            ) VALUES (?, ?, 'ANALYZING', ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent(),
             id,
             request.problemVersionId,
             request.testCaseCount,
+            request.autoPublish,
+            request.sampleCount,
             properties.ai.baseUrl,
             properties.ai.model,
             properties.ai.promptVersion,
@@ -380,9 +427,12 @@ class AiRunService(
         if (!properties.ai.enabled) return null
         val row = jdbc.query(
             """
-            SELECT r.id, r.state, r.requested_test_case_count, pv.statement_markdown
+            SELECT r.id, r.state, r.requested_test_case_count, r.auto_publish, r.requested_sample_count, pv.statement_markdown
             FROM ai_problem_run r JOIN problem_version pv ON pv.id = r.problem_version_id
-            WHERE r.state IN ('ANALYZING', 'GENERATING_SOLUTIONS', 'REVIEWING', 'GENERATING_TESTS', 'VALIDATING')
+            WHERE (
+                r.state IN ('ANALYZING', 'GENERATING_SOLUTIONS', 'REVIEWING', 'GENERATING_TESTS')
+                OR (r.state = 'VALIDATING' AND r.auto_publish = TRUE)
+            )
               AND r.next_run_at <= now()
               AND (r.coordinator_lease IS NULL OR r.coordinator_lease_expires_at < now())
             ORDER BY r.created_at FOR UPDATE OF r SKIP LOCKED LIMIT 1
@@ -393,6 +443,8 @@ class AiRunService(
                     state = AiWorkflowState.valueOf(result.getString("state")),
                     statement = result.getString("statement_markdown"),
                     requestedTestCaseCount = result.getInt("requested_test_case_count"),
+                    autoPublish = result.getBoolean("auto_publish"),
+                    requestedSampleCount = result.getInt("requested_sample_count"),
                 )
             },
         ).firstOrNull() ?: return null
@@ -402,7 +454,15 @@ class AiRunService(
             lease,
             row.id,
         )
-        return AiRunLease(row.id, lease, row.state, row.statement, row.requestedTestCaseCount)
+        return AiRunLease(
+            row.id,
+            lease,
+            row.state,
+            row.statement,
+            row.requestedTestCaseCount,
+            row.autoPublish,
+            row.requestedSampleCount,
+        )
     }
 
     /** 保存本步所有角色结果并原子推进状态。 */
@@ -539,20 +599,22 @@ class AiRunService(
         verified: VerifiedAiSandboxResult,
     ) {
         val run = jdbc.query(
-            "SELECT problem_version_id, state, created_by FROM ai_problem_run WHERE id = ? FOR UPDATE",
+            "SELECT problem_version_id, state, created_by, auto_publish, requested_sample_count FROM ai_problem_run WHERE id = ? FOR UPDATE",
             { result, _ ->
-                Triple(
-                    result.getObject("problem_version_id", UUID::class.java),
-                    AiWorkflowState.valueOf(result.getString("state")),
-                    result.getObject("created_by", UUID::class.java),
+                AiPublicationOptions(
+                    problemVersionId = result.getObject("problem_version_id", UUID::class.java),
+                    state = AiWorkflowState.valueOf(result.getString("state")),
+                    createdBy = result.getObject("created_by", UUID::class.java),
+                    autoPublish = result.getBoolean("auto_publish"),
+                    sampleCount = result.getInt("requested_sample_count"),
                 )
             },
             runId,
         ).firstOrNull() ?: throw ApiException(HttpStatus.NOT_FOUND, "AI_RUN_NOT_FOUND", "AI 运行不存在")
-        if (run.second != AiWorkflowState.DIFFERENTIAL_TESTING) {
+        if (run.state != AiWorkflowState.DIFFERENTIAL_TESTING) {
             throw ApiException(HttpStatus.CONFLICT, "AI_VALIDATION_NOT_READY", "当前状态不能结算 AI 差分任务")
         }
-        AiWorkflow.requireTransition(run.second, AiWorkflowState.VALIDATING)
+        AiWorkflow.requireTransition(run.state, AiWorkflowState.VALIDATING)
 
         val caseCount = verified.testCases.size
         val baseScore = 100 / caseCount
@@ -563,9 +625,10 @@ class AiRunService(
                 input = testCase.input,
                 output = testCase.expectedOutput,
                 score = baseScore + if (index < remainder) 1 else 0,
+                sample = run.autoPublish && index < run.sampleCount,
             )
         }
-        problems.replaceDraftTestCasesFromAi(run.first, runId, run.third, testCases)
+        problems.replaceDraftTestCasesFromAi(run.problemVersionId, runId, run.createdBy, testCases)
 
         val noUnresolvedAmbiguity = loadSteps(runId).all { step ->
             step.response?.ambiguities.orEmpty().isEmpty()
@@ -616,7 +679,7 @@ class AiRunService(
         )
         recordStateTransition(
             runId,
-            run.second,
+            run.state,
             next,
             reason ?: "已生成 $caseCount 个测试点，确定性差分和发布门禁全部通过",
             publicationGatePassed = next == AiWorkflowState.VALIDATING,
@@ -690,7 +753,8 @@ class AiRunService(
         val completed = steps.map(AiStepResponse::role).distinct()
         val row = jdbc.query(
             """
-            SELECT id, problem_version_id, state, repair_round, requested_test_case_count, model, prompt_version,
+            SELECT id, problem_version_id, state, repair_round, requested_test_case_count, auto_publish,
+                   requested_sample_count, model, prompt_version,
                    cost_microunits, failure_reason, publication_gate::text, created_at
             FROM ai_problem_run WHERE id = ?
             """.trimIndent(),
@@ -701,6 +765,8 @@ class AiRunService(
                     state = AiWorkflowState.valueOf(result.getString("state")),
                     repairRound = result.getInt("repair_round"),
                     requestedTestCaseCount = result.getInt("requested_test_case_count"),
+                    autoPublish = result.getBoolean("auto_publish"),
+                    requestedSampleCount = result.getInt("requested_sample_count"),
                     model = result.getString("model"),
                     promptVersion = result.getString("prompt_version"),
                     costMicrounits = result.getLong("cost_microunits"),
@@ -719,6 +785,8 @@ class AiRunService(
             majorState = AiWorkflow.majorState(row.state, gatePassed),
             repairRound = row.repairRound,
             requestedTestCaseCount = row.requestedTestCaseCount,
+            autoPublish = row.autoPublish,
+            requestedSampleCount = row.requestedSampleCount,
             model = row.model,
             promptVersion = row.promptVersion,
             costMicrounits = row.costMicrounits,

@@ -24,6 +24,10 @@ const tagText = ref("");
 const aiRun = ref<AiRun>();
 /** 启动 AI 时由管理员明确锁定的目标测试点数量。 */
 const aiTestCaseCount = ref(10);
+/** 差分门禁通过后是否自动发布当前版本。 */
+const aiAutoPublish = ref(false);
+/** 自动发布时从生成结果开头选作公开样例的数量。 */
+const aiSampleCount = ref(0);
 let aiTimer: number | undefined;
 const form = reactive({
   title: "",
@@ -44,6 +48,8 @@ const totalScore = computed(() => form.testCases.reduce((sum, item) => sum + Num
 const aiLocked = computed(() => {
   const state = aiRun.value?.state;
   if (state === "PUBLISHED") return true;
+  // 关闭自动发布时，差分门禁通过后停在 VALIDATING，管理员需要检查样例并手动发布。
+  if (state === "VALIDATING" && aiRun.value && !aiRun.value.autoPublish) return false;
   if (!detail.value?.activeAiRun) return false;
   // 详情接口已确认存在运行，但状态请求还未返回时也必须保持锁定。
   if (!state) return true;
@@ -177,7 +183,11 @@ async function loadAiRun(): Promise<void> {
   if (!detail.value) return;
   try {
     aiRun.value = await api.activeAiRun(detail.value.versionId);
-    if (aiRun.value) aiTestCaseCount.value = aiRun.value.requestedTestCaseCount;
+    if (aiRun.value) {
+      aiTestCaseCount.value = aiRun.value.requestedTestCaseCount;
+      aiAutoPublish.value = aiRun.value.autoPublish;
+      aiSampleCount.value = aiRun.value.requestedSampleCount;
+    }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "AI 状态加载失败");
   }
@@ -193,7 +203,11 @@ async function refreshAi(): Promise<void> {
       : await api.activeAiRun(detail.value.versionId);
     const previousGeneratedCount = aiGeneratedTestCases.value.length;
     aiRun.value = next;
-    if (next) aiTestCaseCount.value = next.requestedTestCaseCount;
+    if (next) {
+      aiTestCaseCount.value = next.requestedTestCaseCount;
+      aiAutoPublish.value = next.autoPublish;
+      aiSampleCount.value = next.requestedSampleCount;
+    }
     if (!next || ["PUBLISHED", "FAILED", "CANCELED"].includes(next.state)) detail.value.activeAiRun = false;
     // AI 写入测试点会改变草稿内容哈希；人工接管前重新加载，避免后续保存覆盖新数据。
     if (next && next.state !== "PUBLISHED" && next.generatedTestCases.length > previousGeneratedCount) await load();
@@ -211,10 +225,20 @@ async function startAi(): Promise<void> {
     ElMessage.warning("AI 生成测试点数量必须位于 1 到 200");
     return;
   }
+  if (!Number.isInteger(aiSampleCount.value) || aiSampleCount.value < 0 || aiSampleCount.value > aiTestCaseCount.value) {
+    ElMessage.warning("公开样例数量必须位于 0 到生成测试点数量之间");
+    return;
+  }
+  if (!aiAutoPublish.value && aiSampleCount.value > 0) {
+    ElMessage.warning("关闭自动发布时请将公开样例数量设为 0，生成后可在测试点列表中手动勾选");
+    return;
+  }
   if (form.testCases.length > 0) {
     try {
       await ElMessageBox.confirm(
-        `当前草稿已有 ${form.testCases.length} 个测试点。AI 差分全部通过后，将用新生成的 ${aiTestCaseCount.value} 个测试点替换它们。`,
+        aiAutoPublish.value
+          ? `当前草稿已有 ${form.testCases.length} 个测试点。AI 差分全部通过后，将用新生成的 ${aiTestCaseCount.value} 个测试点替换它们，并自动发布；前 ${aiSampleCount.value} 个测试点会作为公开样例。`
+          : `当前草稿已有 ${form.testCases.length} 个测试点。AI 差分全部通过后，将用新生成的 ${aiTestCaseCount.value} 个测试点替换它们，但不会自动发布；你可以检查并手动勾选公开样例。`,
         "确认生成测试点",
         { type: "warning", confirmButtonText: "启动 AI", cancelButtonText: "取消" },
       );
@@ -224,7 +248,7 @@ async function startAi(): Promise<void> {
   }
   aiLoading.value = true;
   try {
-    aiRun.value = await api.startAiRun(detail.value.versionId, aiTestCaseCount.value);
+    aiRun.value = await api.startAiRun(detail.value.versionId, aiTestCaseCount.value, aiAutoPublish.value, aiSampleCount.value);
     detail.value.activeAiRun = true;
     ElMessage.success("AI 录题流程已启动");
   } catch (error) {
@@ -319,12 +343,20 @@ onUnmounted(() => {
         </article>
       </div>
       <el-alert v-if="aiRun && ['NEEDS_REVIEW', 'FAILED', 'CANCELED'].includes(aiRun.state)" :type="aiRun.state === 'NEEDS_REVIEW' ? 'warning' : 'error'" show-icon :title="aiRun.failureReason || majorLabels[aiRun.majorState]" />
+      <el-alert v-if="aiRun && aiRun.state === 'VALIDATING' && !aiRun.autoPublish" type="success" show-icon title="AI 测试点已生成并通过门禁。请检查下方测试点，勾选公开样例后保存并发布；当前不会自动发布。" />
       <footer class="ai-flow-actions">
         <label v-if="aiCanRestart" class="ai-case-count-control">
           <span>生成测试点数量</span>
           <el-input-number v-model="aiTestCaseCount" :min="1" :max="200" :step="1" controls-position="right" />
         </label>
-        <span v-else-if="aiRun" class="ai-case-count-summary">计划 {{ aiRun.requestedTestCaseCount }} 个 · 已生成 {{ aiGeneratedTestCases.length }} 个</span>
+        <label v-if="aiCanRestart" class="ai-case-count-control ai-publish-control">
+          <el-checkbox v-model="aiAutoPublish">差分通过后自动发布</el-checkbox>
+        </label>
+        <label v-if="aiCanRestart && aiAutoPublish" class="ai-case-count-control">
+          <span>公开样例数量</span>
+          <el-input-number v-model="aiSampleCount" :min="0" :max="aiTestCaseCount" :step="1" controls-position="right" />
+        </label>
+        <span v-else-if="aiRun" class="ai-case-count-summary">计划 {{ aiRun.requestedTestCaseCount }} 个 · 已生成 {{ aiGeneratedTestCases.length }} 个 · {{ aiRun.autoPublish ? `自动发布 · 样例 ${aiRun.requestedSampleCount} 个` : "人工检查后发布" }}</span>
         <el-button v-if="aiCanRestart" type="primary" :loading="aiLoading" @click="startAi"><Bot :size="16" />启动 AI</el-button>
         <el-button v-if="aiRun && !aiTerminal" :loading="aiLoading" @click="cancelAi"><XCircle :size="16" />取消流程</el-button>
         <el-button v-if="aiRun" :loading="aiLoading" @click="refreshAi"><RefreshCw :size="16" />刷新状态</el-button>
@@ -341,7 +373,7 @@ onUnmounted(() => {
         <p v-if="aiGeneratedTestCases.length === 0" class="ai-response-empty">生成器、输入校验和差分尚未全部通过，当前没有测试点写入草稿。</p>
         <div v-else class="ai-generated-case-list">
           <details v-for="testCase in aiGeneratedTestCases" :key="testCase.ordinal" class="ai-response-item">
-            <summary><span><strong>测试点 {{ testCase.ordinal }}</strong><small>种子 {{ testCase.seed }}</small></span><span>{{ testCase.score }} 分</span></summary>
+            <summary><span><strong>测试点 {{ testCase.ordinal }}</strong><small>种子 {{ testCase.seed }}<template v-if="testCase.sample"> · 公开样例</template></small></span><span>{{ testCase.score }} 分</span></summary>
             <div class="ai-generated-case-content">
               <div><strong>输入</strong><pre>{{ testCase.input }}</pre></div>
               <div><strong>标准输出</strong><pre>{{ testCase.output }}</pre></div>

@@ -289,6 +289,10 @@ export interface AiRun {
   repairRound: number;
   /** 管理员启动流程时锁定的目标测试点数量。 */
   requestedTestCaseCount: number;
+  /** 差分通过后是否自动发布。 */
+  autoPublish: boolean;
+  /** 自动发布时选择的公开样例数量。 */
+  requestedSampleCount: number;
   model: string;
   promptVersion: string;
   costMicrounits: number;
@@ -312,6 +316,8 @@ export interface AiGeneratedTestCase {
   output: string;
   /** 自动分配的测试点分值。 */
   score: number;
+  /** 是否作为公开样例返回。 */
+  sample: boolean;
 }
 
 /** 创建判题 Worker 后返回的节点凭据。Token 只在本次响应中返回。 */

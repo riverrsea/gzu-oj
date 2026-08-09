@@ -156,7 +156,11 @@ export const api = {
   createProblemVersion: (problemId: string, body: unknown) => request<CreatedProblemVersion>("/api/v1/admin/problems/" + problemId + "/versions", { method: "POST", body: JSON.stringify(body) }),
   updateDraftProblem: (versionId: string, body: unknown) => request<CreatedProblemVersion>("/api/v1/admin/problems/versions/" + versionId, { method: "PUT", body: JSON.stringify(body) }),
   publishDraft: (versionId: string) => request<CreatedProblemVersion>("/api/v1/admin/problems/versions/" + versionId + "/publish", { method: "POST" }),
-  startAiRun: (problemVersionId: string, testCaseCount: number) => request<AiRun>("/api/v1/admin/ai-runs", { method: "POST", body: JSON.stringify({ problemVersionId, testCaseCount }) }),
+  startAiRun: (problemVersionId: string, testCaseCount: number, autoPublish = false, sampleCount = 0) =>
+    request<AiRun>("/api/v1/admin/ai-runs", {
+      method: "POST",
+      body: JSON.stringify({ problemVersionId, testCaseCount, autoPublish, sampleCount }),
+    }),
   /** 查询单次 AI 录题流程的最新状态。 */
   aiRun: (runId: string) => request<AiRun>("/api/v1/admin/ai-runs/" + runId),
   /** 按题目草稿恢复当前 AI 运行；没有运行时返回空响应。 */

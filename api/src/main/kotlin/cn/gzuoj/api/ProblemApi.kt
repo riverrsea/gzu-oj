@@ -387,6 +387,8 @@ data class AiGeneratedTestCase(
     val output: String,
     /** 自动分配且全部测试点合计为一百分的分值。 */
     val score: Int,
+    /** 是否作为公开样例返回。 */
+    val sample: Boolean = false,
 )
 
 /** AI 替换草稿测试点时锁定的题目元数据。 */
@@ -488,9 +490,9 @@ class ProblemService(
                     INSERT INTO problem_test_case(
                         id, problem_version_id, ordinal, score, input_artifact_id, output_artifact_id,
                         sample, generated_by_ai_run_id, generation_seed
-                    ) VALUES (?, ?, ?, ?, ?, ?, FALSE, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """.trimIndent(),
-                    UUID.randomUUID(), versionId, index + 1, testCase.score, inputId, outputId, runId, testCase.seed,
+                    UUID.randomUUID(), versionId, index + 1, testCase.score, inputId, outputId, testCase.sample, runId, testCase.seed,
                 )
             }
             val dataNotice = AI_DATA_NOTICE
@@ -506,7 +508,7 @@ class ProblemService(
                     timeLimitMs = version.timeLimitMs,
                     memoryLimitMiB = version.memoryLimitMiB,
                     externalKey = version.externalKey,
-                    testCases = testCases.map { CreateTestCaseRequest(it.input, it.output, it.score) },
+                    testCases = testCases.map { CreateTestCaseRequest(it.input, it.output, it.score, it.sample) },
                     dataNotice = dataNotice,
                 ),
             )
@@ -525,7 +527,7 @@ class ProblemService(
     /** 读取某次 AI 运行实际写入版本的测试点，供管理员查看生成数量和内容。 */
     fun aiGeneratedTestCases(runId: UUID): List<AiGeneratedTestCaseResponse> = jdbc.query(
         """
-        SELECT tc.ordinal, tc.generation_seed, tc.score, ia.storage_key AS input_key, oa.storage_key AS output_key
+        SELECT tc.ordinal, tc.generation_seed, tc.score, tc.sample, ia.storage_key AS input_key, oa.storage_key AS output_key
         FROM problem_test_case tc
         JOIN artifact ia ON ia.id = tc.input_artifact_id
         JOIN artifact oa ON oa.id = tc.output_artifact_id
@@ -539,6 +541,7 @@ class ProblemService(
                 input = artifactStore.open(result.getString("input_key")).bufferedReader().use { it.readText() },
                 output = artifactStore.open(result.getString("output_key")).bufferedReader().use { it.readText() },
                 score = result.getInt("score"),
+                sample = result.getBoolean("sample"),
             )
         },
         runId,
@@ -811,7 +814,11 @@ class ProblemService(
             """
             SELECT EXISTS(
                 SELECT 1 FROM ai_problem_run
-                WHERE problem_version_id = ? AND state NOT IN ('PUBLISHED', 'FAILED', 'CANCELED', 'NEEDS_REVIEW')
+                WHERE problem_version_id = ?
+                  AND (
+                      state NOT IN ('PUBLISHED', 'FAILED', 'CANCELED', 'NEEDS_REVIEW', 'VALIDATING')
+                      OR (state = 'VALIDATING' AND auto_publish = TRUE)
+                  )
             )
             """.trimIndent(),
             Boolean::class.java,
@@ -867,7 +874,10 @@ class ProblemService(
                     UUID.randomUUID(), versionId, index + 1, test.score, inputId, outputId, test.sample,
                 )
             }
-            if (request.publish) jdbc.update("UPDATE problem SET current_published_version_id = ? WHERE id = ?", versionId, record.problemId)
+            if (request.publish) {
+                jdbc.update("UPDATE problem SET current_published_version_id = ? WHERE id = ?", versionId, record.problemId)
+                markManualAiRunsPublished(versionId)
+            }
             return CreatedProblemVersionResponse(record.problemId, versionId, record.versionNumber, if (request.publish) "PUBLISHED" else "DRAFT")
         } catch (failure: Exception) {
             stored.forEach { runCatching { artifactStore.delete(it.storageKey) } }
@@ -999,7 +1009,42 @@ class ProblemService(
         jdbc.update("UPDATE problem_version SET status = 'WITHDRAWN' WHERE problem_id = ? AND status = 'PUBLISHED'", record.first)
         jdbc.update("UPDATE problem_version SET status = 'PUBLISHED', published_at = now() WHERE id = ?", versionId)
         jdbc.update("UPDATE problem SET current_published_version_id = ? WHERE id = ?", versionId, record.first)
+        markManualAiRunsPublished(versionId)
         return CreatedProblemVersionResponse(record.first, versionId, record.second, "PUBLISHED")
+    }
+
+    /** 人工确认测试点后发布时，收束关闭自动发布的 AI 运行状态并保留审计记录。 */
+    private fun markManualAiRunsPublished(versionId: UUID) {
+        val runIds = jdbc.query(
+            """
+            SELECT id, state FROM ai_problem_run
+            WHERE problem_version_id = ? AND state IN ('VALIDATING', 'NEEDS_REVIEW') AND auto_publish = FALSE
+            FOR UPDATE
+            """.trimIndent(),
+            { result, _ -> result.getObject("id", UUID::class.java) to result.getString("state") },
+            versionId,
+        )
+        runIds.forEach { (runId, fromState) ->
+            jdbc.update(
+                """
+                UPDATE ai_problem_run
+                SET state = 'PUBLISHED', coordinator_lease = NULL,
+                    coordinator_lease_expires_at = NULL, updated_at = now()
+                WHERE id = ?
+                """.trimIndent(),
+                runId,
+            )
+            jdbc.update(
+                """
+                INSERT INTO ai_problem_state_history(id, run_id, from_state, to_state, major_state, message)
+                VALUES (?, ?, ?, 'PUBLISHED', 'PUBLISHED', ?)
+                """.trimIndent(),
+                UUID.randomUUID(),
+                runId,
+                fromState,
+                "管理员检查测试点并手动发布题目版本",
+            )
+        }
     }
 
     /** 读取公开样例的文本制品。 */

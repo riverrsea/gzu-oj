@@ -213,6 +213,28 @@ a { color: inherit; text-decoration: none; }
 .ai-flow-step--current { color: var(--text); }.ai-flow-step--current .ai-flow-dot { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
 .ai-flow-step--current strong { color: var(--accent); }
 .ai-flow-actions { justify-content: flex-start; }
+.ai-response-panel { display: grid; gap: 12px; padding: 18px 0; border-bottom: 1px solid var(--border); }
+.ai-response-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.ai-response-header h2 { margin: 0 0 4px; font-size: 17px; }
+.ai-response-header p, .ai-response-empty { margin: 0; color: var(--muted); font-size: 13px; }
+.ai-response-header > strong { color: var(--accent); white-space: nowrap; }
+.ai-response-list { display: grid; gap: 8px; }
+.ai-response-item { border: 1px solid var(--border); background: var(--surface-subtle); }
+.ai-response-item > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; cursor: pointer; list-style-position: inside; }
+.ai-response-item > summary > span { display: grid; gap: 3px; min-width: 0; }
+.ai-response-item > summary strong, .ai-response-item > summary small, .ai-response-item > summary time { overflow-wrap: anywhere; }
+.ai-response-item > summary small, .ai-response-item > summary time { color: var(--muted); font-size: 11px; }
+.ai-response-content { display: grid; gap: 11px; padding: 0 13px 13px; }
+.ai-response-summary { margin: 0; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ai-response-box { display: grid; gap: 6px; padding: 9px 11px; border: 1px solid var(--border); background: var(--surface); font-size: 13px; }
+.ai-response-box--warning { border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); }
+.ai-response-box strong { font-size: 12px; }
+.ai-response-box ul { display: grid; gap: 4px; margin: 0; padding-left: 18px; line-height: 1.5; overflow-wrap: anywhere; }
+.ai-response-code, .ai-response-raw pre { max-height: 360px; margin: 0; padding: 10px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--border); background: var(--surface-subtle); font: 12px/1.55 ui-monospace, monospace; }
+.ai-response-raw { border-top: 1px solid var(--border); padding-top: 9px; }
+.ai-response-raw summary { color: var(--accent); cursor: pointer; font-size: 12px; }
+.ai-response-error { margin: 0; color: var(--danger); font-size: 13px; }
+.ai-response-hash { color: var(--muted); font: 10px ui-monospace, monospace; overflow-wrap: anywhere; }
 .tool-card { border: 1px solid var(--border); background: var(--surface); border-radius: 7px; padding: 20px; }
 .tool-card > header { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 16px; }
 .tool-card h2 { margin: 0 0 5px; font-size: 17px; }.tool-card p { color: var(--muted); margin: 0; font-size: 13px; line-height: 1.6; }

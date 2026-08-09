@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { ArrowLeft, Bot, Plus, RefreshCw, Save, Send, Trash2, XCircle } from "@lucide/vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { api } from "../api/client";
-import type { AdminProblemVersionDetail, AiMajorState, AiRun, Difficulty } from "../api/types";
+import type { AdminProblemVersionDetail, AiMajorState, AiRun, AiStepResponse, Difficulty } from "../api/types";
 import MarkdownEditor from "../components/MarkdownEditor.vue";
 
 interface TestCaseForm {
@@ -51,6 +51,8 @@ const aiLocked = computed(() => {
 const aiTerminal = computed(() => Boolean(aiRun.value && ["PUBLISHED", "FAILED", "CANCELED"].includes(aiRun.value.state)));
 /** 只有失败或取消的运行可以从同一草稿重新启动。 */
 const aiCanRestart = computed(() => !aiRun.value || ["FAILED", "CANCELED"].includes(aiRun.value.state));
+/** 兼容 API 重启前的旧响应；旧运行没有 steps 时仍可查看状态。 */
+const aiSteps = computed(() => aiRun.value?.steps ?? []);
 /** 页面时间线中的正常大状态顺序。 */
 const majorStages: AiMajorState[] = [
   "DRAFT",
@@ -88,6 +90,15 @@ const minorLabels: Record<string, string> = {
   FAILED: "流程失败",
   CANCELED: "流程已取消",
 };
+const roleLabels: Record<string, string> = {
+  STATEMENT_ANALYST: "题意分析 Agent",
+  SOLUTION_A: "标程 Agent A",
+  SOLUTION_B: "标程 Agent B",
+  TEST_DESIGNER: "测试设计 Agent",
+  ADVERSARIAL_REVIEWER: "对抗审查 Agent",
+  GENERATOR: "测试生成器 Agent",
+  BRUTE_FORCE: "暴力校验 Agent",
+};
 const currentMajor = computed<AiMajorState>(() => aiRun.value?.majorState ?? "DRAFT");
 
 /** 返回时间线节点当前的完成、进行中或等待状态。 */
@@ -105,6 +116,16 @@ function stageClass(stage: AiMajorState): string {
 /** 读取指定大状态最近一次变更，用于在时间线上展示时间和说明。 */
 function latestHistory(stage: AiMajorState) {
   return [...(aiRun.value?.history ?? [])].reverse().find((entry) => entry.majorState === stage);
+}
+
+/** 将数据库中的原始模型 JSON 格式化，便于管理员排查结构化解析问题。 */
+function formatAiResponse(step: AiStepResponse): string {
+  if (!step.rawResponse) return step.response ? JSON.stringify(step.response, null, 2) : "模型没有返回内容";
+  try {
+    return JSON.stringify(JSON.parse(step.rawResponse), null, 2);
+  } catch {
+    return step.rawResponse;
+  }
 }
 
 function addCase(): void {
@@ -279,6 +300,37 @@ onUnmounted(() => {
         <el-button v-if="aiRun && !aiTerminal" :loading="aiLoading" @click="cancelAi"><XCircle :size="16" />取消流程</el-button>
         <el-button v-if="aiRun" :loading="aiLoading" @click="refreshAi"><RefreshCw :size="16" />刷新状态</el-button>
       </footer>
+    </section>
+
+    <section v-if="aiRun" class="ai-response-panel">
+      <header class="ai-response-header">
+        <div><h2>AI 返回</h2><p>每个已完成步骤的结构化结果都会保存，可展开查看原始 JSON。</p></div>
+        <strong>{{ aiSteps.length }} 步</strong>
+      </header>
+      <p v-if="aiSteps.length === 0" class="ai-response-empty">当前还没有收到 Agent 返回；如果流程失败，请查看上方错误原因。</p>
+      <div v-else class="ai-response-list">
+        <details v-for="(step, index) in aiSteps" :key="step.id" class="ai-response-item" :open="index === aiSteps.length - 1">
+          <summary>
+            <span><strong>{{ roleLabels[step.role] ?? step.role }}</strong><small>{{ minorLabels[step.state] ?? step.state }}</small></span>
+            <time v-if="step.finishedAt">{{ new Date(step.finishedAt).toLocaleString() }}</time>
+          </summary>
+          <div class="ai-response-content">
+            <p v-if="step.response?.summary" class="ai-response-summary">{{ step.response.summary }}</p>
+            <div v-if="step.response?.ambiguities?.length" class="ai-response-box ai-response-box--warning"><strong>题意歧义</strong><ul><li v-for="item in step.response.ambiguities" :key="item">{{ item }}</li></ul></div>
+            <div v-if="step.response?.findings?.length" class="ai-response-box ai-response-box--warning"><strong>审查发现</strong><ul><li v-for="item in step.response.findings" :key="item">{{ item }}</li></ul></div>
+            <div v-if="step.response?.testPlan?.length" class="ai-response-box"><strong>测试计划</strong><ul><li v-for="item in step.response.testPlan" :key="item">{{ item }}</li></ul></div>
+            <div v-if="step.response?.seeds?.length" class="ai-response-box"><strong>固定种子</strong><span>{{ step.response.seeds.join(', ') }}</span></div>
+            <div v-if="step.response?.sourceCode" class="ai-response-box"><strong>候选标程</strong><pre class="ai-response-code">{{ step.response.sourceCode }}</pre></div>
+            <div v-if="step.response?.generatorSource" class="ai-response-box"><strong>生成器源码</strong><pre class="ai-response-code">{{ step.response.generatorSource }}</pre></div>
+            <div v-if="step.response?.validatorSource" class="ai-response-box"><strong>校验器源码</strong><pre class="ai-response-code">{{ step.response.validatorSource }}</pre></div>
+            <p v-if="step.rawResponse && !step.response" class="ai-response-error">返回没有匹配预期结构，已保留原始模型内容。</p>
+            <p v-else-if="!step.rawResponse" class="ai-response-error">该步骤没有写入模型返回。</p>
+            <p v-if="step.failureReason" class="ai-response-error">{{ step.failureReason }}</p>
+            <details v-if="step.rawResponse" class="ai-response-raw"><summary>查看原始模型返回</summary><pre>{{ formatAiResponse(step) }}</pre></details>
+            <small v-if="step.contentSha256" class="ai-response-hash">返回哈希：{{ step.contentSha256 }}</small>
+          </div>
+        </details>
+      </div>
     </section>
 
     <el-alert v-if="aiLocked" type="warning" show-icon title="该草稿存在进行中的 AI 流程，内容暂时锁定；流程结束或取消后可继续编辑。" />

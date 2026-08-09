@@ -197,8 +197,32 @@ data class AiRunResponse(
     val failureReason: String?,
     /** 已完成的固定角色。 */
     val completedRoles: List<AiAgentRole>,
+    /** 已持久化的 Agent 返回，供管理员排查每一步的结果。 */
+    val steps: List<AiStepResponse> = emptyList(),
     /** 状态变更时间线；旧运行没有历史时为空。 */
     val history: List<AiStateHistoryEntry> = emptyList(),
+)
+
+/** 单个 Agent 步骤的管理员可见返回。 */
+data class AiStepResponse(
+    /** 步骤记录标识。 */
+    val id: UUID,
+    /** 执行角色。 */
+    val role: AiAgentRole,
+    /** 角色执行时所处的小状态。 */
+    val state: AiWorkflowState,
+    /** 解析后的结构化返回。 */
+    val response: AiAgentResponse?,
+    /** 数据库保存的原始结构化 JSON，解析失败时仍可排查模型实际返回。 */
+    val rawResponse: String?,
+    /** 本次调用费用。 */
+    val costMicrounits: Long,
+    /** 返回内容 SHA-256。 */
+    val contentSha256: String?,
+    /** 角色完成时间。 */
+    val finishedAt: Instant?,
+    /** 本步骤错误原因。 */
+    val failureReason: String?,
 )
 
 /** AI 运行状态时间线中的一条追加式记录。 */
@@ -488,11 +512,8 @@ class AiRunService(
 
     /** 读取运行及已完成角色，不返回密钥或完整提示词。 */
     fun get(runId: UUID): AiRunResponse {
-        val completed = jdbc.queryForList(
-            "SELECT DISTINCT role FROM ai_problem_step WHERE run_id = ? AND finished_at IS NOT NULL ORDER BY role",
-            String::class.java,
-            runId,
-        ).filterNotNull().map(AiAgentRole::valueOf)
+        val steps = loadSteps(runId)
+        val completed = steps.map(AiStepResponse::role).distinct()
         val row = jdbc.query(
             """
             SELECT id, problem_version_id, state, repair_round, model, prompt_version,
@@ -527,6 +548,7 @@ class AiRunService(
             costMicrounits = row.costMicrounits,
             failureReason = row.failureReason,
             completedRoles = completed,
+            steps = steps,
             history = loadHistory(runId).ifEmpty {
                 listOf(
                     AiStateHistoryEntry(
@@ -539,6 +561,35 @@ class AiRunService(
             },
         )
     }
+
+    /** 读取 Agent 返回；不读取 request_json，避免把题面上下文和内部提示词暴露给页面。 */
+    private fun loadSteps(runId: UUID): List<AiStepResponse> = jdbc.query(
+        """
+        SELECT id, role, state,
+               COALESCE(response_json, structured_response)::text AS response_payload,
+               cost_microunits, content_sha256, finished_at, failure_reason
+        FROM ai_problem_step
+        WHERE run_id = ?
+        ORDER BY ordinal, id
+        """.trimIndent(),
+        { result, _ ->
+            val rawResponse = result.getString("response_payload")
+            AiStepResponse(
+                id = result.getObject("id", UUID::class.java),
+                role = AiAgentRole.valueOf(result.getString("role")),
+                state = AiWorkflowState.valueOf(result.getString("state")),
+                response = rawResponse?.let { payload ->
+                    runCatching { mapper.readValue(payload, AiAgentResponse::class.java) }.getOrNull()
+                },
+                rawResponse = rawResponse,
+                costMicrounits = result.getLong("cost_microunits"),
+                contentSha256 = result.getString("content_sha256"),
+                finishedAt = result.getTimestamp("finished_at")?.toInstant(),
+                failureReason = result.getString("failure_reason"),
+            )
+        },
+        runId,
+    )
 
     /** 查询指定草稿当前仍未结束的 AI 运行，供草稿编辑页恢复状态。 */
     fun activeForVersion(problemVersionId: UUID): AiRunResponse? {

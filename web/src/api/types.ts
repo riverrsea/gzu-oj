@@ -258,6 +258,29 @@ export interface AiStateHistoryEntry {
   createdAt: string;
 }
 
+export interface AiAgentResponse {
+  summary: string;
+  ambiguities: string[];
+  sourceCode: string | null;
+  generatorSource: string | null;
+  validatorSource: string | null;
+  testPlan: string[];
+  seeds: number[];
+  findings: string[];
+}
+
+export interface AiStepResponse {
+  id: string;
+  role: string;
+  state: string;
+  response: AiAgentResponse | null;
+  rawResponse: string | null;
+  costMicrounits: number;
+  contentSha256: string | null;
+  finishedAt: string | null;
+  failureReason: string | null;
+}
+
 export interface AiRun {
   id: string;
   problemVersionId: string;
@@ -269,6 +292,7 @@ export interface AiRun {
   costMicrounits: number;
   failureReason: string | null;
   completedRoles: string[];
+  steps: AiStepResponse[];
   history: AiStateHistoryEntry[];
 }
 

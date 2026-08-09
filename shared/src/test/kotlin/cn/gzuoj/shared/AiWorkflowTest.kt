@@ -10,7 +10,9 @@ class AiWorkflowTest {
     /** 主流程只能逐步前进，但非终态可以进入人工处理。 */
     @Test
     fun `accepts only declared transitions`() {
-        assertTrue(AiWorkflow.canTransition(AiWorkflowState.DRAFT, AiWorkflowState.ANALYZING))
+        assertFalse(AiWorkflow.canTransition(AiWorkflowState.DRAFT, AiWorkflowState.ANALYZING))
+        assertTrue(AiWorkflow.canTransition(AiWorkflowState.ANALYZING, AiWorkflowState.GENERATING_SOLUTIONS))
+        assertTrue(AiWorkflow.canTransition(AiWorkflowState.GENERATING_SOLUTIONS, AiWorkflowState.REVIEWING))
         assertTrue(AiWorkflow.canTransition(AiWorkflowState.REVIEWING, AiWorkflowState.NEEDS_REVIEW))
         assertFalse(AiWorkflow.canTransition(AiWorkflowState.DRAFT, AiWorkflowState.PUBLISHED))
         assertFalse(AiWorkflow.canTransition(AiWorkflowState.PUBLISHED, AiWorkflowState.CANCELED))

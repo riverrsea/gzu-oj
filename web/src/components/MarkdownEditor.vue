@@ -26,8 +26,8 @@ import { EditorView, keymap, lineNumbers, placeholder } from "@codemirror/view";
 /** Markdown 编辑器显示模式。 */
 type EditorMode = "edit" | "split" | "preview";
 
-/** 父组件传入的 Markdown 文本。 */
-const props = defineProps<{ modelValue: string }>();
+/** 父组件传入的 Markdown 文本和编辑锁定状态。 */
+const props = defineProps<{ modelValue: string; disabled?: boolean }>();
 /** 向父组件同步编辑后的 Markdown 文本。 */
 const emit = defineEmits<{ "update:modelValue": [value: string] }>();
 /** CodeMirror 宿主节点。 */
@@ -36,6 +36,8 @@ const host = ref<HTMLDivElement>();
 const dark = ref(document.documentElement.dataset.theme === "dark");
 /** 编辑器主题动态配置槽。 */
 const themeCompartment = new Compartment();
+/** 编辑只读状态动态配置槽。 */
+const readOnlyCompartment = new Compartment();
 /** CodeMirror 编辑器实例。 */
 let editor: EditorView | null = null;
 
@@ -81,7 +83,7 @@ function editorTheme(isDark: boolean) {
 
 /** 替换当前选区，并把新选区定位到插入内容内部。 */
 function replaceSelection(insert: string, selectionStart: number, selectionEnd: number): void {
-  if (!editor) return;
+  if (!editor || props.disabled) return;
   const range = editor.state.selection.main;
   editor.dispatch({
     changes: { from: range.from, to: range.to, insert },
@@ -93,7 +95,7 @@ function replaceSelection(insert: string, selectionStart: number, selectionEnd: 
 
 /** 使用成对 Markdown 标记包裹当前选区。 */
 function wrapSelection(before: string, after: string, fallback: string): void {
-  if (!editor) return;
+  if (!editor || props.disabled) return;
   const range = editor.state.selection.main;
   const selected = editor.state.doc.sliceString(range.from, range.to) || fallback;
   replaceSelection(before + selected + after, before.length, before.length + selected.length);
@@ -101,7 +103,7 @@ function wrapSelection(before: string, after: string, fallback: string): void {
 
 /** 对当前选区覆盖到的完整行应用 Markdown 行级标记。 */
 function transformLines(transform: (line: string, index: number) => string, fallback: string): void {
-  if (!editor) return;
+  if (!editor || props.disabled) return;
   const range = editor.state.selection.main;
   const firstLine = editor.state.doc.lineAt(range.from);
   const adjustedEnd = range.to > range.from && range.to === editor.state.doc.lineAt(range.to).from ? range.to - 1 : range.to;
@@ -139,7 +141,7 @@ function insertQuote(): void {
 
 /** 根据选区内容插入行内代码或围栏代码块。 */
 function insertCode(): void {
-  if (!editor) return;
+  if (!editor || props.disabled) return;
   const range = editor.state.selection.main;
   const selected = editor.state.doc.sliceString(range.from, range.to);
   if (selected.includes("\n")) {
@@ -151,7 +153,7 @@ function insertCode(): void {
 
 /** 插入 Markdown 链接并选中 URL 位置。 */
 function insertLink(): void {
-  if (!editor) return;
+  if (!editor || props.disabled) return;
   const range = editor.state.selection.main;
   const label = editor.state.doc.sliceString(range.from, range.to) || "链接文字";
   const url = "https://";
@@ -160,12 +162,12 @@ function insertLink(): void {
 
 /** 执行编辑器撤销操作。 */
 function undoEdit(): void {
-  if (editor) undo(editor);
+  if (editor && !props.disabled) undo(editor);
 }
 
 /** 执行编辑器重做操作。 */
 function redoEdit(): void {
-  if (editor) redo(editor);
+  if (editor && !props.disabled) redo(editor);
 }
 
 /** 切换编辑器显示模式并持久化偏好。 */
@@ -202,6 +204,10 @@ onMounted(() => {
           indentWithTab,
         ]),
         themeCompartment.of(editorTheme(dark.value)),
+        readOnlyCompartment.of([
+          EditorState.readOnly.of(Boolean(props.disabled)),
+          EditorView.editable.of(!props.disabled),
+        ]),
         EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
           if (update.docChanged) emit("update:modelValue", update.state.doc.toString());
@@ -218,6 +224,15 @@ watch(() => props.modelValue, (value) => {
   }
 });
 
+watch(() => props.disabled, (disabled) => {
+  editor?.dispatch({
+    effects: readOnlyCompartment.reconfigure([
+      EditorState.readOnly.of(Boolean(disabled)),
+      EditorView.editable.of(!disabled),
+    ]),
+  });
+});
+
 onBeforeUnmount(() => {
   window.removeEventListener("gzu-oj-theme-change", syncTheme);
   editor?.destroy();
@@ -228,18 +243,18 @@ onBeforeUnmount(() => {
   <section class="markdown-editor">
     <header class="markdown-toolbar">
       <div class="markdown-command-group" role="toolbar" aria-label="Markdown 格式">
-        <button class="icon-button" type="button" title="撤销" @click="undoEdit"><Undo2 :size="17" /></button>
-        <button class="icon-button" type="button" title="重做" @click="redoEdit"><Redo2 :size="17" /></button>
+        <button class="icon-button" type="button" title="撤销" :disabled="disabled" @click="undoEdit"><Undo2 :size="17" /></button>
+        <button class="icon-button" type="button" title="重做" :disabled="disabled" @click="redoEdit"><Redo2 :size="17" /></button>
         <span class="markdown-toolbar-divider" />
-        <button class="icon-button" type="button" title="二级标题" @click="insertHeading"><Heading2 :size="17" /></button>
-        <button class="icon-button markdown-bold" type="button" title="粗体" @click="wrapSelection('**', '**', '粗体文本')"><Bold :size="17" /></button>
-        <button class="icon-button" type="button" title="斜体" @click="wrapSelection('_', '_', '斜体文本')"><Italic :size="17" /></button>
-        <button class="icon-button" type="button" title="行内代码或代码块" @click="insertCode"><Code2 :size="17" /></button>
-        <button class="icon-button" type="button" title="链接" @click="insertLink"><Link :size="17" /></button>
+        <button class="icon-button" type="button" title="二级标题" :disabled="disabled" @click="insertHeading"><Heading2 :size="17" /></button>
+        <button class="icon-button markdown-bold" type="button" title="粗体" :disabled="disabled" @click="wrapSelection('**', '**', '粗体文本')"><Bold :size="17" /></button>
+        <button class="icon-button" type="button" title="斜体" :disabled="disabled" @click="wrapSelection('_', '_', '斜体文本')"><Italic :size="17" /></button>
+        <button class="icon-button" type="button" title="行内代码或代码块" :disabled="disabled" @click="insertCode"><Code2 :size="17" /></button>
+        <button class="icon-button" type="button" title="链接" :disabled="disabled" @click="insertLink"><Link :size="17" /></button>
         <span class="markdown-toolbar-divider" />
-        <button class="icon-button" type="button" title="无序列表" @click="insertBulletList"><ListIcon :size="17" /></button>
-        <button class="icon-button" type="button" title="有序列表" @click="insertOrderedList"><ListOrdered :size="17" /></button>
-        <button class="icon-button" type="button" title="引用" @click="insertQuote"><Quote :size="17" /></button>
+        <button class="icon-button" type="button" title="无序列表" :disabled="disabled" @click="insertBulletList"><ListIcon :size="17" /></button>
+        <button class="icon-button" type="button" title="有序列表" :disabled="disabled" @click="insertOrderedList"><ListOrdered :size="17" /></button>
+        <button class="icon-button" type="button" title="引用" :disabled="disabled" @click="insertQuote"><Quote :size="17" /></button>
       </div>
       <div class="markdown-toolbar-end">
         <span>{{ modelValue.length }} 字符</span>

@@ -1,6 +1,7 @@
 package cn.gzuoj.api
 
 import cn.gzuoj.shared.AiPublicationGate
+import cn.gzuoj.shared.AiMajorState
 import cn.gzuoj.shared.AiWorkflow
 import cn.gzuoj.shared.AiWorkflowState
 import jakarta.validation.Valid
@@ -12,6 +13,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.ai.chat.client.ChatClient
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.http.HttpStatus
+import org.springframework.http.ResponseEntity
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.security.access.prepost.PreAuthorize
@@ -181,6 +183,8 @@ data class AiRunResponse(
     val problemVersionId: UUID,
     /** 当前状态。 */
     val state: AiWorkflowState,
+    /** 兼容小状态之上的页面聚合大状态。 */
+    val majorState: AiMajorState,
     /** 当前自动修复轮次。 */
     val repairRound: Int,
     /** 模型名称。 */
@@ -193,6 +197,20 @@ data class AiRunResponse(
     val failureReason: String?,
     /** 已完成的固定角色。 */
     val completedRoles: List<AiAgentRole>,
+    /** 状态变更时间线；旧运行没有历史时为空。 */
+    val history: List<AiStateHistoryEntry> = emptyList(),
+)
+
+/** AI 运行状态时间线中的一条追加式记录。 */
+data class AiStateHistoryEntry(
+    /** 聚合大状态。 */
+    val majorState: AiMajorState,
+    /** 保留兼容性的细粒度小状态。 */
+    val state: AiWorkflowState,
+    /** 状态变化说明。 */
+    val message: String?,
+    /** 状态变化时间。 */
+    val createdAt: Instant,
 )
 
 /** 协调器领取到的一步执行租约。 */
@@ -205,6 +223,30 @@ internal data class AiRunLease(
     val state: AiWorkflowState,
     /** 题面 Markdown。 */
     val statement: String,
+)
+
+/** AI 运行当前状态的数据库行。 */
+private data class AiRunRecord(
+    /** 运行标识。 */
+    val id: UUID,
+    /** 题目草稿版本。 */
+    val problemVersionId: UUID,
+    /** 细粒度状态。 */
+    val state: AiWorkflowState,
+    /** 自动修复轮次。 */
+    val repairRound: Int,
+    /** 模型名称。 */
+    val model: String,
+    /** 提示词版本。 */
+    val promptVersion: String,
+    /** 累计费用。 */
+    val costMicrounits: Long,
+    /** 失败原因。 */
+    val failureReason: String?,
+    /** 发布门禁 JSON。 */
+    val publicationGate: String?,
+    /** 创建时间。 */
+    val createdAt: Instant,
 )
 
 /** AI 状态、审计步骤和发布门禁持久化服务。 */
@@ -253,6 +295,7 @@ class AiRunService(
             properties.ai.promptVersion,
             creator,
         )
+        recordStateTransition(id, null, AiWorkflowState.DRAFT, "AI 录题流程已创建")
         return get(id)
     }
 
@@ -335,6 +378,7 @@ class AiRunService(
                 """.trimIndent(),
                 lease.runId,
             )
+            recordStateTransition(lease.runId, current, AiWorkflowState.NEEDS_REVIEW, "AI 费用达到运行上限")
             return
         }
         if (next == AiWorkflowState.PUBLISHED) {
@@ -350,22 +394,31 @@ class AiRunService(
                 addedCost,
                 lease.runId,
             )
+            recordStateTransition(lease.runId, current, next)
         }
     }
 
     /** 模型或 Provider 失败后进入人工接管，保留已有步骤。 */
     @Transactional
     internal fun failLease(lease: AiRunLease, reason: String) {
+        val current = jdbc.query(
+            "SELECT state FROM ai_problem_run WHERE id = ? AND coordinator_lease = ? FOR UPDATE",
+            { result, _ -> AiWorkflowState.valueOf(result.getString("state")) },
+            lease.runId,
+            lease.lease,
+        ).firstOrNull()
         jdbc.update(
             """
             UPDATE ai_problem_run SET state = 'NEEDS_REVIEW', failure_reason = ?,
                 coordinator_lease = NULL, coordinator_lease_expires_at = NULL, updated_at = now()
             WHERE id = ? AND coordinator_lease = ?
+              AND state NOT IN ('PUBLISHED', 'FAILED', 'CANCELED')
             """.trimIndent(),
             reason.take(2_000),
             lease.runId,
             lease.lease,
         )
+        if (current != null) recordStateTransition(lease.runId, current, AiWorkflowState.NEEDS_REVIEW, reason)
     }
 
     /** 在差分阶段记录外部沙箱形成的确定性门禁证据。 */
@@ -399,6 +452,13 @@ class AiRunService(
             if (next == AiWorkflowState.NEEDS_REVIEW) "确定性发布门禁未全部通过" else null,
             runId,
         )
+        recordStateTransition(
+            runId,
+            state,
+            next,
+            if (next == AiWorkflowState.NEEDS_REVIEW) "确定性发布门禁未全部通过" else "确定性发布证据已提交",
+            publicationGatePassed = next == AiWorkflowState.VALIDATING && request.gate.allowsPublication(),
+        )
         return get(runId)
     }
 
@@ -413,7 +473,14 @@ class AiRunService(
         if (!AiWorkflow.canTransition(state, AiWorkflowState.CANCELED)) {
             throw ApiException(HttpStatus.CONFLICT, "AI_RUN_TERMINAL", "终态运行不能取消")
         }
-        jdbc.update("UPDATE ai_problem_run SET state = 'CANCELED', updated_at = now() WHERE id = ?", runId)
+        jdbc.update(
+            """
+            UPDATE ai_problem_run SET state = 'CANCELED', coordinator_lease = NULL,
+                coordinator_lease_expires_at = NULL, updated_at = now() WHERE id = ?
+            """.trimIndent(),
+            runId,
+        )
+        recordStateTransition(runId, state, AiWorkflowState.CANCELED, "管理员取消 AI 录题流程")
         return get(runId)
     }
 
@@ -424,13 +491,14 @@ class AiRunService(
             String::class.java,
             runId,
         ).filterNotNull().map(AiAgentRole::valueOf)
-        return jdbc.query(
+        val row = jdbc.query(
             """
             SELECT id, problem_version_id, state, repair_round, model, prompt_version,
-                   cost_microunits, failure_reason FROM ai_problem_run WHERE id = ?
+                   cost_microunits, failure_reason, publication_gate::text, created_at
+            FROM ai_problem_run WHERE id = ?
             """.trimIndent(),
             { result, _ ->
-                AiRunResponse(
+                AiRunRecord(
                     id = result.getObject("id", UUID::class.java),
                     problemVersionId = result.getObject("problem_version_id", UUID::class.java),
                     state = AiWorkflowState.valueOf(result.getString("state")),
@@ -439,11 +507,89 @@ class AiRunService(
                     promptVersion = result.getString("prompt_version"),
                     costMicrounits = result.getLong("cost_microunits"),
                     failureReason = result.getString("failure_reason"),
-                    completedRoles = completed,
+                    publicationGate = result.getString("publication_gate"),
+                    createdAt = result.getTimestamp("created_at").toInstant(),
                 )
             },
             runId,
         ).firstOrNull() ?: throw ApiException(HttpStatus.NOT_FOUND, "AI_RUN_NOT_FOUND", "AI 运行不存在")
+        val gatePassed = row.publicationGate?.let { mapper.readValue(it, AiPublicationGate::class.java).allowsPublication() } == true
+        return AiRunResponse(
+            id = row.id,
+            problemVersionId = row.problemVersionId,
+            state = row.state,
+            majorState = AiWorkflow.majorState(row.state, gatePassed),
+            repairRound = row.repairRound,
+            model = row.model,
+            promptVersion = row.promptVersion,
+            costMicrounits = row.costMicrounits,
+            failureReason = row.failureReason,
+            completedRoles = completed,
+            history = loadHistory(runId).ifEmpty {
+                listOf(
+                    AiStateHistoryEntry(
+                        majorState = AiWorkflow.majorState(row.state, gatePassed),
+                        state = row.state,
+                        message = "历史记录未迁移，仅显示当前状态",
+                        createdAt = row.createdAt,
+                    ),
+                )
+            },
+        )
+    }
+
+    /** 查询指定草稿当前仍未结束的 AI 运行，供草稿编辑页恢复状态。 */
+    fun activeForVersion(problemVersionId: UUID): AiRunResponse? {
+        val runId = jdbc.query(
+            """
+            SELECT id FROM ai_problem_run
+            WHERE problem_version_id = ? AND state NOT IN ('PUBLISHED', 'FAILED', 'CANCELED')
+            ORDER BY updated_at DESC, created_at DESC LIMIT 1
+            """.trimIndent(),
+            { result, _ -> result.getObject("id", UUID::class.java) },
+            problemVersionId,
+        ).firstOrNull() ?: return null
+        return get(runId)
+    }
+
+    /** 读取状态变化时间线；历史表新增前的旧运行允许为空。 */
+    private fun loadHistory(runId: UUID): List<AiStateHistoryEntry> = jdbc.query(
+        """
+        SELECT major_state, to_state, message, created_at
+        FROM ai_problem_state_history
+        WHERE run_id = ? ORDER BY created_at, id
+        """.trimIndent(),
+        { result, _ ->
+            AiStateHistoryEntry(
+                majorState = AiMajorState.valueOf(result.getString("major_state")),
+                state = AiWorkflowState.valueOf(result.getString("to_state")),
+                message = result.getString("message"),
+                createdAt = result.getTimestamp("created_at").toInstant(),
+            )
+        },
+        runId,
+    )
+
+    /** 追加状态历史；不修改已有小状态，支持重启后恢复时间线。 */
+    private fun recordStateTransition(
+        runId: UUID,
+        from: AiWorkflowState?,
+        to: AiWorkflowState,
+        message: String? = null,
+        publicationGatePassed: Boolean = false,
+    ) {
+        jdbc.update(
+            """
+            INSERT INTO ai_problem_state_history(id, run_id, from_state, to_state, major_state, message)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """.trimIndent(),
+            UUID.randomUUID(),
+            runId,
+            from?.name,
+            to.name,
+            AiWorkflow.majorState(to, publicationGatePassed).name,
+            message?.take(2_000),
+        )
     }
 
     /** 读取已有角色响应作为下一步上下文。 */
@@ -494,6 +640,7 @@ class AiRunService(
             """.trimIndent(),
             runId,
         )
+        recordStateTransition(runId, AiWorkflowState.VALIDATING, AiWorkflowState.PUBLISHED, "全部发布门禁通过，题目版本已发布")
     }
 }
 
@@ -582,6 +729,13 @@ class AdminAiRunController(
     /** 查看状态和已完成角色。 */
     @GetMapping("/{runId}")
     fun get(@PathVariable runId: UUID): AiRunResponse = service.get(runId)
+
+    /** 按题目草稿查询当前 AI 运行，便于编辑页刷新后恢复时间线。 */
+    @GetMapping("/by-version/{problemVersionId}")
+    fun active(@PathVariable problemVersionId: UUID): ResponseEntity<AiRunResponse> {
+        val run = service.activeForVersion(problemVersionId) ?: return ResponseEntity.noContent().build()
+        return ResponseEntity.ok(run)
+    }
 
     /** 写入真实沙箱差分产生的发布证据。 */
     @PostMapping("/{runId}/validation")

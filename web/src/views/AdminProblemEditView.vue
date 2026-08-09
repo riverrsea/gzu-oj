@@ -121,11 +121,12 @@ onMounted(() => void load());
 <template>
   <section v-loading="loading" class="content-page admin-problem-page">
     <div class="page-heading">
-      <div><h1>编辑题目草稿</h1><p>版本 v{{ detail?.versionNumber }} · 外部题目标识 {{ detail?.externalKey || '手工题目' }}（只读）</p></div>
+      <div><h1>编辑题目草稿</h1><p>版本 v{{ detail?.versionNumber }} · 外部题目标识 {{ detail?.externalKey || '手工题目' }}（只读）· 第二阶段录入测试点</p></div>
       <el-button text @click="router.push('/admin/problems')"><ArrowLeft :size="16" />返回题库</el-button>
     </div>
 
     <el-alert v-if="detail?.activeAiRun" type="warning" show-icon title="该草稿存在进行中的 AI 流程，请先取消 AI 流程后再编辑。" />
+    <el-alert v-else-if="detail && form.testCases.length === 0" type="info" show-icon title="当前草稿还没有测试点；请添加测试点并保存，分值合计 100 后才能发布。" />
     <el-form label-position="top" class="problem-form" @submit.prevent="save(false)">
       <section class="form-section">
         <h2>题目元数据</h2>

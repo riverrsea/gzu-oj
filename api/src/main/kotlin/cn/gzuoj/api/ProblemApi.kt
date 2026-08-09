@@ -92,9 +92,9 @@ data class CreateProblemVersionRequest(
     @field:Pattern(regexp = "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", message = "外部题目标识格式不正确")
     @field:Size(max = 128)
     val externalKey: String? = null,
-    /** 测试点；发布版本的分值必须合计为 100。 */
-    @field:Size(min = 1, max = 200)
-    val testCases: List<@Valid CreateTestCaseRequest>,
+    /** 测试点；草稿阶段可以暂时为空，发布版本的分值必须合计为 100。 */
+    @field:Size(max = 200)
+    val testCases: List<@Valid CreateTestCaseRequest> = emptyList(),
     /** 是否在创建后立即发布。 */
     val publish: Boolean = false,
     /** AI 生成数据的非官方声明。 */
@@ -140,9 +140,9 @@ data class UpdateDraftProblemVersionRequest(
     @field:Min(16)
     @field:Max(2048)
     val memoryLimitMiB: Int,
-    /** 新的测试点集合。 */
-    @field:Size(min = 1, max = 200)
-    val testCases: List<@Valid CreateTestCaseRequest>,
+    /** 新的测试点集合；草稿阶段可以暂时为空。 */
+    @field:Size(max = 200)
+    val testCases: List<@Valid CreateTestCaseRequest> = emptyList(),
     /** 是否在保存后立即发布。 */
     val publish: Boolean = false,
     /** AI 生成数据的非官方声明。 */
@@ -660,8 +660,8 @@ class ProblemService(
             versionId,
         ) ?: false
         if (activeAi) throw ApiException(HttpStatus.CONFLICT, "AI_RUN_ACTIVE", "该版本存在未结束的 AI 流程，请先取消")
-        if (request.publish && request.testCases.sumOf { it.score } != 100) {
-            throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_SCORE_SUM", "发布版本的测试点分值之和必须为 100")
+        if (request.publish && (request.testCases.isEmpty() || request.testCases.sumOf { it.score } != 100)) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_SCORE_SUM", "发布版本至少需要一个测试点且分值之和必须为 100")
         }
         validateTags(request.tags)
         lockProblem(record.problemId)
@@ -732,8 +732,8 @@ class ProblemService(
         contentHashOverride: String? = null,
         fixedProblemId: UUID? = null,
     ): CreatedProblemVersionResponse {
-        if (request.publish && request.testCases.sumOf { it.score } != 100) {
-            throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_SCORE_SUM", "发布版本的测试点分值之和必须为 100")
+        if (request.publish && (request.testCases.isEmpty() || request.testCases.sumOf { it.score } != 100)) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_SCORE_SUM", "发布版本至少需要一个测试点且分值之和必须为 100")
         }
         if (request.tags.map { it.trim().lowercase() }.distinct().size != request.tags.size) {
             throw ApiException(HttpStatus.BAD_REQUEST, "DUPLICATE_TAG", "题目标签不能重复")

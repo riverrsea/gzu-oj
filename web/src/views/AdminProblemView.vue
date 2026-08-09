@@ -1,23 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { Bot, Plus, Save, Trash2 } from "@lucide/vue";
+import { Save } from "@lucide/vue";
 import { ElMessage } from "element-plus";
 import { useRoute, useRouter } from "vue-router";
 import { api } from "../api/client";
-import type { AdminProblemVersionDetail, CreatedProblemVersion, Difficulty } from "../api/types";
+import type { AdminProblemVersionDetail, Difficulty } from "../api/types";
 import MarkdownEditor from "../components/MarkdownEditor.vue";
-
-/** 管理员录入的测试点表单。 */
-interface TestCaseForm {
-  /** 测试输入。 */
-  input: string;
-  /** 标准输出。 */
-  output: string;
-  /** 测试点分值。 */
-  score: number;
-  /** 是否作为公开样例。 */
-  sample: boolean;
-}
 
 /** 页面路由器。 */
 const router = useRouter();
@@ -27,10 +15,8 @@ const route = useRoute();
 const loading = ref(false);
 /** 被复制版本的完整信息；为空时表示创建全新逻辑题目。 */
 const baseVersion = ref<AdminProblemVersionDetail>();
-/** 表单提交状态。 */
+/** 第一阶段草稿保存状态。 */
 const saving = ref(false);
-/** 最近创建的不可变题目版本。 */
-const created = ref<CreatedProblemVersion>();
 /** 逗号分隔的标签输入。 */
 const tagText = ref("");
 /** 单题录入表单。 */
@@ -44,17 +30,13 @@ const form = reactive({
   statementMarkdown: "# 题目描述\n\n请在此填写题面。\n",
   timeLimitMs: 1000,
   memoryLimitMiB: 256,
-  publish: false,
   dataNotice: "",
-  testCases: [{ input: "", output: "", score: 100, sample: true }] as TestCaseForm[],
 });
 
-/** 当前测试点总分。 */
-const totalScore = computed(() => form.testCases.reduce((sum, item) => sum + Number(item.score || 0), 0));
 /** 页面是否正在为已有逻辑题目创建新版本。 */
 const creatingNextVersion = computed(() => Boolean(baseVersion.value));
 
-/** 从已有版本复制元数据、题面和测试点，随后保存为新的草稿版本。 */
+/** 从已有版本复制元数据和题面，随后保存为新的草稿版本。 */
 async function loadBaseVersion(): Promise<void> {
   if (typeof route.query.fromVersionId !== "string") return;
   loading.value = true;
@@ -71,8 +53,6 @@ async function loadBaseVersion(): Promise<void> {
     form.timeLimitMs = loaded.timeLimitMs;
     form.memoryLimitMiB = loaded.memoryLimitMiB;
     form.dataNotice = loaded.dataNotice ?? "";
-    form.publish = false;
-    form.testCases = loaded.testCases.map(({ input, output, score, sample }) => ({ input, output, score, sample }));
     tagText.value = loaded.tags.join(", ");
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "基础版本加载失败");
@@ -82,26 +62,8 @@ async function loadBaseVersion(): Promise<void> {
   }
 }
 
-/** 增加一个默认测试点。 */
-function addCase(): void {
-  form.testCases.push({ input: "", output: "", score: 0, sample: false });
-}
-
-/** 删除指定测试点，并确保至少保留一个。 */
-function removeCase(index: number): void {
-  if (form.testCases.length === 1) {
-    ElMessage.warning("至少需要一个测试点");
-    return;
-  }
-  form.testCases.splice(index, 1);
-}
-
-/** 校验并创建题目草稿或发布版本。 */
+/** 第一阶段只创建题目草稿，测试点在草稿编辑页单独保存。 */
 async function save(): Promise<void> {
-  if (form.publish && totalScore.value !== 100) {
-    ElMessage.error("立即发布时测试点分值之和必须为 100");
-    return;
-  }
   saving.value = true;
   try {
     const body = {
@@ -110,22 +72,19 @@ async function save(): Promise<void> {
       sourceUrl: form.sourceUrl.trim() || null,
       dataNotice: form.dataNotice.trim() || null,
       tags: tagText.value.split(/[，,]/).map((tag) => tag.trim()).filter(Boolean),
+      publish: false,
+      testCases: [],
     };
-    created.value = baseVersion.value
+    const created = baseVersion.value
       ? await api.createProblemVersion(baseVersion.value.problemId, body)
       : await api.createProblem(body);
-    ElMessage.success(form.publish ? "题目版本已发布" : "题目草稿已创建");
+    ElMessage.success("题目草稿已创建，请继续录入测试点");
+    await router.replace(`/admin/problems/${created.versionId}/edit`);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "题目保存失败");
   } finally {
     saving.value = false;
   }
-}
-
-/** 前往 AI 录题页面并携带刚创建的草稿版本标识。 */
-function openAi(): void {
-  if (!created.value || created.value.status !== "DRAFT") return;
-  void router.push({ path: "/admin/ai", query: { versionId: created.value.versionId } });
 }
 
 onMounted(() => void loadBaseVersion());
@@ -134,7 +93,7 @@ onMounted(() => void loadBaseVersion());
 <template>
   <section v-loading="loading" class="content-page admin-problem-page">
     <div class="page-heading">
-      <div><h1>{{ creatingNextVersion ? '新建题目版本' : '单题录入' }}</h1><p>{{ creatingNextVersion ? `复制 v${baseVersion?.versionNumber}，新草稿仍归属于原题目 ID` : '保存后形成不可变版本；外部导入题目使用 externalKey 归并版本，手工题目可留空' }}</p></div>
+      <div><h1>{{ creatingNextVersion ? '新建题目版本草稿' : '新建题目草稿' }}</h1><p>{{ creatingNextVersion ? `复制 v${baseVersion?.versionNumber} 的题面，新草稿仍归属于原题目 ID` : '第一阶段先保存题面和元数据，测试点将在草稿编辑页单独录入' }}</p></div>
     </div>
 
     <el-form label-position="top" class="problem-form" @submit.prevent="save">
@@ -163,26 +122,9 @@ onMounted(() => void loadBaseVersion());
         </div>
       </section>
 
-      <section class="form-section">
-        <header class="section-heading"><div><h2>测试点</h2><p :class="{ 'score-invalid': totalScore !== 100 }">总分 {{ totalScore }} / 100</p></div><el-button @click="addCase"><Plus :size="16" />添加测试点</el-button></header>
-        <div class="test-case-editor">
-          <article v-for="(item, index) in form.testCases" :key="index" class="test-case-card">
-            <header><strong>测试点 {{ index + 1 }}</strong><button class="icon-button" type="button" title="删除测试点" @click="removeCase(index)"><Trash2 :size="17" /></button></header>
-            <div class="test-case-columns"><el-form-item label="输入"><el-input v-model="item.input" type="textarea" :rows="5" /></el-form-item><el-form-item label="标准输出"><el-input v-model="item.output" type="textarea" :rows="5" /></el-form-item></div>
-            <footer><el-checkbox v-model="item.sample">公开样例</el-checkbox><el-form-item label="分值"><el-input-number v-model="item.score" :min="0" :max="100" /></el-form-item></footer>
-          </article>
-        </div>
-      </section>
-
       <footer class="form-actions">
-        <el-checkbox v-model="form.publish">校验通过后立即发布</el-checkbox>
-        <el-button type="primary" native-type="submit" :loading="saving"><Save :size="16" />保存版本</el-button>
+        <el-button type="primary" native-type="submit" :loading="saving"><Save :size="16" />创建草稿并继续</el-button>
       </footer>
     </el-form>
-
-    <section v-if="created" class="created-result">
-      <div><strong>版本 {{ created.versionNumber }} 已创建</strong><p>{{ created.versionId }} · {{ created.status }}</p></div>
-      <el-button v-if="created.status === 'DRAFT'" @click="openAi"><Bot :size="16" />前往 AI 录题</el-button>
-    </section>
   </section>
 </template>

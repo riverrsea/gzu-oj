@@ -310,7 +310,7 @@ class AiRunService(
             """
             INSERT INTO ai_problem_run(
                 id, problem_version_id, state, provider_base_url, model, prompt_version, created_by
-            ) VALUES (?, ?, 'DRAFT', ?, ?, ?, ?)
+            ) VALUES (?, ?, 'ANALYZING', ?, ?, ?, ?)
             """.trimIndent(),
             id,
             request.problemVersionId,
@@ -319,7 +319,7 @@ class AiRunService(
             properties.ai.promptVersion,
             creator,
         )
-        recordStateTransition(id, null, AiWorkflowState.DRAFT, "AI 录题流程已创建")
+        recordStateTransition(id, null, AiWorkflowState.ANALYZING, "草稿资格已确认，开始分析题意")
         return get(id)
     }
 
@@ -331,7 +331,7 @@ class AiRunService(
             """
             SELECT r.id, r.state, pv.statement_markdown
             FROM ai_problem_run r JOIN problem_version pv ON pv.id = r.problem_version_id
-            WHERE r.state IN ('DRAFT', 'ANALYZING', 'GENERATING_SOLUTIONS', 'REVIEWING', 'GENERATING_TESTS', 'VALIDATING')
+            WHERE r.state IN ('ANALYZING', 'GENERATING_SOLUTIONS', 'REVIEWING', 'GENERATING_TESTS', 'VALIDATING')
               AND r.next_run_at <= now()
               AND (r.coordinator_lease IS NULL OR r.coordinator_lease_expires_at < now())
             ORDER BY r.created_at FOR UPDATE OF r SKIP LOCKED LIMIT 1
@@ -666,7 +666,6 @@ class AiRunService(
 
     /** 返回模型步骤的正常后继；差分阶段由沙箱证据接口推进。 */
     private fun nextState(state: AiWorkflowState): AiWorkflowState = when (state) {
-        AiWorkflowState.DRAFT -> AiWorkflowState.ANALYZING
         AiWorkflowState.ANALYZING -> AiWorkflowState.GENERATING_SOLUTIONS
         AiWorkflowState.GENERATING_SOLUTIONS -> AiWorkflowState.REVIEWING
         AiWorkflowState.REVIEWING -> AiWorkflowState.GENERATING_TESTS
@@ -742,15 +741,10 @@ class AiCoordinator(
 
     /** 状态对应的固定 Agent 角色。 */
     private fun rolesFor(state: AiWorkflowState): List<AiAgentRole> = when (state) {
-        AiWorkflowState.DRAFT -> listOf(AiAgentRole.STATEMENT_ANALYST)
-        AiWorkflowState.ANALYZING -> listOf(
-            AiAgentRole.SOLUTION_A,
-            AiAgentRole.SOLUTION_B,
-            AiAgentRole.TEST_DESIGNER,
-        )
-        AiWorkflowState.GENERATING_SOLUTIONS -> listOf(AiAgentRole.ADVERSARIAL_REVIEWER)
-        AiWorkflowState.REVIEWING -> listOf(AiAgentRole.GENERATOR, AiAgentRole.BRUTE_FORCE)
-        AiWorkflowState.GENERATING_TESTS -> emptyList()
+        AiWorkflowState.ANALYZING -> listOf(AiAgentRole.STATEMENT_ANALYST)
+        AiWorkflowState.GENERATING_SOLUTIONS -> listOf(AiAgentRole.SOLUTION_A, AiAgentRole.SOLUTION_B)
+        AiWorkflowState.REVIEWING -> listOf(AiAgentRole.TEST_DESIGNER, AiAgentRole.ADVERSARIAL_REVIEWER)
+        AiWorkflowState.GENERATING_TESTS -> listOf(AiAgentRole.GENERATOR, AiAgentRole.BRUTE_FORCE)
         AiWorkflowState.VALIDATING -> emptyList()
         else -> throw IllegalStateException("当前 AI 状态不能由模型协调器推进：" + state)
     }

@@ -2,7 +2,7 @@ package cn.gzuoj.shared
 
 /** AI 录题流程状态。 */
 enum class AiWorkflowState {
-    /** 管理员草稿。 */
+    /** 仅保留为题目草稿准入标记；AI 运行不会在此状态调用 Agent。 */
     DRAFT,
     /** 解析题意和歧义。 */
     ANALYZING,
@@ -81,7 +81,6 @@ data class AiPublicationGate(
 object AiWorkflow {
     /** 正常主流程中每个状态的后继状态。 */
     private val normalTransitions = mapOf(
-        AiWorkflowState.DRAFT to AiWorkflowState.ANALYZING,
         AiWorkflowState.ANALYZING to AiWorkflowState.GENERATING_SOLUTIONS,
         AiWorkflowState.GENERATING_SOLUTIONS to AiWorkflowState.REVIEWING,
         AiWorkflowState.REVIEWING to AiWorkflowState.GENERATING_TESTS,
@@ -93,6 +92,7 @@ object AiWorkflow {
     /** 判断一次状态转换是否合法。 */
     fun canTransition(from: AiWorkflowState, to: AiWorkflowState): Boolean {
         if (from in terminalStates) return false
+        if (from == AiWorkflowState.DRAFT) return false
         if (to in interruptionStates) return true
         return normalTransitions[from] == to
     }
@@ -102,8 +102,9 @@ object AiWorkflow {
         require(canTransition(from, to)) { "非法 AI 状态转换：$from -> $to" }
     }
 
-    /** 将兼容保留的小状态映射为前端时间线使用的大状态。 */
+    /** 将题目准入标记和运行小状态映射为前端时间线使用的大状态。 */
     fun majorState(state: AiWorkflowState, publicationGatePassed: Boolean = false): AiMajorState = when (state) {
+        // DRAFT 仅用于题目准入展示，不会成为新 AI 运行的小状态。
         AiWorkflowState.DRAFT -> AiMajorState.DRAFT
         AiWorkflowState.ANALYZING -> AiMajorState.ANALYZING
         AiWorkflowState.GENERATING_SOLUTIONS -> AiMajorState.GENERATING_SOLUTIONS

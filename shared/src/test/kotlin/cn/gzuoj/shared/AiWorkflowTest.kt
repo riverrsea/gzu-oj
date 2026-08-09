@@ -2,6 +2,7 @@ package cn.gzuoj.shared
 
 import kotlin.test.Test
 import kotlin.test.assertFalse
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /** AI 状态机和发布门禁测试。 */
@@ -21,5 +22,16 @@ class AiWorkflowTest {
         val passed = AiPublicationGate(true, true, true, true, true, true)
         assertTrue(passed.allowsPublication())
         assertFalse(passed.copy(deterministic = false).allowsPublication())
+    }
+
+    /** 聚合大状态必须兼容旧的小状态，并只在门禁全部通过时显示 PASSING。 */
+    @Test
+    fun `maps legacy states to major states`() {
+        assertEquals(AiMajorState.GENERATING_SOLUTIONS, AiWorkflow.majorState(AiWorkflowState.GENERATING_SOLUTIONS))
+        assertEquals(AiMajorState.REVIEWING, AiWorkflow.majorState(AiWorkflowState.REVIEWING))
+        assertEquals(AiMajorState.TESTS_GENERATING, AiWorkflow.majorState(AiWorkflowState.DIFFERENTIAL_TESTING))
+        assertEquals(AiMajorState.VALIDATING, AiWorkflow.majorState(AiWorkflowState.VALIDATING))
+        assertEquals(AiMajorState.PASSING, AiWorkflow.majorState(AiWorkflowState.VALIDATING, publicationGatePassed = true))
+        assertEquals(AiMajorState.PUBLISHED, AiWorkflow.majorState(AiWorkflowState.PUBLISHED))
     }
 }

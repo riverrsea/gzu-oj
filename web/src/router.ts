@@ -22,7 +22,6 @@ const router = createRouter({
         { path: "problems/new", component: () => import("./views/AdminProblemView.vue") },
         { path: "problems/:versionId/edit", component: () => import("./views/AdminProblemEditView.vue") },
         { path: "imports", component: () => import("./views/AdminImportView.vue") },
-        { path: "ai", component: () => import("./views/AdminAiView.vue") },
         { path: "workers", component: () => import("./views/AdminWorkerView.vue") },
       ],
     },

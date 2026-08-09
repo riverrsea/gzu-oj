@@ -238,16 +238,38 @@ export interface AdminProblemVersionDetail {
   testCases: AdminTestCaseDetail[];
 }
 
+export type AiMajorState =
+  | "DRAFT"
+  | "ANALYZING"
+  | "GENERATING_SOLUTIONS"
+  | "REVIEWING"
+  | "TESTS_GENERATING"
+  | "VALIDATING"
+  | "PASSING"
+  | "PUBLISHED"
+  | "NEEDS_REVIEW"
+  | "FAILED"
+  | "CANCELED";
+
+export interface AiStateHistoryEntry {
+  majorState: AiMajorState;
+  state: string;
+  message: string | null;
+  createdAt: string;
+}
+
 export interface AiRun {
   id: string;
   problemVersionId: string;
   state: string;
+  majorState: AiMajorState;
   repairRound: number;
   model: string;
   promptVersion: string;
   costMicrounits: number;
   failureReason: string | null;
   completedRoles: string[];
+  history: AiStateHistoryEntry[];
 }
 
 /** 创建判题 Worker 后返回的节点凭据。Token 只在本次响应中返回。 */

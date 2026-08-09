@@ -159,6 +159,10 @@ export const api = {
   startAiRun: (problemVersionId: string) => request<AiRun>("/api/v1/admin/ai-runs", { method: "POST", body: JSON.stringify({ problemVersionId }) }),
   /** 查询单次 AI 录题流程的最新状态。 */
   aiRun: (runId: string) => request<AiRun>("/api/v1/admin/ai-runs/" + runId),
+  /** 按题目草稿恢复当前 AI 运行；没有运行时返回空响应。 */
+  activeAiRun: (problemVersionId: string) => request<AiRun | undefined>("/api/v1/admin/ai-runs/by-version/" + problemVersionId),
+  /** 取消草稿上的当前 AI 运行。 */
+  cancelAiRun: (runId: string) => request<AiRun>("/api/v1/admin/ai-runs/" + runId + "/cancel", { method: "POST" }),
   createWorker: (body: { name: string; slots: number }) =>
     request<CreatedWorker>("/api/v1/admin/workers", { method: "POST", body: JSON.stringify(body) }),
 };

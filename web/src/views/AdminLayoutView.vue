@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bot, BookOpen, FileArchive, Plus, ServerCog } from "@lucide/vue";
+import { BookOpen, FileArchive, Plus, ServerCog } from "@lucide/vue";
 </script>
 
 <template>
@@ -10,7 +10,6 @@ import { Bot, BookOpen, FileArchive, Plus, ServerCog } from "@lucide/vue";
         <RouterLink to="/admin/problems"><BookOpen :size="17" />题库目录</RouterLink>
         <RouterLink to="/admin/problems/new"><Plus :size="17" />新建题目</RouterLink>
         <RouterLink to="/admin/imports"><FileArchive :size="17" />批量导入</RouterLink>
-        <RouterLink to="/admin/ai"><Bot :size="17" />AI 录题</RouterLink>
         <RouterLink to="/admin/workers"><ServerCog :size="17" />判题 Worker</RouterLink>
       </nav>
     </aside>

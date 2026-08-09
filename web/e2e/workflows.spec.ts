@@ -189,10 +189,10 @@ test("移动端工作区可切换且没有水平溢出", async ({ page }, testIn
 test("管理员录题与训练中心可加载", async ({ page }) => {
   await mockApi(page);
   await page.goto("/admin/problems/new");
-  await expect(page.getByRole("heading", { name: "单题录入" })).toBeVisible();
-  await expect(page.locator(".markdown-editor .cm-editor")).toBeVisible();
-  await expect(page.getByTitle("分屏预览")).toBeVisible();
-  await expect(page.locator(".markdown-preview-pane")).toContainText("题目描述");
+  await expect(page.getByRole("heading", { name: "新建题目草稿" })).toBeVisible();
+  await expect(page.locator(".statement-builder")).toBeVisible();
+  await expect(page.getByText("题目描述", { exact: true }).first()).toBeVisible();
+  await expect(page.locator(".statement-preview")).toContainText("题目描述");
   await page.goto("/training");
   await expect(page.getByRole("heading", { name: "训练中心" })).toBeVisible();
   await expect(page.getByText("公开训练赛")).toBeVisible();

@@ -22,6 +22,8 @@ const saving = ref(false);
 const aiLoading = ref(false);
 const tagText = ref("");
 const aiRun = ref<AiRun>();
+/** 启动 AI 时由管理员明确锁定的目标测试点数量。 */
+const aiTestCaseCount = ref(10);
 let aiTimer: number | undefined;
 const form = reactive({
   title: "",
@@ -50,9 +52,11 @@ const aiLocked = computed(() => {
 /** AI 运行是否已经进入不可继续的终态。 */
 const aiTerminal = computed(() => Boolean(aiRun.value && ["PUBLISHED", "FAILED", "CANCELED"].includes(aiRun.value.state)));
 /** 只有失败或取消的运行可以从同一草稿重新启动。 */
-const aiCanRestart = computed(() => !aiRun.value || ["FAILED", "CANCELED"].includes(aiRun.value.state));
+const aiCanRestart = computed(() => !aiRun.value || ["NEEDS_REVIEW", "FAILED", "CANCELED"].includes(aiRun.value.state));
 /** 兼容 API 重启前的旧响应；旧运行没有 steps 时仍可查看状态。 */
 const aiSteps = computed(() => aiRun.value?.steps ?? []);
+/** 已通过真实沙箱差分并写入草稿的测试点。 */
+const aiGeneratedTestCases = computed(() => aiRun.value?.generatedTestCases ?? []);
 /** 页面时间线中的正常大状态顺序。 */
 const majorStages: AiMajorState[] = [
   "DRAFT",
@@ -173,6 +177,7 @@ async function loadAiRun(): Promise<void> {
   if (!detail.value) return;
   try {
     aiRun.value = await api.activeAiRun(detail.value.versionId);
+    if (aiRun.value) aiTestCaseCount.value = aiRun.value.requestedTestCaseCount;
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "AI 状态加载失败");
   }
@@ -186,8 +191,12 @@ async function refreshAi(): Promise<void> {
     const next = aiRun.value
       ? await api.aiRun(aiRun.value.id)
       : await api.activeAiRun(detail.value.versionId);
+    const previousGeneratedCount = aiGeneratedTestCases.value.length;
     aiRun.value = next;
+    if (next) aiTestCaseCount.value = next.requestedTestCaseCount;
     if (!next || ["PUBLISHED", "FAILED", "CANCELED"].includes(next.state)) detail.value.activeAiRun = false;
+    // AI 写入测试点会改变草稿内容哈希；人工接管前重新加载，避免后续保存覆盖新数据。
+    if (next && next.state !== "PUBLISHED" && next.generatedTestCases.length > previousGeneratedCount) await load();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "AI 状态刷新失败");
   } finally {
@@ -198,9 +207,24 @@ async function refreshAi(): Promise<void> {
 /** 从当前草稿编辑页启动 AI 流程。管理员应先保存当前草稿再启动。 */
 async function startAi(): Promise<void> {
   if (!detail.value || aiLoading.value || !aiCanRestart.value) return;
+  if (!Number.isInteger(aiTestCaseCount.value) || aiTestCaseCount.value < 1 || aiTestCaseCount.value > 200) {
+    ElMessage.warning("AI 生成测试点数量必须位于 1 到 200");
+    return;
+  }
+  if (form.testCases.length > 0) {
+    try {
+      await ElMessageBox.confirm(
+        `当前草稿已有 ${form.testCases.length} 个测试点。AI 差分全部通过后，将用新生成的 ${aiTestCaseCount.value} 个测试点替换它们。`,
+        "确认生成测试点",
+        { type: "warning", confirmButtonText: "启动 AI", cancelButtonText: "取消" },
+      );
+    } catch {
+      return;
+    }
+  }
   aiLoading.value = true;
   try {
-    aiRun.value = await api.startAiRun(detail.value.versionId);
+    aiRun.value = await api.startAiRun(detail.value.versionId, aiTestCaseCount.value);
     detail.value.activeAiRun = true;
     ElMessage.success("AI 录题流程已启动");
   } catch (error) {
@@ -296,6 +320,11 @@ onUnmounted(() => {
       </div>
       <el-alert v-if="aiRun && ['NEEDS_REVIEW', 'FAILED', 'CANCELED'].includes(aiRun.state)" :type="aiRun.state === 'NEEDS_REVIEW' ? 'warning' : 'error'" show-icon :title="aiRun.failureReason || majorLabels[aiRun.majorState]" />
       <footer class="ai-flow-actions">
+        <label v-if="aiCanRestart" class="ai-case-count-control">
+          <span>生成测试点数量</span>
+          <el-input-number v-model="aiTestCaseCount" :min="1" :max="200" :step="1" controls-position="right" />
+        </label>
+        <span v-else-if="aiRun" class="ai-case-count-summary">计划 {{ aiRun.requestedTestCaseCount }} 个 · 已生成 {{ aiGeneratedTestCases.length }} 个</span>
         <el-button v-if="aiCanRestart" type="primary" :loading="aiLoading" @click="startAi"><Bot :size="16" />启动 AI</el-button>
         <el-button v-if="aiRun && !aiTerminal" :loading="aiLoading" @click="cancelAi"><XCircle :size="16" />取消流程</el-button>
         <el-button v-if="aiRun" :loading="aiLoading" @click="refreshAi"><RefreshCw :size="16" />刷新状态</el-button>
@@ -305,8 +334,21 @@ onUnmounted(() => {
     <section v-if="aiRun" class="ai-response-panel">
       <header class="ai-response-header">
         <div><h2>AI 返回</h2><p>每个已完成步骤的结构化结果都会保存，可展开查看原始 JSON。</p></div>
-        <strong>{{ aiSteps.length }} 步</strong>
+        <strong>{{ aiGeneratedTestCases.length }} / {{ aiRun.requestedTestCaseCount }} 个测试点 · {{ aiSteps.length }} 步</strong>
       </header>
+      <section class="ai-generated-cases">
+        <header><strong>沙箱生成结果</strong><span>计划 {{ aiRun.requestedTestCaseCount }} 个，已生成 {{ aiGeneratedTestCases.length }} 个</span></header>
+        <p v-if="aiGeneratedTestCases.length === 0" class="ai-response-empty">生成器、输入校验和差分尚未全部通过，当前没有测试点写入草稿。</p>
+        <div v-else class="ai-generated-case-list">
+          <details v-for="testCase in aiGeneratedTestCases" :key="testCase.ordinal" class="ai-response-item">
+            <summary><span><strong>测试点 {{ testCase.ordinal }}</strong><small>种子 {{ testCase.seed }}</small></span><span>{{ testCase.score }} 分</span></summary>
+            <div class="ai-generated-case-content">
+              <div><strong>输入</strong><pre>{{ testCase.input }}</pre></div>
+              <div><strong>标准输出</strong><pre>{{ testCase.output }}</pre></div>
+            </div>
+          </details>
+        </div>
+      </section>
       <p v-if="aiSteps.length === 0" class="ai-response-empty">当前还没有收到 Agent 返回；如果流程失败，请查看上方错误原因。</p>
       <div v-else class="ai-response-list">
         <details v-for="(step, index) in aiSteps" :key="step.id" class="ai-response-item" :open="index === aiSteps.length - 1">

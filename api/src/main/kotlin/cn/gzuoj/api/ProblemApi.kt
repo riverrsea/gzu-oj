@@ -377,6 +377,46 @@ private data class ReferencedArtifact(
     val storageKey: String,
 )
 
+/** AI 差分通过后准备写入草稿版本的测试点。 */
+data class AiGeneratedTestCase(
+    /** 生成器固定种子。 */
+    val seed: Long,
+    /** 已通过输入校验器的测试输入。 */
+    val input: String,
+    /** 两份标程及小数据暴力解一致的标准输出。 */
+    val output: String,
+    /** 自动分配且全部测试点合计为一百分的分值。 */
+    val score: Int,
+)
+
+/** AI 替换草稿测试点时锁定的题目元数据。 */
+private data class AiDraftVersionRecord(
+    /** 题目稳定标识。 */
+    val problemId: UUID,
+    /** 草稿版本状态。 */
+    val status: String,
+    /** 外部题目标识。 */
+    val externalKey: String?,
+    /** 题目标题。 */
+    val title: String,
+    /** 学校名称。 */
+    val school: String,
+    /** 真题年份。 */
+    val year: Int,
+    /** 题目标签。 */
+    val tags: List<String>,
+    /** 题目难度。 */
+    val difficulty: ProblemDifficulty,
+    /** 原始来源地址。 */
+    val sourceUrl: String?,
+    /** Markdown 题面。 */
+    val statementMarkdown: String,
+    /** 基准时间限制。 */
+    val timeLimitMs: Int,
+    /** 基准内存限制。 */
+    val memoryLimitMiB: Int,
+)
+
 /** 题库、版本和测试数据事务服务。 */
 @Service
 class ProblemService(
@@ -385,6 +425,124 @@ class ProblemService(
     /** 文件制品存储。 */
     private val artifactStore: ArtifactStore,
 ) {
+
+    /**
+     * 用真实沙箱差分通过的数据原子替换草稿测试点。
+     *
+     * 文件先写入制品存储，数据库事务失败时删除新文件；旧文件只在事务提交后删除。
+     */
+    @Transactional
+    fun replaceDraftTestCasesFromAi(
+        versionId: UUID,
+        runId: UUID,
+        creator: UUID,
+        testCases: List<AiGeneratedTestCase>,
+    ) {
+        if (testCases.isEmpty() || testCases.sumOf(AiGeneratedTestCase::score) != 100) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_SCORE_SUM", "AI 测试点不能为空且分值之和必须为 100")
+        }
+        val version = jdbc.query(
+            """
+            SELECT pv.problem_id, pv.status, p.external_key, pv.title, pv.school, pv.year, pv.tags,
+                   pv.difficulty, pv.source_url, pv.statement_markdown, pv.time_limit_ms, pv.memory_limit_mib
+            FROM problem_version pv JOIN problem p ON p.id = pv.problem_id
+            WHERE pv.id = ? FOR UPDATE OF pv
+            """.trimIndent(),
+            { result, _ ->
+                AiDraftVersionRecord(
+                    problemId = result.getObject("problem_id", UUID::class.java),
+                    status = result.getString("status"),
+                    externalKey = result.getString("external_key"),
+                    title = result.getString("title"),
+                    school = result.getString("school"),
+                    year = result.getInt("year"),
+                    tags = (result.getArray("tags").array as Array<*>).map { it.toString() },
+                    difficulty = ProblemDifficulty.valueOf(result.getString("difficulty")),
+                    sourceUrl = result.getString("source_url"),
+                    statementMarkdown = result.getString("statement_markdown"),
+                    timeLimitMs = result.getInt("time_limit_ms"),
+                    memoryLimitMiB = result.getInt("memory_limit_mib"),
+                )
+            },
+            versionId,
+        ).firstOrNull() ?: throw ApiException(HttpStatus.NOT_FOUND, "VERSION_NOT_FOUND", "题目版本不存在")
+        if (version.status != "DRAFT") {
+            throw ApiException(HttpStatus.CONFLICT, "VERSION_IMMUTABLE", "AI 测试点只能写入草稿版本")
+        }
+        lockProblem(version.problemId)
+        val replacedArtifacts = loadVersionArtifacts(versionId)
+        val stored = mutableListOf<StoredArtifact>()
+        try {
+            testCases.forEach { testCase ->
+                stored += artifactStore.put("test-data", testCase.input.toByteArray(Charsets.UTF_8), "text/plain; charset=utf-8")
+                stored += artifactStore.put("test-data", testCase.output.toByteArray(Charsets.UTF_8), "text/plain; charset=utf-8")
+            }
+            jdbc.update("DELETE FROM problem_test_case WHERE problem_version_id = ?", versionId)
+            val deletedStorageKeys = deleteUnreferencedArtifacts(replacedArtifacts)
+            deleteArtifactsAfterCommit(deletedStorageKeys)
+            testCases.forEachIndexed { index, testCase ->
+                val inputId = insertArtifact(stored[index * 2], creator)
+                val outputId = insertArtifact(stored[index * 2 + 1], creator)
+                jdbc.update(
+                    """
+                    INSERT INTO problem_test_case(
+                        id, problem_version_id, ordinal, score, input_artifact_id, output_artifact_id,
+                        sample, generated_by_ai_run_id, generation_seed
+                    ) VALUES (?, ?, ?, ?, ?, ?, FALSE, ?, ?)
+                    """.trimIndent(),
+                    UUID.randomUUID(), versionId, index + 1, testCase.score, inputId, outputId, runId, testCase.seed,
+                )
+            }
+            val dataNotice = AI_DATA_NOTICE
+            val contentHash = hashProblem(
+                CreateProblemVersionRequest(
+                    title = version.title,
+                    school = version.school,
+                    year = version.year,
+                    tags = version.tags,
+                    difficulty = version.difficulty,
+                    sourceUrl = version.sourceUrl,
+                    statementMarkdown = version.statementMarkdown,
+                    timeLimitMs = version.timeLimitMs,
+                    memoryLimitMiB = version.memoryLimitMiB,
+                    externalKey = version.externalKey,
+                    testCases = testCases.map { CreateTestCaseRequest(it.input, it.output, it.score) },
+                    dataNotice = dataNotice,
+                ),
+            )
+            jdbc.update(
+                "UPDATE problem_version SET data_notice = ?, content_sha256 = ? WHERE id = ?",
+                dataNotice,
+                contentHash,
+                versionId,
+            )
+        } catch (failure: Exception) {
+            stored.forEach { runCatching { artifactStore.delete(it.storageKey) } }
+            throw failure
+        }
+    }
+
+    /** 读取某次 AI 运行实际写入版本的测试点，供管理员查看生成数量和内容。 */
+    fun aiGeneratedTestCases(runId: UUID): List<AiGeneratedTestCaseResponse> = jdbc.query(
+        """
+        SELECT tc.ordinal, tc.generation_seed, tc.score, ia.storage_key AS input_key, oa.storage_key AS output_key
+        FROM problem_test_case tc
+        JOIN artifact ia ON ia.id = tc.input_artifact_id
+        JOIN artifact oa ON oa.id = tc.output_artifact_id
+        WHERE tc.generated_by_ai_run_id = ?
+        ORDER BY tc.ordinal
+        """.trimIndent(),
+        { result, _ ->
+            AiGeneratedTestCaseResponse(
+                ordinal = result.getInt("ordinal"),
+                seed = result.getLong("generation_seed"),
+                input = artifactStore.open(result.getString("input_key")).bufferedReader().use { it.readText() },
+                output = artifactStore.open(result.getString("output_key")).bufferedReader().use { it.readText() },
+                score = result.getInt("score"),
+            )
+        },
+        runId,
+    )
     /** 按条件检索已发布题目。 */
     fun list(school: String?, year: Int?, tag: String?, difficulty: ProblemDifficulty?): List<ProblemSummary> {
         val sql = StringBuilder(
@@ -653,13 +811,13 @@ class ProblemService(
             """
             SELECT EXISTS(
                 SELECT 1 FROM ai_problem_run
-                WHERE problem_version_id = ? AND state NOT IN ('PUBLISHED', 'FAILED', 'CANCELED')
+                WHERE problem_version_id = ? AND state NOT IN ('PUBLISHED', 'FAILED', 'CANCELED', 'NEEDS_REVIEW')
             )
             """.trimIndent(),
             Boolean::class.java,
             versionId,
         ) ?: false
-        if (activeAi) throw ApiException(HttpStatus.CONFLICT, "AI_RUN_ACTIVE", "该版本存在未结束的 AI 流程，请先取消")
+        if (activeAi) throw ApiException(HttpStatus.CONFLICT, "AI_RUN_ACTIVE", "该版本存在进行中的 AI 流程，请先等待或取消")
         if (request.publish && (request.testCases.isEmpty() || request.testCases.sumOf { it.score } != 100)) {
             throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_SCORE_SUM", "发布版本至少需要一个测试点且分值之和必须为 100")
         }
@@ -1003,6 +1161,11 @@ class ProblemService(
         createdAt = result.getTimestamp("created_at").toInstant(),
         publishedAt = result.getTimestamp("published_at")?.toInstant(),
     )
+
+    private companion object {
+        /** 发布页用于区分 AI 练习数据与学校官方原始数据的固定声明。 */
+        const val AI_DATA_NOTICE: String = "练习数据，非官方原始数据"
+    }
 }
 
 /** 公开题库接口。 */

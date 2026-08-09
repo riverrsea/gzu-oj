@@ -16,12 +16,14 @@ data class SandboxCapabilities(
     val noFallback: Boolean,
 ) {
     /** 转换为控制端心跳请求。 */
-    fun heartbeat(): ControlHeartbeat = ControlHeartbeat(
+    fun heartbeat(judgeSlots: Int, aiSlots: Int): ControlHeartbeat = ControlHeartbeat(
         cpuController = cpu,
         memoryController = memory,
         pidsController = pids,
         noFallback = noFallback,
         languages = JudgeLanguage.entries.toSet(),
+        judgeSlots = judgeSlots,
+        aiSlots = aiSlots,
     )
 }
 

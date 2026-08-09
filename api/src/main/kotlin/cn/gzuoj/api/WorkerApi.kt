@@ -42,6 +42,8 @@ data class WorkerIdentity(
     val name: String,
     /** 节点声明的并发槽数。 */
     val slots: Int,
+    /** 节点声明的独立 AI 沙箱槽数。 */
+    val aiSlots: Int,
 )
 
 /** 管理员创建 Worker 凭据的请求。 */
@@ -53,6 +55,10 @@ data class CreateWorkerRequest(
     @field:Min(1)
     @field:Max(64)
     val slots: Int = 4,
+    /** 与普通提交隔离的 AI 生成和差分槽数。 */
+    @field:Min(0)
+    @field:Max(16)
+    val aiSlots: Int = 2,
 )
 
 /** 只在创建时返回一次的 Worker 明文令牌。 */
@@ -65,6 +71,8 @@ data class CreatedWorkerResponse(
     val token: String,
     /** 节点并发槽数。 */
     val slots: Int,
+    /** 节点独立 AI 沙箱槽数。 */
+    val aiSlots: Int,
 )
 
 /** Worker 注册或心跳上报的安全能力。 */
@@ -79,6 +87,14 @@ data class WorkerHeartbeatRequest(
     val noFallback: Boolean,
     /** 节点可用语言。 */
     val languages: Set<JudgeLanguage>,
+    /** Worker 当前启动的普通提交槽数。 */
+    @field:Min(1)
+    @field:Max(64)
+    val judgeSlots: Int,
+    /** Worker 当前启动的独立 AI 沙箱槽数。 */
+    @field:Min(0)
+    @field:Max(16)
+    val aiSlots: Int,
 )
 
 /** Worker 进度更新请求。 */
@@ -118,13 +134,14 @@ class WorkerCredentialService(
         val id = UUID.randomUUID()
         val token = SecureValues.randomToken(48)
         jdbc.update(
-            "INSERT INTO worker_node(id, name, token_hash, slots) VALUES (?, ?, ?, ?)",
+            "INSERT INTO worker_node(id, name, token_hash, slots, ai_slots) VALUES (?, ?, ?, ?, ?)",
             id,
             request.name,
             SecureValues.sha256(token),
             request.slots,
+            request.aiSlots,
         )
-        return CreatedWorkerResponse(id, request.name, token, request.slots)
+        return CreatedWorkerResponse(id, request.name, token, request.slots, request.aiSlots)
     }
 
     /** 使用 Authorization Bearer Token 认证节点。 */
@@ -137,12 +154,13 @@ class WorkerCredentialService(
             throw ApiException(HttpStatus.UNAUTHORIZED, "WORKER_UNAUTHENTICATED", "Worker 凭据无效")
         }
         return jdbc.query(
-            "SELECT id, name, slots FROM worker_node WHERE token_hash = ? AND active = TRUE",
+            "SELECT id, name, slots, ai_slots FROM worker_node WHERE token_hash = ? AND active = TRUE",
             { result, _ ->
                 WorkerIdentity(
                     id = result.getObject("id", UUID::class.java),
                     name = result.getString("name"),
                     slots = result.getInt("slots"),
+                    aiSlots = result.getInt("ai_slots"),
                 )
             },
             SecureValues.sha256(token),
@@ -157,8 +175,10 @@ class WorkerCredentialService(
     fun heartbeat(worker: WorkerIdentity, request: WorkerHeartbeatRequest) {
         val capabilities = """{"cpuController":${request.cpuController},"memoryController":${request.memoryController},"pidsController":${request.pidsController},"noFallback":${request.noFallback},"languages":[${request.languages.joinToString(",") { "\"$it\"" }}]}"""
         jdbc.update(
-            "UPDATE worker_node SET capabilities = ?::jsonb, last_heartbeat_at = now() WHERE id = ?",
+            "UPDATE worker_node SET capabilities = ?::jsonb, slots = ?, ai_slots = ?, last_heartbeat_at = now() WHERE id = ?",
             capabilities,
+            request.judgeSlots,
+            request.aiSlots,
             worker.id,
         )
     }

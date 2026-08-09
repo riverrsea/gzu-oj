@@ -287,6 +287,8 @@ export interface AiRun {
   state: string;
   majorState: AiMajorState;
   repairRound: number;
+  /** 管理员启动流程时锁定的目标测试点数量。 */
+  requestedTestCaseCount: number;
   model: string;
   promptVersion: string;
   costMicrounits: number;
@@ -294,6 +296,22 @@ export interface AiRun {
   completedRoles: string[];
   steps: AiStepResponse[];
   history: AiStateHistoryEntry[];
+  /** 已通过真实沙箱差分并写入题目版本的测试点。 */
+  generatedTestCases: AiGeneratedTestCase[];
+}
+
+/** 管理员可见的 AI 生成测试点。 */
+export interface AiGeneratedTestCase {
+  /** 测试点顺序。 */
+  ordinal: number;
+  /** 生成器固定种子。 */
+  seed: number;
+  /** 已通过输入校验器的完整输入。 */
+  input: string;
+  /** 由差分通过标程计算的标准输出。 */
+  output: string;
+  /** 自动分配的测试点分值。 */
+  score: number;
 }
 
 /** 创建判题 Worker 后返回的节点凭据。Token 只在本次响应中返回。 */
@@ -306,4 +324,6 @@ export interface CreatedWorker {
   token: string;
   /** Worker 并发判题槽数量。 */
   slots: number;
+  /** 与普通提交隔离的 AI 生成和差分槽数量。 */
+  aiSlots: number;
 }

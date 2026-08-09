@@ -10,6 +10,8 @@ import type { AiRun } from "../api/types";
 const route = useRoute();
 /** 待处理的草稿版本标识。 */
 const versionId = ref("");
+/** 本次需要生成的测试点数量。 */
+const testCaseCount = ref(10);
 /** AI 启动或刷新状态。 */
 const loading = ref(false);
 /** 当前展示的 AI 运行。 */
@@ -23,7 +25,7 @@ async function start(): Promise<void> {
   }
   loading.value = true;
   try {
-    run.value = await api.startAiRun(versionId.value.trim());
+    run.value = await api.startAiRun(versionId.value.trim(), testCaseCount.value);
     ElMessage.success("AI 流程已启动");
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "AI 流程启动失败");
@@ -68,12 +70,13 @@ onMounted(async () => {
       <header><Bot :size="21" /><div><h2>启动录题流程</h2><p>标准输出必须由沙箱中的已校验标程计算，并通过确定性发布门禁。</p></div></header>
       <el-form label-position="top" @submit.prevent="start">
         <el-form-item label="草稿版本 ID"><el-input v-model="versionId" placeholder="题目草稿版本 UUID" /></el-form-item>
+        <el-form-item label="生成测试点数量"><el-input-number v-model="testCaseCount" :min="1" :max="200" /></el-form-item>
         <div class="form-actions"><span>Provider 默认关闭，可通过环境变量启用。</span><el-button type="primary" native-type="submit" :loading="loading">启动流程</el-button></div>
       </el-form>
     </section>
     <section v-if="run" class="ai-run-summary">
       <header><div><strong>{{ run.state }}</strong><span>{{ run.id }}</span></div><button class="icon-button" type="button" title="刷新运行状态" :disabled="loading" @click="refresh"><RefreshCw :size="17" /></button></header>
-      <dl><div><dt>模型</dt><dd>{{ run.model }}</dd></div><div><dt>修复轮次</dt><dd>{{ run.repairRound }}</dd></div><div><dt>已完成角色</dt><dd>{{ run.completedRoles.length }}</dd></div></dl>
+      <dl><div><dt>模型</dt><dd>{{ run.model }}</dd></div><div><dt>计划测试点</dt><dd>{{ run.requestedTestCaseCount }}</dd></div><div><dt>已生成测试点</dt><dd>{{ run.generatedTestCases.length }}</dd></div><div><dt>修复轮次</dt><dd>{{ run.repairRound }}</dd></div><div><dt>已完成角色</dt><dd>{{ run.completedRoles.length }}</dd></div></dl>
       <p v-if="run.failureReason">{{ run.failureReason }}</p>
     </section>
   </section>

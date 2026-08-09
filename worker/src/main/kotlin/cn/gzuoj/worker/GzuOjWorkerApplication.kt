@@ -24,6 +24,8 @@ data class WorkerProperties(
     val goJudgeToken: String,
     /** 可同时处理的完整提交数。 */
     val slots: Int = 4,
+    /** 与普通提交隔离、可同时处理的完整 AI 测试生成任务数。 */
+    val aiSlots: Int = 2,
     /** 租约续期周期，单位秒。 */
     val renewSeconds: Long = 20,
     /** 单次 HTTP 请求超时，单位秒。 */

@@ -1,9 +1,12 @@
 package cn.gzuoj.api
 
 import cn.gzuoj.shared.AiPublicationGate
+import cn.gzuoj.shared.AiSandboxCompletion
+import cn.gzuoj.shared.AiSandboxTaskPayload
 import cn.gzuoj.shared.AiMajorState
 import cn.gzuoj.shared.AiWorkflow
 import cn.gzuoj.shared.AiWorkflowState
+import cn.gzuoj.shared.JudgePriority
 import jakarta.validation.Valid
 import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
@@ -116,7 +119,26 @@ class SpringAiProvider(
         appendLine(statement.take(MAX_STATEMENT_CHARS))
         appendLine("已完成步骤上下文：")
         appendLine(context.take(MAX_CONTEXT_CHARS))
+        appendLine(roleRequirements(role))
         appendLine("返回与 AiAgentResponse 字段匹配的结构化内容。")
+    }
+
+    /** 为各角色补充能够被沙箱直接执行的输出协议。 */
+    private fun roleRequirements(role: AiAgentRole): String = when (role) {
+        AiAgentRole.STATEMENT_ANALYST ->
+            "只分析题意、约束和歧义；存在无法确定的含义时必须写入 ambiguities。"
+        AiAgentRole.SOLUTION_A, AiAgentRole.SOLUTION_B ->
+            "必须在 sourceCode 返回完整 GNU C++17 程序，从标准输入读取并向标准输出写答案；不得依赖网络、文件或随机数。"
+        AiAgentRole.TEST_DESIGNER ->
+            "在 testPlan 返回边界、小数据、随机数据和极限数据的覆盖计划。"
+        AiAgentRole.ADVERSARIAL_REVIEWER ->
+            "审查两份标程和测试计划；未解决问题写入 ambiguities，其他风险写入 findings。"
+        AiAgentRole.GENERATOR ->
+            "必须返回 generatorSource、validatorSource 和与上下文中系统要求数量完全相同的互异 seeds。两份源码均为完整 GNU C++17 程序；" +
+                "生成器从 argv[1] 读取十进制种子并只向标准输出写一个完整测试输入，同一种子必须完全复现；" +
+                "校验器从标准输入读取测试输入，合法时退出码为 0，非法时返回非零。前 3 个种子（不足 3 个时为全部）必须生成适合暴力解的小规模数据。"
+        AiAgentRole.BRUTE_FORCE ->
+            "必须在 sourceCode 返回完整 GNU C++17 暴力解，从标准输入读取并向标准输出写答案，至少能够处理生成器前 3 个小规模种子。"
     }
 
     private companion object {
@@ -137,6 +159,10 @@ class SpringAiProvider(
 data class StartAiRunRequest(
     /** 需要处理的题目草稿版本。 */
     val problemVersionId: UUID,
+    /** 本次 AI 流程需要生成的固定测试点数量。 */
+    @field:Min(1)
+    @field:Max(200)
+    val testCaseCount: Int = 10,
 )
 
 /** 差分与资源校验的可审计证据。 */
@@ -165,16 +191,6 @@ data class AiValidationEvidence(
     val maximumMemoryPercent: Int,
 )
 
-/** 管理员提交确定性门禁结果的请求。 */
-data class RecordAiValidationRequest(
-    /** 六项发布门禁。 */
-    @field:Valid
-    val gate: AiPublicationGate,
-    /** 能够回查的差分和制品证据。 */
-    @field:Valid
-    val evidence: AiValidationEvidence,
-)
-
 /** AI 运行的用户可见审计摘要。 */
 data class AiRunResponse(
     /** 运行标识。 */
@@ -187,6 +203,8 @@ data class AiRunResponse(
     val majorState: AiMajorState,
     /** 当前自动修复轮次。 */
     val repairRound: Int,
+    /** 管理员启动流程时要求生成的测试点数量。 */
+    val requestedTestCaseCount: Int,
     /** 模型名称。 */
     val model: String,
     /** 提示词版本。 */
@@ -201,6 +219,22 @@ data class AiRunResponse(
     val steps: List<AiStepResponse> = emptyList(),
     /** 状态变更时间线；旧运行没有历史时为空。 */
     val history: List<AiStateHistoryEntry> = emptyList(),
+    /** 已通过差分并写入题目版本的测试点；仅管理员接口可见。 */
+    val generatedTestCases: List<AiGeneratedTestCaseResponse> = emptyList(),
+)
+
+/** 管理员查看的单个 AI 生成测试点。 */
+data class AiGeneratedTestCaseResponse(
+    /** 测试点顺序。 */
+    val ordinal: Int,
+    /** 生成器固定种子。 */
+    val seed: Long,
+    /** 生成并校验通过的输入。 */
+    val input: String,
+    /** 由差分通过标程计算的标准输出。 */
+    val output: String,
+    /** 自动分配的测试点分值。 */
+    val score: Int,
 )
 
 /** 单个 Agent 步骤的管理员可见返回。 */
@@ -247,6 +281,8 @@ internal data class AiRunLease(
     val state: AiWorkflowState,
     /** 题面 Markdown。 */
     val statement: String,
+    /** 管理员要求生成的测试点数量。 */
+    val requestedTestCaseCount: Int,
 )
 
 /** AI 运行当前状态的数据库行。 */
@@ -259,6 +295,8 @@ private data class AiRunRecord(
     val state: AiWorkflowState,
     /** 自动修复轮次。 */
     val repairRound: Int,
+    /** 管理员要求生成的测试点数量。 */
+    val requestedTestCaseCount: Int,
     /** 模型名称。 */
     val model: String,
     /** 提示词版本。 */
@@ -271,6 +309,18 @@ private data class AiRunRecord(
     val publicationGate: String?,
     /** 创建时间。 */
     val createdAt: Instant,
+)
+
+/** AI 协调器领取运行时的最小数据库投影。 */
+private data class ClaimRow(
+    /** 运行标识。 */
+    val id: UUID,
+    /** 当前小状态。 */
+    val state: AiWorkflowState,
+    /** 题面 Markdown。 */
+    val statement: String,
+    /** 管理员要求生成的测试点数量。 */
+    val requestedTestCaseCount: Int,
 )
 
 /** AI 状态、审计步骤和发布门禁持久化服务。 */
@@ -298,7 +348,7 @@ class AiRunService(
             """
             SELECT EXISTS(
                 SELECT 1 FROM ai_problem_run WHERE problem_version_id = ?
-                AND state NOT IN ('PUBLISHED', 'FAILED', 'CANCELED')
+                AND state NOT IN ('PUBLISHED', 'FAILED', 'CANCELED', 'NEEDS_REVIEW')
             )
             """.trimIndent(),
             Boolean::class.java,
@@ -309,11 +359,12 @@ class AiRunService(
         jdbc.update(
             """
             INSERT INTO ai_problem_run(
-                id, problem_version_id, state, provider_base_url, model, prompt_version, created_by
-            ) VALUES (?, ?, 'ANALYZING', ?, ?, ?, ?)
+                id, problem_version_id, state, requested_test_case_count, provider_base_url, model, prompt_version, created_by
+            ) VALUES (?, ?, 'ANALYZING', ?, ?, ?, ?, ?)
             """.trimIndent(),
             id,
             request.problemVersionId,
+            request.testCaseCount,
             properties.ai.baseUrl,
             properties.ai.model,
             properties.ai.promptVersion,
@@ -329,7 +380,7 @@ class AiRunService(
         if (!properties.ai.enabled) return null
         val row = jdbc.query(
             """
-            SELECT r.id, r.state, pv.statement_markdown
+            SELECT r.id, r.state, r.requested_test_case_count, pv.statement_markdown
             FROM ai_problem_run r JOIN problem_version pv ON pv.id = r.problem_version_id
             WHERE r.state IN ('ANALYZING', 'GENERATING_SOLUTIONS', 'REVIEWING', 'GENERATING_TESTS', 'VALIDATING')
               AND r.next_run_at <= now()
@@ -337,10 +388,11 @@ class AiRunService(
             ORDER BY r.created_at FOR UPDATE OF r SKIP LOCKED LIMIT 1
             """.trimIndent(),
             { result, _ ->
-                Triple(
-                    result.getObject("id", UUID::class.java),
-                    AiWorkflowState.valueOf(result.getString("state")),
-                    result.getString("statement_markdown"),
+                ClaimRow(
+                    id = result.getObject("id", UUID::class.java),
+                    state = AiWorkflowState.valueOf(result.getString("state")),
+                    statement = result.getString("statement_markdown"),
+                    requestedTestCaseCount = result.getInt("requested_test_case_count"),
                 )
             },
         ).firstOrNull() ?: return null
@@ -348,9 +400,9 @@ class AiRunService(
         jdbc.update(
             "UPDATE ai_problem_run SET coordinator_lease = ?, coordinator_lease_expires_at = now() + interval '5 minutes' WHERE id = ?",
             lease,
-            row.first,
+            row.id,
         )
-        return AiRunLease(row.first, lease, row.second, row.third)
+        return AiRunLease(row.id, lease, row.state, row.statement, row.requestedTestCaseCount)
     }
 
     /** 保存本步所有角色结果并原子推进状态。 */
@@ -405,6 +457,36 @@ class AiRunService(
             recordStateTransition(lease.runId, current, AiWorkflowState.NEEDS_REVIEW, "AI 费用达到运行上限")
             return
         }
+        if (current == AiWorkflowState.GENERATING_TESTS) {
+            val payload = try {
+                buildSandboxPayload(lease.runId)
+            } catch (failure: IllegalArgumentException) {
+                val reason = failure.message ?: "AI 没有返回可执行的测试生成源码"
+                jdbc.update(
+                    """
+                    UPDATE ai_problem_run SET state = 'NEEDS_REVIEW', failure_reason = ?,
+                        cost_microunits = cost_microunits + ?, coordinator_lease = NULL,
+                        coordinator_lease_expires_at = NULL, updated_at = now()
+                    WHERE id = ?
+                    """.trimIndent(),
+                    reason.take(2_000),
+                    addedCost,
+                    lease.runId,
+                )
+                recordStateTransition(lease.runId, current, AiWorkflowState.NEEDS_REVIEW, reason)
+                return
+            }
+            jdbc.update(
+                """
+                INSERT INTO ai_sandbox_job(id, run_id, payload, priority)
+                VALUES (?, ?, ?::jsonb, ?)
+                """.trimIndent(),
+                UUID.randomUUID(),
+                lease.runId,
+                mapper.writeValueAsString(payload),
+                JudgePriority.AI_SANDBOX,
+            )
+        }
         if (next == AiWorkflowState.PUBLISHED) {
             publishAfterGate(lease.runId)
         } else {
@@ -447,45 +529,133 @@ class AiRunService(
         }
     }
 
-    /** 在差分阶段记录外部沙箱形成的确定性门禁证据。 */
+    /** 将 Worker 的真实生成与差分结果写入草稿，并据此形成不可伪造的发布门禁。 */
     @Transactional
-    fun recordValidation(runId: UUID, request: RecordAiValidationRequest): AiRunResponse {
+    internal fun acceptSandboxResult(
+        jobId: UUID,
+        runId: UUID,
+        task: AiSandboxTaskPayload,
+        completion: AiSandboxCompletion,
+        verified: VerifiedAiSandboxResult,
+    ) {
+        val run = jdbc.query(
+            "SELECT problem_version_id, state, created_by FROM ai_problem_run WHERE id = ? FOR UPDATE",
+            { result, _ ->
+                Triple(
+                    result.getObject("problem_version_id", UUID::class.java),
+                    AiWorkflowState.valueOf(result.getString("state")),
+                    result.getObject("created_by", UUID::class.java),
+                )
+            },
+            runId,
+        ).firstOrNull() ?: throw ApiException(HttpStatus.NOT_FOUND, "AI_RUN_NOT_FOUND", "AI 运行不存在")
+        if (run.second != AiWorkflowState.DIFFERENTIAL_TESTING) {
+            throw ApiException(HttpStatus.CONFLICT, "AI_VALIDATION_NOT_READY", "当前状态不能结算 AI 差分任务")
+        }
+        AiWorkflow.requireTransition(run.second, AiWorkflowState.VALIDATING)
+
+        val caseCount = verified.testCases.size
+        val baseScore = 100 / caseCount
+        val remainder = 100 % caseCount
+        val testCases = verified.testCases.mapIndexed { index, testCase ->
+            AiGeneratedTestCase(
+                seed = testCase.seed,
+                input = testCase.input,
+                output = testCase.expectedOutput,
+                score = baseScore + if (index < remainder) 1 else 0,
+            )
+        }
+        problems.replaceDraftTestCasesFromAi(run.first, runId, run.third, testCases)
+
+        val noUnresolvedAmbiguity = loadSteps(runId).all { step ->
+            step.response?.ambiguities.orEmpty().isEmpty()
+        }
+        val gate = AiPublicationGate(
+            solutionsAgree = completion.solutionsAgree,
+            bruteForcePassed = completion.bruteForcePassed,
+            scoreSumIsOneHundred = testCases.sumOf(AiGeneratedTestCase::score) == 100,
+            deterministic = completion.deterministic,
+            resourceMarginPassed = verified.maximumTimePercent <= RESOURCE_MARGIN_PERCENT &&
+                verified.maximumMemoryPercent <= RESOURCE_MARGIN_PERCENT,
+            noUnresolvedAmbiguity = noUnresolvedAmbiguity,
+        )
+        val evidence = AiValidationEvidence(
+            solutionOutputHashesAgree = completion.solutionsAgree,
+            bruteForceJobIds = listOf(jobId),
+            differentialJobIds = listOf(jobId),
+            reproducedSeeds = task.seeds,
+            artifactHashes = buildList {
+                add(SecureValues.sha256(task.solutionASource))
+                add(SecureValues.sha256(task.solutionBSource))
+                add(SecureValues.sha256(task.bruteForceSource))
+                add(SecureValues.sha256(task.generatorSource))
+                add(SecureValues.sha256(task.validatorSource))
+                verified.testCases.forEach { testCase ->
+                    add(testCase.inputSha256.lowercase())
+                    add(testCase.outputSha256.lowercase())
+                }
+            }.distinct(),
+            maximumTimePercent = verified.maximumTimePercent,
+            maximumMemoryPercent = verified.maximumMemoryPercent,
+        )
+        val next = if (gate.allowsPublication()) AiWorkflowState.VALIDATING else AiWorkflowState.NEEDS_REVIEW
+        val reason = if (next == AiWorkflowState.NEEDS_REVIEW) failedGateReason(gate) else null
+        jdbc.update(
+            """
+            UPDATE ai_problem_run
+            SET state = ?, publication_gate = ?::jsonb, validation_evidence = ?::jsonb,
+                failure_reason = ?, next_run_at = now(), coordinator_lease = NULL,
+                coordinator_lease_expires_at = NULL, updated_at = now()
+            WHERE id = ?
+            """.trimIndent(),
+            next.name,
+            mapper.writeValueAsString(gate),
+            mapper.writeValueAsString(evidence),
+            reason,
+            runId,
+        )
+        recordStateTransition(
+            runId,
+            run.second,
+            next,
+            reason ?: "已生成 $caseCount 个测试点，确定性差分和发布门禁全部通过",
+            publicationGatePassed = next == AiWorkflowState.VALIDATING,
+        )
+    }
+
+    /** AI 生成源码或差分结果不合格时进入人工审查，并保留完整失败原因。 */
+    @Transactional
+    internal fun failSandboxValidation(runId: UUID, reason: String) {
         val state = jdbc.query(
             "SELECT state FROM ai_problem_run WHERE id = ? FOR UPDATE",
             { result, _ -> AiWorkflowState.valueOf(result.getString("state")) },
             runId,
         ).firstOrNull() ?: throw ApiException(HttpStatus.NOT_FOUND, "AI_RUN_NOT_FOUND", "AI 运行不存在")
-        if (state != AiWorkflowState.DIFFERENTIAL_TESTING) {
-            throw ApiException(HttpStatus.CONFLICT, "AI_VALIDATION_NOT_READY", "当前状态不能提交差分证据")
-        }
-        val hashesValid = request.evidence.artifactHashes.all { it.matches(Regex("^[0-9a-fA-F]{64}$")) }
-        val resourceValid = request.evidence.maximumTimePercent <= 70 && request.evidence.maximumMemoryPercent <= 70
-        if (!hashesValid || request.gate.resourceMarginPassed != resourceValid ||
-            request.gate.solutionsAgree != request.evidence.solutionOutputHashesAgree) {
-            throw ApiException(HttpStatus.BAD_REQUEST, "AI_EVIDENCE_INCONSISTENT", "发布门禁与差分证据不一致")
-        }
-        val next = if (request.gate.allowsPublication()) AiWorkflowState.VALIDATING else AiWorkflowState.NEEDS_REVIEW
-        AiWorkflow.requireTransition(state, next)
+        if (state != AiWorkflowState.DIFFERENTIAL_TESTING) return
+        AiWorkflow.requireTransition(state, AiWorkflowState.NEEDS_REVIEW)
         jdbc.update(
             """
-            UPDATE ai_problem_run SET state = ?, publication_gate = ?::jsonb, validation_evidence = ?::jsonb,
-                failure_reason = ?, next_run_at = now(), updated_at = now()
+            UPDATE ai_problem_run SET state = 'NEEDS_REVIEW', failure_reason = ?,
+                coordinator_lease = NULL, coordinator_lease_expires_at = NULL, updated_at = now()
             WHERE id = ?
             """.trimIndent(),
-            next.name,
-            mapper.writeValueAsString(request.gate),
-            mapper.writeValueAsString(request.evidence),
-            if (next == AiWorkflowState.NEEDS_REVIEW) "确定性发布门禁未全部通过" else null,
+            reason.take(2_000),
             runId,
         )
-        recordStateTransition(
-            runId,
-            state,
-            next,
-            if (next == AiWorkflowState.NEEDS_REVIEW) "确定性发布门禁未全部通过" else "确定性发布证据已提交",
-            publicationGatePassed = next == AiWorkflowState.VALIDATING && request.gate.allowsPublication(),
-        )
-        return get(runId)
+        recordStateTransition(runId, state, AiWorkflowState.NEEDS_REVIEW, reason)
+    }
+
+    /** 汇总未通过的门禁，直接展示给管理员定位人工处理项。 */
+    private fun failedGateReason(gate: AiPublicationGate): String {
+        val failures = buildList {
+            if (!gate.solutionsAgree) add("两份标程输出不一致")
+            if (!gate.bruteForcePassed) add("小数据暴力差分未通过")
+            if (!gate.scoreSumIsOneHundred) add("测试点分值之和不是 100")
+            if (!gate.deterministic) add("固定种子不能复现输入")
+            if (!gate.resourceMarginPassed) add("标程资源用量超过题目限制的 70%")
+            if (!gate.noUnresolvedAmbiguity) add("仍有未解决的题意歧义")
+        }
+        return ("确定性发布门禁未全部通过：" + failures.joinToString("；")).take(2_000)
     }
 
     /** 管理员取消非终态运行。 */
@@ -506,6 +676,10 @@ class AiRunService(
             """.trimIndent(),
             runId,
         )
+        jdbc.update(
+            "UPDATE ai_sandbox_job SET status = 'CANCELED', completed_at = now() WHERE run_id = ? AND status IN ('QUEUED', 'LEASED')",
+            runId,
+        )
         recordStateTransition(runId, state, AiWorkflowState.CANCELED, "管理员取消 AI 录题流程")
         return get(runId)
     }
@@ -516,7 +690,7 @@ class AiRunService(
         val completed = steps.map(AiStepResponse::role).distinct()
         val row = jdbc.query(
             """
-            SELECT id, problem_version_id, state, repair_round, model, prompt_version,
+            SELECT id, problem_version_id, state, repair_round, requested_test_case_count, model, prompt_version,
                    cost_microunits, failure_reason, publication_gate::text, created_at
             FROM ai_problem_run WHERE id = ?
             """.trimIndent(),
@@ -526,6 +700,7 @@ class AiRunService(
                     problemVersionId = result.getObject("problem_version_id", UUID::class.java),
                     state = AiWorkflowState.valueOf(result.getString("state")),
                     repairRound = result.getInt("repair_round"),
+                    requestedTestCaseCount = result.getInt("requested_test_case_count"),
                     model = result.getString("model"),
                     promptVersion = result.getString("prompt_version"),
                     costMicrounits = result.getLong("cost_microunits"),
@@ -543,6 +718,7 @@ class AiRunService(
             state = row.state,
             majorState = AiWorkflow.majorState(row.state, gatePassed),
             repairRound = row.repairRound,
+            requestedTestCaseCount = row.requestedTestCaseCount,
             model = row.model,
             promptVersion = row.promptVersion,
             costMicrounits = row.costMicrounits,
@@ -559,6 +735,7 @@ class AiRunService(
                     ),
                 )
             },
+            generatedTestCases = problems.aiGeneratedTestCases(runId),
         )
     }
 
@@ -645,6 +822,63 @@ class AiRunService(
         )
     }
 
+    /** 从已持久化的各 Agent 返回中构造不可变 AI 沙箱任务。 */
+    private fun buildSandboxPayload(runId: UUID): AiSandboxTaskPayload {
+        val solutionA = roleResponse(runId, AiAgentRole.SOLUTION_A)
+        val solutionB = roleResponse(runId, AiAgentRole.SOLUTION_B)
+        val bruteForce = roleResponse(runId, AiAgentRole.BRUTE_FORCE)
+        val generator = roleResponse(runId, AiAgentRole.GENERATOR)
+        val limits = jdbc.query(
+            """
+            SELECT r.requested_test_case_count, pv.time_limit_ms, pv.memory_limit_mib
+            FROM ai_problem_run r JOIN problem_version pv ON pv.id = r.problem_version_id
+            WHERE r.id = ?
+            """.trimIndent(),
+            { result, _ ->
+                Triple(
+                    result.getInt("requested_test_case_count"),
+                    result.getLong("time_limit_ms"),
+                    result.getLong("memory_limit_mib"),
+                )
+            },
+            runId,
+        ).firstOrNull() ?: throw IllegalArgumentException("AI 运行或题目版本不存在")
+        val seeds = generator?.seeds ?: emptyList()
+        require(seeds.size == limits.first) { "生成器必须返回管理员要求的 ${limits.first} 个固定种子" }
+        require(seeds.distinct().size == seeds.size) { "生成器返回了重复固定种子" }
+        return AiSandboxTaskPayload(
+            solutionASource = requiredSource(solutionA?.sourceCode, "标程 A"),
+            solutionBSource = requiredSource(solutionB?.sourceCode, "标程 B"),
+            bruteForceSource = requiredSource(bruteForce?.sourceCode, "暴力解"),
+            generatorSource = requiredSource(generator?.generatorSource, "测试生成器"),
+            validatorSource = requiredSource(generator?.validatorSource, "输入校验器"),
+            seeds = seeds,
+            bruteForceCaseCount = minOf(3, seeds.size),
+            timeLimitMs = limits.second,
+            memoryLimitMiB = limits.third,
+        )
+    }
+
+    /** 读取指定角色最近一次结构化返回。 */
+    private fun roleResponse(runId: UUID, role: AiAgentRole): AiAgentResponse? = jdbc.query(
+        """
+        SELECT COALESCE(response_json, structured_response)::text AS payload
+        FROM ai_problem_step WHERE run_id = ? AND role = ?
+        ORDER BY ordinal DESC LIMIT 1
+        """.trimIndent(),
+        { result, _ -> mapper.readValue(result.getString("payload"), AiAgentResponse::class.java) },
+        runId,
+        role.name,
+    ).firstOrNull()
+
+    /** 校验模型源码存在且不超过平台源码大小上限。 */
+    private fun requiredSource(source: String?, label: String): String {
+        val value = source?.trim().orEmpty()
+        require(value.isNotEmpty()) { "$label 源码缺失" }
+        require(value.toByteArray(Charsets.UTF_8).size <= MAX_AI_SOURCE_BYTES) { "$label 源码超过 128 KiB" }
+        return value
+    }
+
     /** 读取已有角色响应作为下一步上下文。 */
     fun context(runId: UUID): String = jdbc.queryForList(
         "SELECT role || ': ' || response_json::text FROM ai_problem_step WHERE run_id = ? ORDER BY ordinal",
@@ -694,6 +928,14 @@ class AiRunService(
         )
         recordStateTransition(runId, AiWorkflowState.VALIDATING, AiWorkflowState.PUBLISHED, "全部发布门禁通过，题目版本已发布")
     }
+
+    private companion object {
+        /** 单份 AI 生成源码允许进入沙箱的最大字节数。 */
+        const val MAX_AI_SOURCE_BYTES: Int = 128 * 1024
+
+        /** 自动发布要求标程在时间和内存限制内至少保留三成余量。 */
+        const val RESOURCE_MARGIN_PERCENT: Int = 70
+    }
 }
 
 /** 并发为一的 API 内 AI 协调器。 */
@@ -714,7 +956,10 @@ class AiCoordinator(
             val lease = runs.claimNext() ?: return
             try {
                 val roles = rolesFor(lease.state)
-                val context = runs.context(lease.runId)
+                val context = buildString {
+                    appendLine("系统要求生成测试点数量：${lease.requestedTestCaseCount}")
+                    append(runs.context(lease.runId))
+                }
                 val results = if (roles.size > 1) parallelGenerate(roles, lease.statement, context) else
                     roles.associateWith { provider.generate(it, lease.statement, context) }
                 runs.completeStep(lease, results)
@@ -783,13 +1028,6 @@ class AdminAiRunController(
         val run = service.activeForVersion(problemVersionId) ?: return ResponseEntity.noContent().build()
         return ResponseEntity.ok(run)
     }
-
-    /** 写入真实沙箱差分产生的发布证据。 */
-    @PostMapping("/{runId}/validation")
-    fun validate(
-        @PathVariable runId: UUID,
-        @Valid @RequestBody body: RecordAiValidationRequest,
-    ): AiRunResponse = service.recordValidation(runId, body)
 
     /** 取消尚未结束的 AI 流程。 */
     @PostMapping("/{runId}/cancel")

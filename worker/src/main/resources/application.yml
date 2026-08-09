@@ -11,6 +11,7 @@ gzu-oj:
     go-judge-base-url: ${GZU_OJ_GO_JUDGE_URL:http://127.0.0.1:5050}
     go-judge-token: ${GZU_OJ_GO_JUDGE_TOKEN:}
     slots: ${GZU_OJ_WORKER_SLOTS:4}
+    ai-slots: ${GZU_OJ_WORKER_AI_SLOTS:2}
     renew-seconds: 20
     request-timeout-seconds: 90
     cgroup-root: ${GZU_OJ_CGROUP_ROOT:/sys/fs/cgroup}

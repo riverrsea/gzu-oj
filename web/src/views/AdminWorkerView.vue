@@ -9,6 +9,7 @@ import type { CreatedWorker } from "../api/types";
 const form = reactive({
   name: "wsl-judge-1",
   slots: 4,
+  aiSlots: 2,
 });
 /** 创建请求是否正在进行。 */
 const creating = ref(false);
@@ -21,6 +22,8 @@ const copied = ref(false);
 const validName = computed(() => /^[A-Za-z0-9][A-Za-z0-9._-]{1,99}$/.test(form.name.trim()));
 /** 槽位数量必须落在后端允许的范围内。 */
 const validSlots = computed(() => Number.isInteger(form.slots) && form.slots >= 1 && form.slots <= 64);
+/** AI 槽位允许关闭，最多同时运行十六份完整生成任务。 */
+const validAiSlots = computed(() => Number.isInteger(form.aiSlots) && form.aiSlots >= 0 && form.aiSlots <= 16);
 
 /** 创建节点凭据，并保留页面上的一次性展示结果。 */
 async function createWorker(): Promise<void> {
@@ -32,10 +35,14 @@ async function createWorker(): Promise<void> {
     ElMessage.warning("并发槽位需设置为 1-64");
     return;
   }
+  if (!validAiSlots.value) {
+    ElMessage.warning("AI 槽位需设置为 0-16");
+    return;
+  }
 
   creating.value = true;
   try {
-    created.value = await api.createWorker({ name: form.name.trim(), slots: form.slots });
+    created.value = await api.createWorker({ name: form.name.trim(), slots: form.slots, aiSlots: form.aiSlots });
     copied.value = false;
     ElMessage.success("Worker 凭据已创建");
   } catch (error) {
@@ -85,12 +92,15 @@ async function copyToken(): Promise<void> {
           <el-form-item label="并发槽位">
             <el-input-number v-model="form.slots" :min="1" :max="64" controls-position="right" />
           </el-form-item>
+          <el-form-item label="AI 生成与差分槽位">
+            <el-input-number v-model="form.aiSlots" :min="0" :max="16" controls-position="right" />
+          </el-form-item>
           <el-alert title="Token 只返回一次" type="warning" :closable="false" show-icon>
             创建完成后请立即复制并保存。服务端只保存哈希，刷新或离开页面后无法再次查看。
           </el-alert>
           <div class="form-actions">
             <span>创建后还需要在 Worker 环境配置 go-judge Token。</span>
-            <el-button type="primary" :loading="creating" :disabled="!validName || !validSlots" @click="createWorker">
+            <el-button type="primary" :loading="creating" :disabled="!validName || !validSlots || !validAiSlots" @click="createWorker">
               <KeyRound :size="16" />创建凭据
             </el-button>
           </div>
@@ -101,7 +111,7 @@ async function copyToken(): Promise<void> {
         <article v-if="created" class="tool-card worker-token-card">
           <header>
             <KeyRound :size="21" />
-            <div><h2>凭据已创建</h2><p>{{ created.name }} · {{ created.slots }} 个并发槽位</p></div>
+            <div><h2>凭据已创建</h2><p>{{ created.name }} · 普通 {{ created.slots }} 槽 · AI {{ created.aiSlots }} 槽</p></div>
           </header>
           <div class="worker-id"><span>节点 ID</span><code>{{ created.id }}</code></div>
           <label class="token-label" for="worker-token">Worker Token（仅展示一次）</label>
@@ -118,7 +128,7 @@ async function copyToken(): Promise<void> {
             <li><span class="check-dot" />WSL 发行版已启用 cgroup v2 的 CPU、内存和 PID 控制器</li>
             <li><span class="check-dot" />go-judge 使用与 Worker 配置一致的鉴权 Token</li>
             <li><span class="check-dot" />控制端地址可从判题主机通过 HTTPS 访问</li>
-            <li><span class="check-dot" />Worker 槽位数不超过主机实际资源</li>
+            <li><span class="check-dot" />go-judge 并发数不小于普通槽与 AI 槽之和</li>
           </ul>
         </article>
       </aside>

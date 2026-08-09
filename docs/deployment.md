@@ -28,7 +28,7 @@ infra/scripts/preflight-judge.sh
 docker compose -f infra/compose/compose.judge.yml up -d --build
 ```
 
-`go-judge:5050` 只存在于 `judge-internal` 网络，没有宿主机端口。Worker 同时连接内部网络和出站网络，通过 HTTPS 访问控制端。初始 `GZU_OJ_WORKER_SLOTS=4`；主机需要日常使用时可以停止 Worker，未领取任务继续保留在 PostgreSQL，过期租约会重新入队。
+`go-judge:5050` 只存在于 `judge-internal` 网络，没有宿主机端口。Worker 同时连接内部网络和出站网络，通过 HTTPS 访问控制端。初始 `GZU_OJ_WORKER_SLOTS=4` 处理用户提交，`GZU_OJ_WORKER_AI_SLOTS=2` 独立处理 AI 测试生成与差分任务；`GZU_OJ_GO_JUDGE_PARALLELISM` 应不小于两类槽位之和，默认值为 6。主机需要日常使用时可以停止 Worker，未领取任务继续保留在 PostgreSQL，过期租约会重新入队。
 
 ### 定制 go-judge 镜像
 

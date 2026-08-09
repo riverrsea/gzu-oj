@@ -1,5 +1,7 @@
 package cn.gzuoj.worker
 
+import cn.gzuoj.shared.AiSandboxCompletion
+import cn.gzuoj.shared.AiSandboxLease
 import cn.gzuoj.shared.JudgeCompletion
 import cn.gzuoj.shared.JudgeLanguage
 import cn.gzuoj.shared.JudgeLease
@@ -35,6 +37,10 @@ data class ControlHeartbeat(
     val noFallback: Boolean,
     /** Worker 支持的语言。 */
     val languages: Set<JudgeLanguage>,
+    /** 当前启动的普通提交槽数。 */
+    val judgeSlots: Int,
+    /** 当前启动的独立 AI 生成和差分槽数。 */
+    val aiSlots: Int,
 )
 
 /** Worker 进度请求。 */
@@ -74,6 +80,14 @@ class ControlPlaneClient(
         setOf(200, 204),
     )
 
+    /** AI 槽长轮询领取测试生成和差分任务；204 表示当前无任务。 */
+    fun claimAi(): AiSandboxLease? = sendJson(
+        "/internal/worker/v1/ai-jobs/claim",
+        emptyMap<String, String>(),
+        AiSandboxLease::class.java,
+        setOf(200, 204),
+    )
+
     /** 上报编译或判题进度。 */
     fun progress(lease: JudgeLease, status: JudgeStatus) {
         sendJson(
@@ -95,10 +109,31 @@ class ControlPlaneClient(
         )
     }
 
+    /** 延长当前 AI 生成和差分任务租约。 */
+    fun renewAi(lease: AiSandboxLease) {
+        val token = java.net.URLEncoder.encode(lease.leaseToken, Charsets.UTF_8)
+        sendJson(
+            "/internal/worker/v1/ai-jobs/${lease.jobId}/renew?attemptId=${lease.attemptId}&leaseToken=$token",
+            emptyMap<String, String>(),
+            Void::class.java,
+            setOf(200),
+        )
+    }
+
     /** 幂等结算当前租约。 */
     fun complete(lease: JudgeLease, completion: JudgeCompletion) {
         sendJson(
             "/internal/worker/v1/jobs/${lease.jobId}/complete",
+            completion,
+            Void::class.java,
+            setOf(200),
+        )
+    }
+
+    /** 幂等结算当前 AI 生成和差分任务。 */
+    fun completeAi(lease: AiSandboxLease, completion: AiSandboxCompletion) {
+        sendJson(
+            "/internal/worker/v1/ai-jobs/${lease.jobId}/complete",
             completion,
             Void::class.java,
             setOf(200),

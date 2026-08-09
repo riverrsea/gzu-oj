@@ -15,7 +15,8 @@ services:
       - -http-addr=:5050
       - -auth-token=${GZU_OJ_GO_JUDGE_TOKEN:?请设置 go-judge Token}
       - -no-fallback
-      - -parallelism=${GZU_OJ_WORKER_SLOTS:-4}
+      # 至少覆盖普通提交槽与独立 AI 槽之和；默认 4 + 2。
+      - -parallelism=${GZU_OJ_GO_JUDGE_PARALLELISM:-6}
       - -output-limit=16m
       - -copy-out-limit=16m
       - -open-file-limit=64
@@ -38,6 +39,7 @@ services:
       GZU_OJ_GO_JUDGE_URL: http://go-judge:5050
       GZU_OJ_GO_JUDGE_TOKEN: ${GZU_OJ_GO_JUDGE_TOKEN:?请设置 go-judge Token}
       GZU_OJ_WORKER_SLOTS: ${GZU_OJ_WORKER_SLOTS:-4}
+      GZU_OJ_WORKER_AI_SLOTS: ${GZU_OJ_WORKER_AI_SLOTS:-2}
       GZU_OJ_CGROUP_ROOT: /sys/fs/cgroup
       GZU_OJ_REQUIRE_NO_FALLBACK: "true"
     volumes:

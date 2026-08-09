@@ -5,7 +5,7 @@ import { ElMessage } from "element-plus";
 import { useRoute, useRouter } from "vue-router";
 import { api } from "../api/client";
 import type { AdminProblemVersionDetail, Difficulty } from "../api/types";
-import MarkdownEditor from "../components/MarkdownEditor.vue";
+import ProblemStatementEditor from "../components/ProblemStatementEditor.vue";
 
 /** 页面路由器。 */
 const router = useRouter();
@@ -27,7 +27,7 @@ const form = reactive({
   year: new Date().getFullYear(),
   difficulty: "MEDIUM" as Difficulty,
   sourceUrl: "",
-  statementMarkdown: "# 题目描述\n\n请在此填写题面。\n",
+  statementMarkdown: "## 题目描述\n\n请填写题目背景、目标和要求。\n\n## 输入格式\n\n\n## 输出格式\n\n\n## 数据范围\n\n",
   timeLimitMs: 1000,
   memoryLimitMiB: 256,
   dataNotice: "",
@@ -114,7 +114,7 @@ onMounted(() => void loadBaseVersion());
 
       <section class="form-section">
         <h2>题面与限制</h2>
-        <el-form-item label="Markdown 题面" class="markdown-form-item"><MarkdownEditor v-model="form.statementMarkdown" /></el-form-item>
+        <el-form-item label="题面内容" class="statement-form-item"><ProblemStatementEditor v-model="form.statementMarkdown" /></el-form-item>
         <div class="form-grid form-grid--three">
           <el-form-item label="基准时间限制（ms）"><el-input-number v-model="form.timeLimitMs" :min="100" :max="60000" :step="100" /></el-form-item>
           <el-form-item label="基准内存限制（MiB）"><el-input-number v-model="form.memoryLimitMiB" :min="16" :max="2048" :step="16" /></el-form-item>

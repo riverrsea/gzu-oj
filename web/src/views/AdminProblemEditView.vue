@@ -5,7 +5,7 @@ import { ArrowLeft, Bot, Plus, RefreshCw, Save, Send, Trash2, XCircle } from "@l
 import { ElMessage, ElMessageBox } from "element-plus";
 import { api } from "../api/client";
 import type { AdminProblemVersionDetail, AiMajorState, AiRun, AiStepResponse, Difficulty } from "../api/types";
-import MarkdownEditor from "../components/MarkdownEditor.vue";
+import ProblemStatementEditor from "../components/ProblemStatementEditor.vue";
 
 interface TestCaseForm {
   input: string;
@@ -353,7 +353,7 @@ onUnmounted(() => {
 
       <section class="form-section">
         <h2>题面与限制</h2>
-        <el-form-item label="Markdown 题面" class="markdown-form-item"><MarkdownEditor v-model="form.statementMarkdown" :disabled="aiLocked" /></el-form-item>
+        <el-form-item label="题面内容" class="statement-form-item"><ProblemStatementEditor v-model="form.statementMarkdown" :disabled="aiLocked" /></el-form-item>
         <div class="form-grid form-grid--three">
           <el-form-item label="基准时间限制（ms）"><el-input-number v-model="form.timeLimitMs" :min="100" :max="60000" :step="100" :disabled="aiLocked" /></el-form-item>
           <el-form-item label="基准内存限制（MiB）"><el-input-number v-model="form.memoryLimitMiB" :min="16" :max="2048" :step="16" :disabled="aiLocked" /></el-form-item>

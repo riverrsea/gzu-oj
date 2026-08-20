@@ -195,14 +195,28 @@ private fun jsonMapper(): ObjectMapper = JsonMapper.builder()
     .addModule(KotlinModule.Builder().build())
     .build()
 
-/** 爬虫 CLI 入口；具体网站适配器在获得许可和页面结构后再增加。 */
+/** 爬虫 CLI 入口；支持本地规范 JSON 和 N 诺公开题库列表 CSV。 */
 fun main(args: Array<String>) {
-    require(args.size == 3 && args[0] == "local") {
-        "用法：crawler-cli local <canonical-problems.json> <output.zip>"
+    when {
+        args.size == 3 && args[0] == "local" -> {
+            val adapter = LocalSampleAdapter(jsonMapper())
+            val source = Path.of(args[1]).toAbsolutePath().normalize().toUri()
+            val target = Path.of(args[2]).toAbsolutePath().normalize()
+            ImportPackageWriter().write(adapter.fetch(source), target)
+            println("已生成标准导入包：" + target)
+        }
+        args.size in 3..4 && args[0] == "noobdream-list" -> {
+            val source = URI.create(args[1])
+            val target = Path.of(args[2]).toAbsolutePath().normalize()
+            val singlePage = args.getOrNull(3) == "--single-page"
+            require(args.size == 3 || singlePage) { "第四个参数只能是 --single-page" }
+            val items = if (singlePage) NoobDreamListClient().fetch(source) else NoobDreamListClient().fetchAll(source)
+            NoobDreamListCsvWriter().write(items, target)
+            println("已采集 ${items.size} 道题目列表${if (singlePage) "（单页）" else "（全部分页）"}并写入 CSV：$target")
+        }
+        else -> error(
+            "用法：crawler-cli local <canonical-problems.json> <output.zip>\n" +
+                "或：crawler-cli noobdream-list <list-url> <output.csv> [--single-page]",
+        )
     }
-    val adapter = LocalSampleAdapter(jsonMapper())
-    val source = Path.of(args[1]).toAbsolutePath().normalize().toUri()
-    val target = Path.of(args[2]).toAbsolutePath().normalize()
-    ImportPackageWriter().write(adapter.fetch(source), target)
-    println("已生成标准导入包：" + target)
 }

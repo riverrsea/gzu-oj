@@ -7,6 +7,7 @@ dependencies {
     implementation(project(":shared"))
     implementation("tools.jackson.module:jackson-module-kotlin:3.1.4")
     implementation("org.apache.commons:commons-csv:1.14.1")
+    implementation("org.jsoup:jsoup:1.18.3")
     testImplementation("org.junit.jupiter:junit-jupiter:6.0.3")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:6.0.3")
 }

@@ -205,6 +205,20 @@ fun main(args: Array<String>) {
             ImportPackageWriter().write(adapter.fetch(source), target)
             println("已生成标准导入包：" + target)
         }
+        args.size in 3..5 && args[0] == "noobdream-import" -> {
+            val source = Path.of(args[1]).toAbsolutePath().normalize()
+            val target = Path.of(args[2]).toAbsolutePath().normalize()
+            val defaultYear = when (args.size) {
+                3 -> null
+                5 -> {
+                    require(args[3] == "--default-year") { "第四个参数必须是 --default-year" }
+                    args[4].toIntOrNull() ?: error("默认年份必须是整数")
+                }
+                else -> error("用法：crawler-cli noobdream-import <details.csv> <output.zip> [--default-year YYYY]")
+            }
+            NoobDreamImportConverter().convert(source, target, defaultYear)
+            println("已生成无测试点标准导入包：$target")
+        }
         args.size in 3..4 && args[0] == "noobdream-list" -> {
             val source = URI.create(args[1])
             val target = Path.of(args[2]).toAbsolutePath().normalize()
@@ -242,6 +256,7 @@ fun main(args: Array<String>) {
         }
         else -> error(
             "用法：crawler-cli local <canonical-problems.json> <output.zip>\n" +
+                "或：crawler-cli noobdream-import <details.csv> <output.zip> [--default-year YYYY]\n" +
                 "或：crawler-cli noobdream-list <list-url> <output.csv> [--single-page]\n" +
                 "或：crawler-cli noobdream-problems <list-url> <output.csv> [--single-page]",
         )

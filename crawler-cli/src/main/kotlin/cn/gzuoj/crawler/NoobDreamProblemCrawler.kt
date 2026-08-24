@@ -244,7 +244,7 @@ class NoobDreamProblemCsvWriter {
         )
     }
 
-    private companion object {
+    companion object {
         /** 题目详情 CSV 的固定表头。 */
         val HEADERS = listOf(
             "externalKey", "problemId", "title", "school", "year", "difficulty", "problemType",

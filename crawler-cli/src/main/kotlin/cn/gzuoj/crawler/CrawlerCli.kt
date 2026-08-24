@@ -210,13 +210,40 @@ fun main(args: Array<String>) {
             val target = Path.of(args[2]).toAbsolutePath().normalize()
             val singlePage = args.getOrNull(3) == "--single-page"
             require(args.size == 3 || singlePage) { "第四个参数只能是 --single-page" }
-            val items = if (singlePage) NoobDreamListClient().fetch(source) else NoobDreamListClient().fetchAll(source)
-            NoobDreamListCsvWriter().write(items, target)
-            println("已采集 ${items.size} 道题目列表${if (singlePage) "（单页）" else "（全部分页）"}并写入 CSV：$target")
+            val config = NoobDreamCrawlerConfig.fromEnvFile()
+            val loginClient = NoobDreamLoginClient()
+            val cookies = loginClient.login(config)
+            val client = NoobDreamListClient(cookieHeader = cookies.headerValue)
+            try {
+                val items = if (singlePage) client.fetch(source) else client.fetchAll(source)
+                NoobDreamListCsvWriter().write(items, target)
+                println("已采集 ${items.size} 道题目列表${if (singlePage) "（单页）" else "（全部分页）"}并写入 CSV：$target")
+            } finally {
+                runCatching { loginClient.logout(config, cookies) }
+            }
+        }
+        args.size in 3..4 && args[0] == "noobdream-problems" -> {
+            val source = URI.create(args[1])
+            val target = Path.of(args[2]).toAbsolutePath().normalize()
+            val singlePage = args.getOrNull(3) == "--single-page"
+            require(args.size == 3 || singlePage) { "第四个参数只能是 --single-page" }
+            val config = NoobDreamCrawlerConfig.fromEnvFile()
+            val loginClient = NoobDreamLoginClient()
+            val cookies = loginClient.login(config)
+            try {
+                val listClient = NoobDreamListClient(cookieHeader = cookies.headerValue)
+                val listItems = if (singlePage) listClient.fetch(source) else listClient.fetchAll(source)
+                val problems = NoobDreamProblemClient(cookieHeader = cookies.headerValue).fetchAll(listItems)
+                NoobDreamProblemCsvWriter().write(problems, target)
+                println("已抓取 ${problems.size} 道题目详情并写入 CSV：$target")
+            } finally {
+                runCatching { loginClient.logout(config, cookies) }
+            }
         }
         else -> error(
             "用法：crawler-cli local <canonical-problems.json> <output.zip>\n" +
-                "或：crawler-cli noobdream-list <list-url> <output.csv> [--single-page]",
+                "或：crawler-cli noobdream-list <list-url> <output.csv> [--single-page]\n" +
+                "或：crawler-cli noobdream-problems <list-url> <output.csv> [--single-page]",
         )
     }
 }

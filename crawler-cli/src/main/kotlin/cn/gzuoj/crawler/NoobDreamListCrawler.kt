@@ -17,8 +17,10 @@ import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 import java.time.Duration
 
-/** N 诺题库列表中的一行；详情页内容需要登录，暂不在此阶段抓取。 */
+/** N 诺题库列表中的一行；详情页地址供后续登录采集使用。 */
 data class NoobDreamListItem(
+    /** 系统外部题目标识，使用来源命名空间避免与其他网站题号冲突。 */
+    val externalKey: String,
     /** 外部题号，保留网站原始数字字符串。 */
     val problemId: String,
     /** 题目标题。 */
@@ -27,14 +29,12 @@ data class NoobDreamListItem(
     val difficulty: String,
     /** 网站展示的题型文本，例如“简单模拟”。 */
     val problemType: String,
-    /** 题目名称旁的学校标签，可能为空或为“真题”。 */
-    val schoolTag: String?,
-    /** 题目名称旁的来源标签，例如“贵州大学机试题”。 */
-    val sourceTag: String?,
+    /** 从来源文字中识别出的学校名；无法识别时为空。 */
+    val school: String?,
+    /** 网站原始来源文字，仅用于详情补全和学校、年份提取。 */
+    val sourceDescription: String?,
     /** 详情页绝对地址。 */
     val detailUrl: String,
-    /** 列表页绝对地址。 */
-    val sourcePageUrl: String,
 )
 
 /** 一个列表页的题目和站点声明的总页数。 */
@@ -65,15 +65,16 @@ class NoobDreamListParser {
             require(problemId.matches(Regex("^[0-9]+$"))) { "题号不是数字：$problemId" }
             val title = titleAnchor.ownText().trim()
             require(title.isNotBlank()) { "题目标题为空：$problemId" }
+            val sourceDescription = cells[2].selectFirst(".tag-source")?.text()?.trim()?.takeIf(String::isNotBlank)
             NoobDreamListItem(
+                externalKey = "noobdream:$problemId",
                 problemId = problemId,
                 title = title,
                 difficulty = cells[3].selectFirst(".level-tag")?.text()?.trim().orEmpty(),
                 problemType = cells[4].text().trim(),
-                schoolTag = cells[2].selectFirst(".tag-school")?.text()?.trim()?.takeIf(String::isNotBlank),
-                sourceTag = cells[2].selectFirst(".tag-source")?.text()?.trim()?.takeIf(String::isNotBlank),
+                school = extractNoobDreamSchool(sourceDescription),
+                sourceDescription = sourceDescription,
                 detailUrl = detailUrl,
-                sourcePageUrl = pageUri.toString(),
             )
         }.also { items ->
             require(items.map(NoobDreamListItem::problemId).distinct().size == items.size) {
@@ -97,8 +98,10 @@ class NoobDreamListClient(
         .build(),
     /** 列表 HTML 解析器。 */
     private val parser: NoobDreamListParser = NoobDreamListParser(),
+    /** 登录后得到的 Cookie 请求头；为空时兼容公开列表采集。 */
+    private val cookieHeader: String? = null,
 ) {
-    /** 请求并解析一个列表页；不携带登录 Cookie。 */
+    /** 请求并解析一个列表页；配置会话时携带登录 Cookie。 */
     fun fetch(pageUri: URI): List<NoobDreamListItem> {
         return requestPage(pageUri).items
     }
@@ -125,6 +128,7 @@ class NoobDreamListClient(
             .header("Accept", "text/html,application/xhtml+xml")
             .header("Accept-Language", "zh-CN,zh;q=0.9")
             .header("User-Agent", USER_AGENT)
+            .apply { if (!cookieHeader.isNullOrBlank()) header("Cookie", cookieHeader) }
             .GET()
             .build()
         val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
@@ -163,14 +167,13 @@ class NoobDreamListCsvWriter {
                 csv.printRecord(HEADERS)
                 items.forEach { item ->
                     csv.printRecord(
+                        item.externalKey,
                         item.problemId,
                         item.title,
                         item.difficulty,
                         item.problemType,
-                        item.schoolTag.orEmpty(),
-                        item.sourceTag.orEmpty(),
+                        item.school.orEmpty(),
                         item.detailUrl,
-                        item.sourcePageUrl,
                     )
                 }
             }
@@ -187,10 +190,31 @@ class NoobDreamListCsvWriter {
     private companion object {
         /** CSV 字段固定顺序，避免后续导入脚本依赖页面顺序。 */
         val HEADERS = listOf(
-            "problemId", "title", "difficulty", "problemType", "schoolTag", "sourceTag", "detailUrl", "sourcePageUrl",
+            "externalKey", "problemId", "title", "difficulty", "problemType", "school", "detailUrl",
         )
     }
 }
+
+/** 从来源文字中提取一个或多个学校名；“真题”等站点标签不会作为学校。 */
+internal fun extractNoobDreamSchool(sourceDescription: String?): String? {
+    if (sourceDescription.isNullOrBlank()) return null
+    val schools = SCHOOL_REGEX.findAll(sourceDescription)
+        .map { it.value.trim() }
+        .filter(String::isNotBlank)
+        .distinct()
+        .toList()
+    return schools.takeIf { it.isNotEmpty() }?.joinToString("/")
+}
+
+/** 从来源文字中提取明确标注的年份，未标注时为空。 */
+internal fun extractNoobDreamYear(sourceDescription: String?): Int? =
+    sourceDescription?.let { YEAR_REGEX.find(it)?.value?.toIntOrNull() }
+
+/** 学校名称常见结尾；允许一个来源同时包含多所学校。 */
+private val SCHOOL_REGEX = Regex("[\\p{IsHan}A-Za-z0-9]+?(?:大学|学院|研究所|科学院)")
+
+/** 来源文字中的四位年份。 */
+private val YEAR_REGEX = Regex("(?:19|20)\\d{2}")
 
 /** 读取 HTML 文本并复用同一解析器，供离线测试使用。 */
 internal fun parseNoobDreamListHtml(html: String, pageUri: URI): List<NoobDreamListItem> =

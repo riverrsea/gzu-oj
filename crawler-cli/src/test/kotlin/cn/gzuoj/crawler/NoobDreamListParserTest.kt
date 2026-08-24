@@ -37,13 +37,16 @@ class NoobDreamListParserTest {
             page,
         )
         assertEquals(2, items.size)
+        assertEquals("noobdream:1006", items[0].externalKey)
         assertEquals("1006", items[0].problemId)
         assertEquals("字符串翻转", items[0].title)
-        assertEquals("真题", items[0].schoolTag)
-        assertEquals("贵州大学机试题", items[0].sourceTag)
+        assertEquals("贵州大学", items[0].school)
+        assertEquals("贵州大学机试题", items[0].sourceDescription)
         assertEquals("https://noobdream.com/DreamJudge/Issue/page/1006/", items[0].detailUrl)
-        assertEquals("计算机考研机试入门题", items[1].sourceTag)
-        assertEquals(null, items[1].schoolTag)
+        assertEquals("计算机考研机试入门题", items[1].sourceDescription)
+        assertEquals(null, items[1].school)
+        assertEquals("兰州大学/贵州大学", extractNoobDreamSchool("兰州大学/贵州大学机试"))
+        assertEquals(2025, extractNoobDreamYear("南京大学2025年机试题"))
         assertEquals(82, NoobDreamListParser().parsePage(
             """
             <table><tbody><tr><td></td><td>1000</td><td><a href="/DreamJudge/Issue/page/1000/">A+B问题</a></td><td><span class="level-tag">简单</span></td><td>简单模拟</td></tr></tbody></table>
@@ -61,22 +64,23 @@ class NoobDreamListParserTest {
             NoobDreamListCsvWriter().write(
                 listOf(
                     NoobDreamListItem(
+                        externalKey = "noobdream:1006",
                         problemId = "1006",
                         title = "字符串翻转",
                         difficulty = "简单",
                         problemType = "简单模拟",
-                        schoolTag = "真题",
-                        sourceTag = "贵州大学机试题",
+                        school = "贵州大学",
+                        sourceDescription = "贵州大学机试题",
                         detailUrl = "https://noobdream.com/DreamJudge/Issue/page/1006/",
-                        sourcePageUrl = "https://noobdream.com/DreamJudge/Issue/page/0/",
                     ),
                 ),
                 target,
             )
             val csv = Files.readString(target)
-            assertTrue(csv.startsWith("problemId,title,difficulty,problemType,schoolTag,sourceTag,detailUrl,sourcePageUrl"))
+            assertTrue(csv.startsWith("externalKey,problemId,title,difficulty,problemType,school,detailUrl"))
+            assertTrue(csv.contains("noobdream:1006"))
             assertTrue(csv.contains("1006"))
-            assertTrue(csv.contains("贵州大学机试题"))
+            assertTrue(csv.contains("贵州大学"))
         } finally {
             Files.deleteIfExists(target)
         }

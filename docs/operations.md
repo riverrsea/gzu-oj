@@ -20,10 +20,24 @@
 
 ## 爬虫 CLI
 
-首版仅支持本地规范 JSON，不主动抓取网站：
+列表采集和题面采集都使用项目根目录的 `.env.crawler` 登录配置。该文件已被 `.gitignore` 忽略，不要提交账号、密码或 Cookie。支持的键名为 `login_url`、`logout_url`、`user_name`、`user_password`；当前项目中已有的 `noobdream_account`、`noobdream_pwd` 也兼容。登录成功后，列表和题面请求都会携带 `csrftoken`、`sessionid`，采集结束后使用 POST 请求登出。
+
+只采集全部公开分页的列表元数据：
+
+```bash
+gradle :crawler-cli:run --args='noobdream-list https://noobdream.com/DreamJudge/Issue/page/0/ /absolute/noobdream-list.csv'
+```
+
+采集登录后题面和公开样例，输出原始详情 CSV；不完整字段保留为空：
+
+```bash
+gradle :crawler-cli:run --args='noobdream-problems https://noobdream.com/DreamJudge/Issue/page/0/ /absolute/noobdream-problems.csv'
+```
+
+调试时可以在两个命令末尾追加 `--single-page`。详情 CSV 不是管理员批量导入 ZIP；标准导入仍需通过 `problems.csv`、`statements/` 和可选 `tests/` 目录组织 ZIP，并补齐学校、年份和测试点。
+
+本地规范 JSON 转标准导入 ZIP 仍可使用：
 
 ```bash
 gradle :crawler-cli:run --args='local /absolute/problems.json /absolute/import.zip'
 ```
-
-具体网站适配器必须在目标 URL、访问许可和页面结构明确后新增。

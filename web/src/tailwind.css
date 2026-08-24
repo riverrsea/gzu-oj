@@ -1,0 +1,147 @@
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  /* 全局应用框架：轻量、留白明确，内容页与做题页保持不同密度。 */
+  .app-shell--modern .topbar {
+    @apply border-line bg-paper shadow-sm backdrop-blur;
+  }
+
+  .app-shell--modern .brand {
+    @apply text-ink transition-colors duration-200;
+  }
+
+  .app-shell--modern .brand:hover {
+    @apply text-brand;
+  }
+
+  .app-shell--modern .main-nav a,
+  .app-shell--modern .command-link {
+    @apply rounded-lg transition-colors duration-200;
+  }
+
+  .app-shell--modern .main-nav a:hover,
+  .app-shell--modern .command-link:hover {
+    @apply bg-canvas text-ink;
+  }
+
+  .app-shell--modern .topbar-actions .icon-button {
+    @apply transition-colors duration-200;
+  }
+
+  .app-shell--modern .page-main {
+    @apply pb-16 pt-9;
+  }
+
+  .content-page--modern {
+    @apply min-w-0;
+  }
+
+  .content-page--modern .page-heading {
+    @apply mb-7;
+  }
+
+  .content-page--modern .page-heading h1 {
+    @apply text-[29px] font-extrabold tracking-[-0.02em];
+  }
+
+  .content-page--modern .page-heading p {
+    @apply mt-2 text-[13px] leading-6 text-quiet;
+  }
+
+  .catalog-toolbar--modern,
+  .admin-catalog-filters--modern {
+    @apply rounded-panel border border-line bg-paper p-3 shadow-panel;
+  }
+
+  .catalog-toolbar--modern {
+    @apply mb-4;
+  }
+
+  .problem-table--modern,
+  .admin-catalog-table--modern {
+    @apply overflow-hidden rounded-panel border border-line bg-paper shadow-panel;
+  }
+
+  .problem-table--modern .el-table__inner-wrapper::before,
+  .admin-catalog-table--modern .el-table__inner-wrapper::before {
+    @apply hidden;
+  }
+
+  .problem-table--modern .el-table__header-wrapper th.el-table__cell,
+  .admin-catalog-table--modern .el-table__header-wrapper th.el-table__cell {
+    @apply border-b border-line bg-canvas text-[11px] font-bold uppercase tracking-[0.08em] text-quiet;
+  }
+
+  .problem-table--modern .el-table__body tr,
+  .admin-catalog-table--modern .el-table__body tr {
+    @apply transition-colors duration-150;
+  }
+
+  .problem-table--modern .el-table__body tr:hover > td.el-table__cell,
+  .admin-catalog-table--modern .el-table__body tr:hover > td.el-table__cell {
+    background: color-mix(in srgb, var(--accent) 5%, transparent);
+  }
+
+  .problem-table--modern .el-table__body td.el-table__cell,
+  .admin-catalog-table--modern .el-table__body td.el-table__cell {
+    @apply border-b border-line py-4;
+  }
+
+  /* 管理端是独立工作台，侧栏用更深的色块形成稳定的导航锚点。 */
+  .admin-shell--modern {
+    @apply gap-8;
+  }
+
+  .admin-sidebar--modern {
+    @apply overflow-hidden rounded-panel border border-line bg-paper p-2 shadow-panel;
+  }
+
+  .admin-sidebar--modern > header {
+    @apply mb-2 border-b border-line px-3 pb-4 pt-3;
+  }
+
+  .admin-sidebar--modern > header strong {
+    @apply text-base font-extrabold tracking-[-0.01em];
+  }
+
+  .admin-sidebar--modern > header span {
+    @apply mt-1 block text-[11px] text-quiet;
+  }
+
+  .admin-sidebar--modern nav {
+    @apply gap-1;
+  }
+
+  .admin-sidebar--modern nav a {
+    @apply min-h-11 rounded-lg px-3 text-[13px] transition-colors duration-150;
+  }
+
+  .admin-sidebar--modern nav a:hover {
+    @apply bg-canvas text-ink;
+  }
+
+  .admin-sidebar--modern nav a.router-link-exact-active {
+    @apply bg-brand text-white shadow-none;
+  }
+
+  .admin-workspace--modern {
+    @apply min-w-0;
+  }
+
+  .admin-page--modern .heading-actions {
+    @apply gap-3;
+  }
+
+  .admin-page--modern .result-count {
+    @apply rounded-full border border-line bg-paper px-3 py-1.5 text-xs font-semibold text-quiet;
+  }
+
+  .auth-layout--modern .auth-copy h1 {
+    @apply font-extrabold tracking-[-0.03em];
+  }
+
+  .auth-layout--modern .auth-panel {
+    @apply rounded-panel border-line shadow-float;
+  }
+}

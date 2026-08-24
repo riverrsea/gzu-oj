@@ -56,7 +56,7 @@ async function submitVerification(): Promise<void> {
 </script>
 
 <template>
-  <section class="auth-layout">
+  <section class="auth-layout auth-layout--modern">
     <div class="auth-copy">
       <img src="/brand-mark.svg" alt="" />
       <h1>研试 OJ</h1>

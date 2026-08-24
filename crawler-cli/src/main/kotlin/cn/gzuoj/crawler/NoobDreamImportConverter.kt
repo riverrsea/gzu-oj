@@ -24,7 +24,11 @@ class NoobDreamImportConverter {
         val errors = mutableListOf<String>()
         val problems = records.mapIndexedNotNull { index, record ->
             runCatching { record.toCanonicalProblem(defaultYear) }
-                .onFailure { errors += "第 ${index + 2} 行：${it.message ?: "字段不合法"}" }
+                .onFailure {
+                    val key = record.get("externalKey").trim().ifEmpty { "?" }
+                    val title = record.get("title").trim().ifEmpty { "未命名题目" }
+                    errors += "第 ${index + 2} 行（$key，$title）：${it.message ?: "字段不合法"}"
+                }
                 .getOrNull()
         }
         if (errors.isNotEmpty()) {

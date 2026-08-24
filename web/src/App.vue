@@ -40,7 +40,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'app-shell--workspace': isWorkspace }">
+  <div class="app-shell app-shell--modern" :class="{ 'app-shell--workspace': isWorkspace }">
     <header class="topbar">
       <RouterLink class="brand" to="/problems" aria-label="研试 OJ 题库">
         <img src="/brand-mark.svg" alt="" />

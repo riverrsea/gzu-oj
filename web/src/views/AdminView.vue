@@ -101,13 +101,13 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="content-page admin-page">
+  <section class="content-page content-page--modern admin-page admin-page--modern">
     <div class="page-heading">
       <div><h1>题库管理</h1><p>查看草稿、已发布题目和不可变历史版本</p></div>
       <div class="heading-actions"><span class="result-count">{{ total }} 个版本</span><el-button type="primary" @click="$router.push('/admin/problems/new')"><Plus :size="16" />新建题目</el-button></div>
     </div>
 
-    <form class="admin-catalog-filters" @submit.prevent="search">
+    <form class="admin-catalog-filters admin-catalog-filters--modern" @submit.prevent="search">
       <el-input v-model="filters.keyword" clearable placeholder="标题或外部题目标识" />
       <el-input v-model="filters.school" clearable placeholder="学校" />
       <el-input-number v-model="filters.year" :min="1900" :max="2200" :controls="false" placeholder="年份" />
@@ -117,7 +117,7 @@ onMounted(() => {
       <el-button native-type="submit" type="primary" :loading="loading"><Search :size="16" />筛选</el-button>
     </form>
 
-    <el-table v-loading="loading" :data="problems" row-key="versionId" class="admin-catalog-table">
+    <el-table v-loading="loading" :data="problems" row-key="versionId" class="admin-catalog-table admin-catalog-table--modern">
       <el-table-column label="题目" min-width="260"><template #default="{ row }"><div class="problem-title"><strong>{{ row.title }}</strong><span>{{ row.externalKey || '手工题目' }}</span></div></template></el-table-column>
       <el-table-column prop="school" label="学校" min-width="140" />
       <el-table-column prop="year" label="年份" width="76" />

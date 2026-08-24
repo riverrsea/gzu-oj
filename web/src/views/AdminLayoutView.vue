@@ -3,8 +3,8 @@ import { BookOpen, FileArchive, Plus, ServerCog } from "@lucide/vue";
 </script>
 
 <template>
-  <div class="admin-shell">
-    <aside class="admin-sidebar">
+  <div class="admin-shell admin-shell--modern">
+    <aside class="admin-sidebar admin-sidebar--modern">
       <header><strong>管理中心</strong><span>内容与系统配置</span></header>
       <nav aria-label="管理导航">
         <RouterLink to="/admin/problems"><BookOpen :size="17" />题库目录</RouterLink>
@@ -13,6 +13,6 @@ import { BookOpen, FileArchive, Plus, ServerCog } from "@lucide/vue";
         <RouterLink to="/admin/workers"><ServerCog :size="17" />判题 Worker</RouterLink>
       </nav>
     </aside>
-    <section class="admin-workspace"><RouterView /></section>
+    <section class="admin-workspace admin-workspace--modern"><RouterView /></section>
   </div>
 </template>

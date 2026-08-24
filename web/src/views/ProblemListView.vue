@@ -31,12 +31,12 @@ onMounted(load);
 </script>
 
 <template>
-  <section class="content-page">
+  <section class="content-page content-page--modern">
     <div class="page-heading">
       <div><h1>题库</h1><p>按学校、年份、标签与难度筛选已发布题目</p></div>
       <span class="result-count">{{ problems.length }} 题</span>
     </div>
-    <form class="filter-bar" @submit.prevent="load">
+    <form class="filter-bar catalog-toolbar--modern" @submit.prevent="load">
       <el-input v-model="filters.school" clearable placeholder="学校" />
       <el-input-number v-model="filters.year" :min="1900" :max="2200" :controls="false" placeholder="年份" />
       <el-input v-model="filters.tag" clearable placeholder="标签" />
@@ -45,7 +45,7 @@ onMounted(load);
       </el-select>
       <el-button native-type="submit" type="primary" :loading="loading"><Search :size="16" />筛选</el-button>
     </form>
-    <el-table v-loading="loading" :data="problems" class="problem-table" row-key="id" @row-click="(row: ProblemSummary) => $router.push('/problems/' + row.id)">
+    <el-table v-loading="loading" :data="problems" class="problem-table problem-table--modern" row-key="id" @row-click="(row: ProblemSummary) => $router.push('/problems/' + row.id)">
       <el-table-column label="题目" min-width="280">
         <template #default="{ row }"><div class="problem-title"><strong>{{ row.title }}</strong><span>{{ row.externalKey || '手工题目' }}</span></div></template>
       </el-table-column>

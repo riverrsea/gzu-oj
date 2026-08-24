@@ -108,6 +108,7 @@ a { color: inherit; text-decoration: none; }
 .font-setting { display: inline-flex; align-items: center; gap: 10px; }
 .editor-stage { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) var(--drawer-height); }
 .editor-host, .code-editor { min-height: 0; height: 100%; overflow: hidden; }
+.code-editor--monaco { width: 100%; }
 .result-drawer { min-height: 0; border-top: 1px solid var(--border); display: grid; grid-template-rows: 4px 38px minmax(0, 1fr); background: var(--surface); }
 .drawer-resize { cursor: row-resize; touch-action: none; }
 .drawer-resize:hover { background: var(--accent); }

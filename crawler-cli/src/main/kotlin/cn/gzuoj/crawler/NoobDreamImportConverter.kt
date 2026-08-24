@@ -14,6 +14,7 @@ import java.nio.file.Path
 class NoobDreamImportConverter {
     /**
      * 转换详情 CSV；defaultYear 只填充 CSV 中为空的年份，不覆盖已有年份。
+     * 未显式指定时使用 1900 表示外部来源没有提供年份。
      * 转换失败时汇总全部行错误，避免只修正第一道题后重复试错。
      */
     fun convert(input: Path, target: Path, defaultYear: Int? = null) {
@@ -76,11 +77,13 @@ class NoobDreamImportConverter {
         val title = required("title").also { require(it.length <= 200) { "title 过长" } }
         val school = get("school").trim().ifEmpty { DEFAULT_SCHOOL }
             .also { require(it.length <= 200) { "school 过长" } }
-        val year = get("year").trim().takeIf(String::isNotEmpty)?.toIntOrNull() ?: defaultYear
-        require(year != null && year in 1900..2200) { "year 为空或超出 1900..2200 范围" }
+        val year = get("year").trim().takeIf(String::isNotEmpty)?.toIntOrNull()
+            ?: defaultYear
+            ?: DEFAULT_YEAR
+        require(year in 1900..2200) { "year 超出 1900..2200 范围" }
         val difficulty = mapDifficulty(required("difficulty"))
         val timeLimitMs = required("timeLimitMs").toInt().also { require(it in 100..60_000) { "timeLimitMs 超出范围" } }
-        val memoryLimitMiB = required("memoryLimitMiB").toInt().also { require(it in 16..2048) { "memoryLimitMiB 超出范围" } }
+        val memoryLimitMiB = normalizeMemoryLimit(required("memoryLimitMiB"))
         val statement = required("statementMarkdown").also { require(it.length <= 1_000_000) { "statementMarkdown 过长" } }
         val problemType = get("problemType").trim()
         return CanonicalProblem(
@@ -99,11 +102,33 @@ class NoobDreamImportConverter {
     }
 
     /** 将站点中文难度映射到标准导入枚举。 */
-    private fun mapDifficulty(value: String): String = when (value.trim().uppercase()) {
+    private fun mapDifficulty(value: String): String = when (value.trim().uppercase().trimEnd('+', '-')) {
         "EASY", "简单", "容易" -> "EASY"
         "MEDIUM", "中等", "一般" -> "MEDIUM"
         "HARD", "困难" -> "HARD"
         else -> throw IllegalArgumentException("difficulty 不支持：$value")
+    }
+
+    /**
+     * 规范化源站内存限制。新题按 MiB 保存；部分旧题沿用 KiB 数值，
+     * 另有少量页面把 MiB 与旧值拼接。转换只在原值超出系统范围时纠正。
+     */
+    private fun normalizeMemoryLimit(value: String): Int {
+        val raw = value.toIntOrNull() ?: throw IllegalArgumentException("memoryLimitMiB 不是整数：$value")
+        if (raw in 16..2048) return raw
+        if (raw in 1 until 16) return 16
+
+        // 例如 25632768 表示页面把 256 MiB 与旧的 32768 KiB 文本拼接。
+        val concatenatedPrefix = (2 until value.length).asSequence()
+            .mapNotNull { split -> value.substring(0, split).toIntOrNull() }
+            .filter { it in 16..2048 }
+            .lastOrNull()
+        if (concatenatedPrefix != null && value.length >= 7) return concatenatedPrefix
+
+        // 旧题常见 32768 KiB；对 32678 之类的源站笔误按最接近的 MiB 换算。
+        val converted = ((raw + 512L) / 1024L).toInt()
+        require(converted in 16..2048) { "memoryLimitMiB 超出范围：$raw" }
+        return converted
     }
 
     /** 读取必填字段并去除两端空白。 */
@@ -114,5 +139,7 @@ class NoobDreamImportConverter {
     companion object {
         /** 外部来源未提供学校时的明确占位值，避免与真实学校混淆。 */
         const val DEFAULT_SCHOOL = "未注明"
+        /** 外部来源未提供年份时的占位值，也是数据库允许的最早年份。 */
+        const val DEFAULT_YEAR = 1900
     }
 }

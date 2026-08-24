@@ -42,10 +42,12 @@ gradle :crawler-cli:run --args='noobdream-problems https://noobdream.com/DreamJu
 gradle :crawler-cli:run --args='local /absolute/problems.json /absolute/import.zip'
 ```
 
-已采集的 noobdream 详情 CSV 可转换为不含测试点的标准导入 ZIP。CSV 中缺失的学校会转换为占位值 `未注明`；缺失年份可以用参数统一补充，转换器不会覆盖 CSV 中已有年份：
+已采集的 noobdream 详情 CSV 可转换为不含测试点的标准导入 ZIP。CSV 中缺失的学校会转换为占位值 `未注明`，缺失年份默认转换为 `1900`；转换器不会覆盖 CSV 中已有年份。需要其他占位年份时可显式传入 `--default-year`：
 
 ```bash
+gradle :crawler-cli:run --args='noobdream-import /absolute/noobdream-problems.csv /absolute/noobdream-import.zip'
 gradle :crawler-cli:run --args='noobdream-import /absolute/noobdream-problems.csv /absolute/noobdream-import.zip --default-year 2025'
 ```
 
 转换后的 ZIP 只包含 `problems.csv` 和 `statements/`，导入后题目为草稿，测试点在管理员编辑页面中继续录入。
+源站的 `简单/中等/困难`（包括 `+/-` 后缀）会映射为项目难度。旧题中超出 MiB 范围的 KiB 数值会按 1024 换算，页面拼接值会保留合法的 MiB 前缀，低于系统下限的正数会提升到 16 MiB。

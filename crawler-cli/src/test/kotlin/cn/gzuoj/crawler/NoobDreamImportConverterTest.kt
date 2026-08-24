@@ -55,4 +55,25 @@ noobdream:1,1,A+B,贵州大学,2025,EASY,模拟,1000,256,# A+B,,,,,
             Files.deleteIfExists(output)
         }
     }
+
+    /** 空学校转换为明确占位值，仍可通过导入器的非空校验。 */
+    @Test
+    fun fillsMissingSchool() {
+        val input = Files.createTempFile("noobdream-details-empty-school-", ".csv")
+        val output = Files.createTempFile("noobdream-import-empty-school-", ".zip")
+        try {
+            val csv = """externalKey,problemId,title,school,year,difficulty,problemType,timeLimitMs,memoryLimitMiB,statementMarkdown,inputDescription,outputDescription,sampleInput,sampleOutput,sourceUrl
+noobdream:1,1,A+B,,2025,EASY,模拟,1000,256,# A+B,,,,,
+""".trimIndent()
+            Files.writeString(input, csv)
+            NoobDreamImportConverter().convert(input, output)
+            ZipFile(output.toFile()).use { zip ->
+                val problemsCsv = zip.getInputStream(zip.getEntry("problems.csv")).bufferedReader().readText()
+                assertTrue(problemsCsv.contains("noobdream:1,A+B,${NoobDreamImportConverter.DEFAULT_SCHOOL},2025"))
+            }
+        } finally {
+            Files.deleteIfExists(input)
+            Files.deleteIfExists(output)
+        }
+    }
 }

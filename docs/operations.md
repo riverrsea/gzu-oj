@@ -42,7 +42,7 @@ gradle :crawler-cli:run --args='noobdream-problems https://noobdream.com/DreamJu
 gradle :crawler-cli:run --args='local /absolute/problems.json /absolute/import.zip'
 ```
 
-已采集的 noobdream 详情 CSV 可转换为不含测试点的标准导入 ZIP。CSV 中的 `school`、`year` 等必填字段必须完整；缺失年份可以用参数统一补充，转换器不会覆盖 CSV 中已有年份：
+已采集的 noobdream 详情 CSV 可转换为不含测试点的标准导入 ZIP。CSV 中缺失的学校会转换为占位值 `未注明`；缺失年份可以用参数统一补充，转换器不会覆盖 CSV 中已有年份：
 
 ```bash
 gradle :crawler-cli:run --args='noobdream-import /absolute/noobdream-problems.csv /absolute/noobdream-import.zip --default-year 2025'

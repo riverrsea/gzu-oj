@@ -74,7 +74,8 @@ class NoobDreamImportConverter {
         val externalKey = required("externalKey")
         require(externalKey.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"))) { "externalKey 格式不正确" }
         val title = required("title").also { require(it.length <= 200) { "title 过长" } }
-        val school = required("school").also { require(it.length <= 200) { "school 过长" } }
+        val school = get("school").trim().ifEmpty { DEFAULT_SCHOOL }
+            .also { require(it.length <= 200) { "school 过长" } }
         val year = get("year").trim().takeIf(String::isNotEmpty)?.toIntOrNull() ?: defaultYear
         require(year != null && year in 1900..2200) { "year 为空或超出 1900..2200 范围" }
         val difficulty = mapDifficulty(required("difficulty"))
@@ -108,5 +109,10 @@ class NoobDreamImportConverter {
     /** 读取必填字段并去除两端空白。 */
     private fun CSVRecord.required(name: String): String = get(name).trim().also {
         require(it.isNotEmpty()) { "$name 不能为空" }
+    }
+
+    companion object {
+        /** 外部来源未提供学校时的明确占位值，避免与真实学校混淆。 */
+        const val DEFAULT_SCHOOL = "未注明"
     }
 }

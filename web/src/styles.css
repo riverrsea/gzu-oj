@@ -335,8 +335,11 @@ a { color: inherit; text-decoration: none; }
 .worker-checklist li { display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 9px; align-items: start; }
 .check-dot { width: 7px; height: 7px; margin-top: 6px; border-radius: 50%; background: var(--accent); }
 
-/* 顶栏采用品牌、主导航和右侧主操作分区，保持开放式产品站的轻量层级。 */
-.topbar--codex { height: 64px; padding: 0; background: color-mix(in srgb, var(--surface) 92%, transparent); }
+/* 顶栏采用透明起始状态，悬停或滚动后再显示实体层，保持页面内容的连续感。 */
+.app-shell--modern .topbar--codex { height: 64px; padding: 0; background: transparent; border-bottom-color: transparent; box-shadow: none; backdrop-filter: none; transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, backdrop-filter 180ms ease; }
+.app-shell--modern .topbar--codex:hover,
+.app-shell--modern .topbar--codex.topbar--scrolled,
+.app-shell--modern .topbar--codex.topbar--menu-open { background: color-mix(in srgb, var(--surface) 90%, transparent); border-bottom-color: color-mix(in srgb, var(--border) 82%, transparent); box-shadow: 0 8px 28px color-mix(in srgb, var(--text) 7%, transparent); backdrop-filter: blur(16px) saturate(140%); }
 .topbar-inner { width: min(1280px, calc(100% - 48px)); height: 100%; margin: 0 auto; display: flex; align-items: center; gap: 34px; }
 .topbar-brand { gap: 10px; font-size: 15px; letter-spacing: 0; }
 .topbar-brand img { width: 30px; height: 30px; }
@@ -379,7 +382,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 @media (max-width: 760px) {
-  .topbar--codex { height: 60px; }
+  .app-shell--modern .topbar--codex { height: 60px; }
   .topbar-inner { width: 100%; padding: 0 14px; gap: 12px; }
   .topbar-brand { margin-right: auto; }
   .topbar-nav { display: none; }

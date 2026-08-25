@@ -50,7 +50,6 @@ a { color: inherit; text-decoration: none; }
 .main-nav a, .command-link { display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; color: var(--muted); font-size: 14px; }
 .main-nav a.router-link-active { color: var(--accent); box-shadow: inset 0 -2px var(--accent); }
 .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-.user-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .icon-button { width: 34px; height: 34px; border: 0; background: transparent; display: inline-grid; place-items: center; cursor: pointer; border-radius: 6px; }
 .icon-button:hover { background: var(--surface-subtle); color: var(--accent); }
 .system-theme { font-weight: 800; font-size: 15px; border: 1px solid currentColor; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; }
@@ -424,10 +423,7 @@ a { color: inherit; text-decoration: none; }
 .topbar-nav a.router-link-active { color: var(--text); background: var(--surface-subtle); box-shadow: none; }
 .topbar-nav a:hover { color: var(--text); background: var(--surface-subtle); }
 .topbar-actions { gap: 7px; }
-.topbar-theme-button { color: var(--muted); }
 .topbar-login { padding: 0 10px; font-size: 13px; }
-.topbar-cta { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 14px; border-radius: 6px; background: var(--text); color: var(--bg); font-size: 13px; font-weight: 700; transition: opacity 150ms ease; }
-.topbar-cta:hover { opacity: 0.84; }
 .topbar-menu-toggle, .topbar-mobile-nav { display: none; }
 .app-shell--workspace .workspace-main { height: calc(100vh - 64px); }
 
@@ -445,13 +441,427 @@ a { color: inherit; text-decoration: none; }
 }
 
 @media (max-width: 760px) {
-  .topbar { height: 52px; padding: 0 12px; gap: 8px; }.brand span { display: none; }.main-nav { overflow-x: auto; }.main-nav a { padding: 0 8px; font-size: 0; }.main-nav a svg { width: 19px; height: 19px; }.user-name { display: none; }
+  .topbar { height: 52px; padding: 0 12px; gap: 8px; }.brand span { display: none; }.main-nav { overflow-x: auto; }.main-nav a { padding: 0 8px; font-size: 0; }.main-nav a svg { width: 19px; height: 19px; }
   .page-main { width: min(100% - 20px, 680px); padding-top: 18px; }.page-heading { align-items: flex-start; }.page-heading h1 { font-size: 22px; }
   .filter-bar { grid-template-columns: 1fr 1fr; }.filter-bar > button { grid-column: 1 / -1; }
   .auth-layout { grid-template-columns: 1fr; gap: 18px; min-height: auto; }.auth-copy { text-align: center; }.auth-copy img { width: 44px; }.auth-copy h1 { font-size: 27px; margin: 8px 0 3px; }.auth-copy p { font-size: 14px; }.auth-panel { padding: 18px; }.captcha-row { grid-template-columns: 1fr 112px 34px; }.captcha-row img { width: 112px; }
   .app-shell--workspace .topbar { position: relative; }.workspace-main { height: calc(100vh - 52px); }.workspace-page { display: grid; grid-template-rows: 42px minmax(0, 1fr); }.mobile-workspace-tabs { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--surface); border-bottom: 1px solid var(--border); }.mobile-workspace-tabs button { border: 0; background: transparent; color: var(--muted); }.mobile-workspace-tabs button.active { color: var(--accent); box-shadow: inset 0 -2px var(--accent); }
   .workspace-grid { display: block; overflow: hidden; }.statement-panel, .editor-panel, .mobile-result-panel { height: 100%; }.statement-panel { padding: 18px 16px 48px; }.statement-header h1 { font-size: 21px; }.sample-columns { grid-template-columns: 1fr; }.split-handle { display: none; }.editor-panel { grid-template-rows: 46px minmax(0, 1fr) 52px; }.result-drawer { display: none; }.editor-stage { grid-template-rows: minmax(0, 1fr); }.limit-text { display: none; }.mobile-result-panel { display: block; padding: 16px; overflow: auto; }.mobile-result-panel > header { display: flex; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid var(--border); }.mobile-run-actions { padding-top: 22px; }.mobile-run-actions p { color: var(--muted); }.mobile-hidden { display: none !important; }.case-results > div { grid-template-columns: 45px 80px 70px; }.case-results > div span:nth-last-child(-n + 2) { display: none; }
   .training-layout { grid-template-columns: 1fr; }.detail-panel { border-left: 0; border-top: 1px solid var(--border); padding: 16px 0 0; }.attempt-band > header { align-items: flex-start; flex-wrap: wrap; }.form-grid, .form-grid--three, .test-case-editor, .test-case-columns, .statement-fields, .ai-generated-case-content { grid-template-columns: 1fr; }.upload-row { grid-template-columns: 1fr auto; }.upload-row > span { grid-column: 1 / -1; grid-row: 2; }.tool-actions, .form-actions { align-items: flex-start; flex-wrap: wrap; }.admin-shell { grid-template-columns: 1fr; gap: 18px; }.admin-sidebar { position: static; padding: 0 0 10px; border-right: 0; border-bottom: 1px solid var(--border); overflow: hidden; }.admin-sidebar > header { display: none; }.admin-sidebar nav { display: flex; gap: 4px; overflow-x: auto; }.admin-sidebar nav a { flex: 0 0 auto; min-height: 38px; padding: 0 9px; }.admin-sidebar nav a.router-link-exact-active { box-shadow: inset 0 -2px var(--accent); }.admin-page .page-heading { align-items: flex-start; flex-wrap: wrap; }.admin-catalog-filters { grid-template-columns: 1fr 1fr; }.admin-catalog-filters > button { grid-column: 1 / -1; }.admin-catalog-table { overflow-x: auto; }.admin-catalog-pagination { justify-content: center; }.ai-run-summary dl { grid-template-columns: 1fr; }.ai-flow-timeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }.ai-flow-step:not(:last-child)::after { right: 8px; }.markdown-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); }.markdown-toolbar-end { justify-content: space-between; padding-top: 4px; border-top: 1px solid var(--border); }.markdown-editor-body { height: 620px; }.markdown-editor-body--split { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }.markdown-editor-body--split .markdown-editor-pane { border-right: 0; border-bottom: 1px solid var(--border); }.markdown-preview-pane { padding: 16px 15px 40px; }.worker-layout { grid-template-columns: 1fr; }.worker-page .page-heading { align-items: flex-start; }.run-output-columns { grid-template-columns: 1fr; }.run-output-columns > div + div { border-left: 0; border-top: 1px solid var(--border); }
+}
+
+/* 顶栏采用 LeetRank 的紧凑排版：品牌、文字导航、右侧操作区分层排列。
+ * 透明初始态和实体态仍由 App.vue 的滚动、悬停和菜单状态控制。 */
+.app-shell--modern .topbar--codex {
+  height: 64px;
+  min-height: 64px;
+  padding: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, backdrop-filter 180ms ease;
+}
+
+.app-shell--modern .topbar--codex:hover,
+.app-shell--modern .topbar--codex.topbar--scrolled,
+.app-shell--modern .topbar--codex.topbar--menu-open {
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--border) 88%, transparent);
+  box-shadow: 0 8px 26px color-mix(in srgb, var(--text) 8%, transparent);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+}
+
+.app-shell--modern .topbar-inner {
+  width: min(1280px, calc(100% - 48px));
+  max-width: 1280px;
+  height: 100%;
+  margin: 0 auto;
+  gap: 30px;
+}
+
+.app-shell--modern .topbar-brand {
+  flex: 0 0 auto;
+  gap: 10px;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.app-shell--modern .topbar-brand img {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+}
+
+.app-shell--modern .topbar-nav {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  gap: 2px;
+}
+
+.app-shell--modern .topbar-nav a {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+
+.app-shell--modern .topbar-nav a svg {
+  display: none;
+}
+
+.app-shell--modern .topbar-nav a:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.app-shell--modern .topbar-nav a.router-link-active {
+  color: var(--text);
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-shell--modern .topbar-nav a.router-link-active::after {
+  position: absolute;
+  right: 12px;
+  bottom: 4px;
+  left: 12px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--accent);
+  content: "";
+}
+
+.app-shell--modern .topbar-actions {
+  gap: 4px;
+}
+
+/* 右侧沿用 LeetRank 的操作顺序：主题、身份操作、主操作；不加入搜索入口。 */
+.app-shell--modern .topbar-theme-toggle {
+  order: 1;
+}
+
+.app-shell--modern .topbar-login,
+.app-shell--modern .topbar-account {
+  order: 2;
+}
+
+.app-shell--modern .topbar-register {
+  order: 3;
+}
+
+.app-shell--modern .topbar-theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
+}
+
+.app-shell--modern .topbar-theme-option {
+  display: inline-grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.app-shell--modern .topbar-theme-option:hover {
+  color: var(--text);
+}
+
+.app-shell--modern .topbar-theme-option.active {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.app-shell--modern .topbar-login {
+  min-height: 36px;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.app-shell--modern .topbar-login svg {
+  display: none;
+}
+
+.app-shell--modern .topbar-login:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--text);
+}
+
+.app-shell--modern .topbar-register {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 15px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  transition: background-color 150ms ease, transform 150ms ease;
+}
+
+.app-shell--modern .topbar-register:hover {
+  background: var(--accent-strong);
+  opacity: 1;
+  transform: translateY(-1px);
+}
+
+/* 登录用户使用 LeetRank 式的头像胶囊和下拉操作。 */
+.app-shell--modern .topbar-account {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.app-shell--modern .topbar-user-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  max-width: 170px;
+  padding: 0 11px 0 4px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 74%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.app-shell--modern .topbar-user-avatar {
+  display: grid;
+  flex: 0 0 27px;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 13%, var(--surface));
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.app-shell--modern .topbar-user-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell--modern .topbar-user-trigger:hover,
+.app-shell--modern .topbar-user-trigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+.app-shell--modern .topbar-user-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 50;
+  display: grid;
+  min-width: 174px;
+  gap: 3px;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 18px 44px color-mix(in srgb, var(--text) 16%, transparent);
+}
+
+.app-shell--modern .topbar-user-menu-label {
+  padding: 8px 10px 7px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell--modern .topbar-user-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+}
+
+.app-shell--modern .topbar-user-menu-item:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--text);
+}
+
+.app-shell--modern .topbar-menu-toggle {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  /* 移动端沿用 LeetRank 的右侧操作区与浮层菜单，不压缩桌面文字导航。 */
+  .app-shell--modern .topbar--codex {
+    height: 60px;
+    min-height: 60px;
+  }
+
+  .app-shell--modern .topbar-inner {
+    width: calc(100% - 20px);
+    max-width: none;
+    gap: 10px;
+  }
+
+  .app-shell--modern .topbar-brand {
+    margin-right: auto;
+    font-size: 15px;
+  }
+
+  .app-shell--modern .topbar-brand img {
+    width: 28px;
+    height: 28px;
+  }
+
+  .app-shell--modern .topbar-nav {
+    display: none;
+  }
+
+  .app-shell--modern .topbar-actions {
+    margin-left: 0;
+  }
+
+  .app-shell--modern .topbar-actions .topbar-login,
+  .app-shell--modern .topbar-actions .topbar-register {
+    display: none;
+  }
+
+  .app-shell--modern .topbar-user-trigger {
+    max-width: 36px;
+    padding-right: 4px;
+  }
+
+  .app-shell--modern .topbar-user-label,
+  .app-shell--modern .topbar-user-trigger > svg {
+    display: none;
+  }
+
+  .app-shell--modern .topbar-user-menu {
+    right: -4px;
+  }
+
+  .app-shell--modern .topbar-menu-toggle {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    align-content: center;
+    justify-items: center;
+    gap: 5px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    transition: background-color 150ms ease, color 150ms ease;
+  }
+
+  .app-shell--modern .topbar-menu-toggle:hover,
+  .app-shell--modern .topbar--codex.topbar--menu-open .topbar-menu-toggle {
+    background: color-mix(in srgb, var(--accent) 9%, transparent);
+    color: var(--text);
+  }
+
+  .app-shell--modern .topbar-menu-toggle span {
+    width: 16px;
+    height: 1.5px;
+    background: currentColor;
+    transition: transform 150ms ease;
+  }
+
+  .app-shell--modern .topbar-menu-toggle__line--open:first-child {
+    transform: translateY(3.25px) rotate(45deg);
+  }
+
+  .app-shell--modern .topbar-menu-toggle__line--open:last-child {
+    transform: translateY(-3.25px) rotate(-45deg);
+  }
+
+  .app-shell--modern .topbar-mobile-nav {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 10px;
+    left: 10px;
+    z-index: 40;
+    display: grid;
+    gap: 3px;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    background: var(--surface);
+    box-shadow: 0 18px 44px color-mix(in srgb, var(--text) 16%, transparent);
+  }
+
+  .app-shell--modern .topbar-mobile-nav a {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 42px;
+    padding: 0 12px;
+    border-radius: 7px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 650;
+    transition: color 150ms ease, background-color 150ms ease;
+  }
+
+  .app-shell--modern .topbar-mobile-nav a.router-link-active,
+  .app-shell--modern .topbar-mobile-nav a:hover {
+    background: color-mix(in srgb, var(--accent) 9%, transparent);
+    color: var(--text);
+  }
+
+  .app-shell--modern .topbar-mobile-nav a.router-link-active svg {
+    color: var(--accent);
+  }
+
+  .app-shell--workspace .topbar--codex {
+    position: relative;
+  }
+
+  .app-shell--workspace .workspace-main {
+    height: calc(100vh - 60px);
+  }
 }
 
 /* 项目内置的 shadcn 风格反馈组件，替代 Element Plus 的全局消息、弹窗和提示。 */
@@ -498,7 +908,7 @@ a { color: inherit; text-decoration: none; }
   .topbar-brand { margin-right: auto; }
   .topbar-nav { display: none; }
   .topbar-actions { margin-left: 0; }
-  .topbar-actions .topbar-cta, .topbar-actions .topbar-login { display: none; }
+  .topbar-actions .topbar-login { display: none; }
   .topbar-menu-toggle { width: 36px; height: 36px; display: grid; align-content: center; justify-items: center; gap: 5px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer; }
   .topbar-menu-toggle span { width: 15px; height: 1.5px; background: currentColor; transition: transform 150ms ease; }
   .topbar-menu-toggle__line--open:first-child { transform: translateY(3.25px) rotate(45deg); }
@@ -576,27 +986,6 @@ a { color: inherit; text-decoration: none; }
 .app-shell--modern .topbar--codex .topbar-nav a:hover {
   color: var(--text);
   background: color-mix(in srgb, var(--accent) 7%, transparent);
-}
-.app-shell--modern .topbar--codex .topbar-cta {
-  background: var(--accent);
-  color: #fff;
-}
-.app-shell--modern .topbar--codex .topbar-cta:hover {
-  background: var(--accent-strong);
-  opacity: 1;
-}
-.app-shell--modern .topbar--codex .user-name {
-  max-width: 160px;
-  min-height: 34px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 12px;
-  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 600;
 }
 .app-shell--modern :focus-visible {
   outline: 2px solid var(--accent);

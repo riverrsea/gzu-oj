@@ -11,7 +11,7 @@ import UiLabel from "../components/ui/Label.vue";
 
 const route = useRoute();
 const router = useRouter();
-const mode = ref<"login" | "register" | "verify">("login");
+const mode = ref<"login" | "register" | "verify">(route.path === "/register" || route.query.mode === "register" ? "register" : "login");
 const captcha = ref(captchaUrl());
 const busy = ref(false);
 const login = ref({ identity: "", password: "", captcha: "" });

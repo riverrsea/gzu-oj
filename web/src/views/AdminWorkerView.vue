@@ -79,7 +79,6 @@ async function copyToken(): Promise<void> {
       <div>
         <div class="worker-eyebrow"><ServerCog :size="16" />节点凭据</div>
         <h1>判题 Worker</h1>
-        <p>创建供独立 WSL 判题节点使用的 Bearer Token。</p>
       </div>
     </div>
 
@@ -87,7 +86,7 @@ async function copyToken(): Promise<void> {
       <article class="tool-card">
         <header>
           <ServerCog :size="21" />
-          <div><h2>创建 Worker 凭据</h2><p>节点名称用于日志和租约审计；槽位数应与该主机可承受的并发判题数一致。</p></div>
+          <div><h2>创建 Worker 凭据</h2></div>
         </header>
 
         <form class="problem-form" @submit.prevent="createWorker">
@@ -98,7 +97,6 @@ async function copyToken(): Promise<void> {
             创建完成后请立即复制并保存。服务端只保存哈希，刷新或离开页面后无法再次查看。
           </UiAlert>
           <div class="form-actions">
-            <span>创建后还需要在 Worker 环境配置 go-judge Token。</span>
             <UiButton :loading="creating" :disabled="!validName || !validSlots || !validAiSlots" @click="createWorker">
               <KeyRound :size="16" />创建凭据
             </UiButton>
@@ -122,7 +120,7 @@ async function copyToken(): Promise<void> {
         </article>
 
         <article class="tool-card">
-          <header><ShieldCheck :size="21" /><div><h2>启动前检查</h2><p>Worker 心跳会拒绝不满足沙箱能力要求的节点。</p></div></header>
+          <header><ShieldCheck :size="21" /><div><h2>启动前检查</h2></div></header>
           <ul class="worker-checklist">
             <li><span class="check-dot" />WSL 发行版已启用 cgroup v2 的 CPU、内存和 PID 控制器</li>
             <li><span class="check-dot" />go-judge 使用与 Worker 配置一致的鉴权 Token</li>

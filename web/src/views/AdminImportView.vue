@@ -59,9 +59,9 @@ async function commitImport(): Promise<void> {
 
 <template>
   <section class="content-page content-page--modern oj-page admin-page">
-    <div class="page-heading"><div><h1>批量导入</h1><p>上传标准 ZIP，先完成安全校验和预览，再写入题目草稿</p></div></div>
+    <div class="page-heading"><h1>批量导入</h1></div>
     <section class="admin-tool-surface">
-      <header><FileArchive :size="21" /><div><h2>标准 ZIP 导入</h2><p>服务端检查编码、目录穿越、压缩炸弹、重复外部题目标识、题面与测试数据。</p></div></header>
+      <header><FileArchive :size="21" /><div><h2>标准 ZIP 导入</h2></div></header>
       <div class="upload-row"><label class="upload-command"><Upload :size="18" />选择 ZIP<input type="file" accept=".zip,application/zip" @change="selectFile" /></label><span>{{ file?.name ?? '尚未选择文件' }}</span><UiButton :loading="staging" :disabled="!file" @click="stageImport">校验预览</UiButton></div>
       <template v-if="batch">
         <UiTable>

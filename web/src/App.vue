@@ -18,6 +18,8 @@ const topbarScrolled = ref(false);
 /** 登录用户菜单是否展开。 */
 const userMenuOpen = ref(false);
 const isWorkspace = computed(() => route.meta.workspace === true);
+/** 当前是否处于独立的管理员壳层。 */
+const isAdmin = computed(() => route.matched.some((record) => record.meta.admin === true));
 /** 登录用户在顶栏头像中显示的首字母。 */
 const userInitial = computed(() => session.user?.username.trim().slice(0, 1).toUpperCase() ?? "U");
 
@@ -70,14 +72,14 @@ watch(() => route.fullPath, () => {
 </script>
 
 <template>
-  <div class="app-shell app-shell--modern" :class="{ 'app-shell--workspace': isWorkspace }">
+  <div class="app-shell app-shell--modern" :class="{ 'app-shell--workspace': isWorkspace, 'app-shell--admin': isAdmin }">
     <header class="topbar topbar--codex" :class="{ 'topbar--scrolled': topbarScrolled, 'topbar--menu-open': mobileNavOpen }">
       <div class="topbar-inner">
         <RouterLink class="brand topbar-brand" to="/problems" aria-label="研试 OJ 题库">
           <img src="/brand-mark.svg" alt="" />
           <span>研试 OJ</span>
         </RouterLink>
-        <nav v-if="!isWorkspace" class="main-nav topbar-nav" aria-label="主导航">
+        <nav v-if="!isWorkspace && !isAdmin" class="main-nav topbar-nav" aria-label="主导航">
           <RouterLink to="/problems"><BookOpen :size="16" />题库</RouterLink>
           <RouterLink v-if="session.user" to="/practice"><Heart :size="16" />练习簿</RouterLink>
           <RouterLink v-if="session.user" to="/submissions"><ClipboardList :size="16" />提交</RouterLink>
@@ -108,12 +110,12 @@ watch(() => route.fullPath, () => {
             <RouterLink class="topbar-register" to="/register">注册</RouterLink>
           </template>
         </div>
-        <button v-if="!isWorkspace" class="topbar-menu-toggle" type="button" :aria-expanded="mobileNavOpen" aria-label="打开导航菜单" @click="mobileNavOpen = !mobileNavOpen">
+        <button v-if="!isWorkspace && !isAdmin" class="topbar-menu-toggle" type="button" :aria-expanded="mobileNavOpen" aria-label="打开导航菜单" @click="mobileNavOpen = !mobileNavOpen">
           <span :class="{ 'topbar-menu-toggle__line--open': mobileNavOpen }" />
           <span :class="{ 'topbar-menu-toggle__line--open': mobileNavOpen }" />
         </button>
       </div>
-      <nav v-if="!isWorkspace && mobileNavOpen" class="topbar-mobile-nav" aria-label="移动端主导航">
+      <nav v-if="!isWorkspace && !isAdmin && mobileNavOpen" class="topbar-mobile-nav" aria-label="移动端主导航">
         <RouterLink to="/problems"><BookOpen :size="16" />题库</RouterLink>
         <RouterLink v-if="session.user" to="/practice"><Heart :size="16" />练习簿</RouterLink>
         <RouterLink v-if="session.user" to="/submissions"><ClipboardList :size="16" />提交</RouterLink>
@@ -123,7 +125,7 @@ watch(() => route.fullPath, () => {
         <RouterLink v-if="!session.user" to="/register"><UserPlus :size="16" />注册</RouterLink>
       </nav>
     </header>
-    <main :class="isWorkspace ? 'workspace-main' : 'page-main'">
+    <main :class="isWorkspace ? 'workspace-main' : isAdmin ? 'admin-main' : 'page-main'">
       <RouterView />
     </main>
     <ToastHost />

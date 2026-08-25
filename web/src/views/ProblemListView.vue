@@ -19,6 +19,12 @@ const filters = reactive<{ school: string; year?: number; tag: string; difficult
 
 const difficultyText: Record<Difficulty, string> = { EASY: "简单", MEDIUM: "中等", HARD: "困难" };
 
+/** 切换题库页的难度 Tab，并复用现有题库查询接口。 */
+function selectDifficulty(value?: Difficulty): void {
+  filters.difficulty = value;
+  void load();
+}
+
 async function load(): Promise<void> {
   loading.value = true;
   try {
@@ -34,28 +40,35 @@ onMounted(load);
 </script>
 
 <template>
-  <section class="content-page content-page--modern">
+  <section class="content-page content-page--modern oj-page oj-catalog-page">
     <div class="page-heading">
       <div><h1>题库</h1><p>按学校、年份、标签与难度筛选已发布题目</p></div>
       <span class="result-count">{{ problems.length }} 题</span>
     </div>
-    <form class="filter-bar catalog-toolbar--modern" @submit.prevent="load">
-      <UiInput v-model="filters.school" placeholder="学校" />
-      <UiNumberField v-model="filters.year" :min="1900" :max="2200" placeholder="年份" />
-      <UiInput v-model="filters.tag" placeholder="标签" />
-      <select v-model="filters.difficulty" class="h-10 rounded-md border border-line bg-paper px-3 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
-        <option :value="undefined">难度</option><option value="EASY">简单</option><option value="MEDIUM">中等</option><option value="HARD">困难</option>
-      </select>
-      <UiButton type="submit" :loading="loading"><Search :size="16" />筛选</UiButton>
-    </form>
-    <div class="overflow-x-auto rounded-lg border border-line bg-paper shadow-panel">
-      <table class="w-full min-w-[720px] text-left text-sm">
-        <thead class="border-b border-line bg-canvas text-[11px] font-bold uppercase text-quiet"><tr><th class="px-4 py-3">题目</th><th class="px-4 py-3">学校</th><th class="px-4 py-3">年份</th><th class="px-4 py-3">标签</th><th class="px-4 py-3">难度</th></tr></thead>
-        <tbody v-if="problems.length" class="divide-y divide-line">
-          <tr v-for="row in problems" :key="row.id" class="cursor-pointer transition-colors hover:bg-canvas" @click="$router.push('/problems/' + row.id)"><td class="px-4 py-4"><div class="problem-title"><strong>{{ row.title }}</strong><span>{{ row.externalKey || '手工题目' }}</span></div></td><td class="px-4 py-4">{{ row.school }}</td><td class="px-4 py-4">{{ row.year }}</td><td class="px-4 py-4"><span v-for="tag in row.tags" :key="tag" class="plain-tag">{{ tag }}</span></td><td class="px-4 py-4"><span :class="['difficulty', 'difficulty--' + row.difficulty.toLowerCase()]">{{ difficultyText[row.difficulty as Difficulty] }}</span></td></tr>
-        </tbody>
-      </table>
-      <div v-if="!loading && problems.length === 0" class="flex min-h-44 items-center justify-center text-sm text-quiet">没有符合条件的题目</div>
+    <div class="problem-toolbar-leetrank">
+      <div class="problem-difficulty-tabs" role="tablist" aria-label="按难度筛选">
+        <button type="button" :class="{ active: !filters.difficulty }" @click="selectDifficulty()">全部</button>
+        <button type="button" :class="{ active: filters.difficulty === 'EASY' }" @click="selectDifficulty('EASY')">简单</button>
+        <button type="button" :class="{ active: filters.difficulty === 'MEDIUM' }" @click="selectDifficulty('MEDIUM')">中等</button>
+        <button type="button" :class="{ active: filters.difficulty === 'HARD' }" @click="selectDifficulty('HARD')">困难</button>
+      </div>
+      <form class="filter-bar catalog-toolbar--modern" @submit.prevent="load">
+        <UiInput v-model="filters.school" placeholder="学校" />
+        <UiNumberField v-model="filters.year" :min="1900" :max="2200" placeholder="年份" />
+        <UiInput v-model="filters.tag" placeholder="标签" />
+        <UiButton type="submit" :loading="loading"><Search :size="16" />筛选</UiButton>
+      </form>
+    </div>
+    <div class="problem-list-surface">
+      <div v-if="problems.length" class="problem-list-leetrank">
+        <article v-for="(row, index) in problems" :key="row.id" class="problem-row-leetrank" role="link" tabindex="0" @click="$router.push('/problems/' + row.id)" @keydown.enter="$router.push('/problems/' + row.id)">
+          <div class="problem-row-index"><span>{{ String(index + 1).padStart(2, '0') }}</span><i :class="['problem-difficulty-dot', 'problem-difficulty-dot--' + row.difficulty.toLowerCase()]" aria-hidden="true" /></div>
+          <div class="problem-row-main"><strong>{{ row.title }}</strong><span>{{ row.externalKey || '手工题目' }}</span><div class="problem-row-tags"><span v-for="tag in row.tags" :key="tag" class="plain-tag">{{ tag }}</span></div></div>
+          <div class="problem-row-meta"><span>{{ row.school || '未注明学校' }}</span><span>{{ row.year }}</span><strong :class="['difficulty', 'difficulty--' + row.difficulty.toLowerCase()]">{{ difficultyText[row.difficulty as Difficulty] }}</strong></div>
+        </article>
+      </div>
+      <div v-else-if="!loading" class="problem-list-empty">没有符合条件的题目</div>
+      <div v-else class="problem-list-empty">正在加载题库…</div>
     </div>
   </section>
 </template>

@@ -69,7 +69,7 @@ async function copyToken(): Promise<void> {
 </script>
 
 <template>
-  <section class="content-page admin-page worker-page">
+  <section class="content-page content-page--modern oj-page admin-page worker-page">
     <div class="page-heading">
       <div>
         <div class="worker-eyebrow"><ServerCog :size="16" />节点凭据</div>

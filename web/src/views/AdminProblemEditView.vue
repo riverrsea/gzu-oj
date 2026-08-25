@@ -325,7 +325,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section v-loading="loading" class="content-page admin-problem-page">
+  <section v-loading="loading" class="content-page content-page--modern oj-page admin-problem-page">
     <div class="page-heading">
       <div><h1>编辑题目草稿</h1><p>版本 v{{ detail?.versionNumber }} · 外部题目标识 {{ detail?.externalKey || '手工题目' }}（只读）· 第二阶段录入测试点</p></div>
       <el-button text @click="router.push('/admin/problems')"><ArrowLeft :size="16" />返回题库</el-button>

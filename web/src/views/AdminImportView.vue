@@ -56,7 +56,7 @@ async function commitImport(): Promise<void> {
 </script>
 
 <template>
-  <section class="content-page admin-page">
+  <section class="content-page content-page--modern oj-page admin-page">
     <div class="page-heading"><div><h1>批量导入</h1><p>上传标准 ZIP，先完成安全校验和预览，再写入题目草稿</p></div></div>
     <section class="admin-tool-surface">
       <header><FileArchive :size="21" /><div><h2>标准 ZIP 导入</h2><p>服务端检查编码、目录穿越、压缩炸弹、重复外部题目标识、题面与测试数据。</p></div></header>

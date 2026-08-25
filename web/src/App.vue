@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { BookOpen, ClipboardList, Heart, LogIn, LogOut, Moon, Settings, Sun, Trophy } from "@lucide/vue";
 import { api } from "./api/client";
@@ -12,7 +12,14 @@ const router = useRouter();
 const theme = ref<Theme>((localStorage.getItem("gzu-oj.theme") as Theme | null) ?? "system");
 /** 移动端主导航是否展开。 */
 const mobileNavOpen = ref(false);
+/** 页面是否已经滚动，用于将透明顶栏切换为实体状态。 */
+const topbarScrolled = ref(false);
 const isWorkspace = computed(() => route.meta.workspace === true);
+
+/** 根据页面滚动位置更新顶栏状态。 */
+function updateTopbarState(): void {
+  topbarScrolled.value = window.scrollY > 8;
+}
 
 function applyTheme(value: Theme): void {
   theme.value = value;
@@ -33,11 +40,17 @@ async function logout(): Promise<void> {
 }
 
 onMounted(() => {
+  updateTopbarState();
+  window.addEventListener("scroll", updateTopbarState, { passive: true });
   applyTheme(theme.value);
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
     if (theme.value === "system") applyTheme("system");
   });
   void loadSession();
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("scroll", updateTopbarState);
 });
 
 watch(() => route.fullPath, () => {
@@ -47,7 +60,7 @@ watch(() => route.fullPath, () => {
 
 <template>
   <div class="app-shell app-shell--modern" :class="{ 'app-shell--workspace': isWorkspace }">
-    <header class="topbar topbar--codex">
+    <header class="topbar topbar--codex" :class="{ 'topbar--scrolled': topbarScrolled, 'topbar--menu-open': mobileNavOpen }">
       <div class="topbar-inner">
         <RouterLink class="brand topbar-brand" to="/problems" aria-label="研试 OJ 题库">
           <img src="/brand-mark.svg" alt="" />

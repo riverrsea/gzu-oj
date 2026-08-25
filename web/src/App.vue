@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { BookOpen, ClipboardList, Heart, LogIn, LogOut, Moon, Settings, Sun, Trophy } from "@lucide/vue";
+import { BookOpen, ChevronDown, ClipboardList, Heart, LogIn, LogOut, Moon, Monitor, Settings, Sun, Trophy, UserPlus } from "@lucide/vue";
 import { api } from "./api/client";
 import { loadSession, session, setSession } from "./stores/session";
 import ToastHost from "./components/ui/ToastHost.vue";
@@ -15,7 +15,11 @@ const theme = ref<Theme>((localStorage.getItem("gzu-oj.theme") as Theme | null) 
 const mobileNavOpen = ref(false);
 /** 页面是否已经滚动，用于将透明顶栏切换为实体状态。 */
 const topbarScrolled = ref(false);
+/** 登录用户菜单是否展开。 */
+const userMenuOpen = ref(false);
 const isWorkspace = computed(() => route.meta.workspace === true);
+/** 登录用户在顶栏头像中显示的首字母。 */
+const userInitial = computed(() => session.user?.username.trim().slice(0, 1).toUpperCase() ?? "U");
 
 /** 根据页面滚动位置更新顶栏状态。 */
 function updateTopbarState(): void {
@@ -30,19 +34,23 @@ function applyTheme(value: Theme): void {
   window.dispatchEvent(new CustomEvent("gzu-oj-theme-change", { detail: { dark } }));
 }
 
-function cycleTheme(): void {
-  applyTheme(theme.value === "system" ? "light" : theme.value === "light" ? "dark" : "system");
-}
-
 async function logout(): Promise<void> {
   await api.logout();
   setSession(null);
+  userMenuOpen.value = false;
   await router.push("/problems");
+}
+
+/** 点击顶栏外部时收起登录用户菜单。 */
+function closeUserMenu(event: PointerEvent): void {
+  const target = event.target;
+  if (target instanceof HTMLElement && !target.closest(".topbar-account")) userMenuOpen.value = false;
 }
 
 onMounted(() => {
   updateTopbarState();
   window.addEventListener("scroll", updateTopbarState, { passive: true });
+  window.addEventListener("pointerdown", closeUserMenu);
   applyTheme(theme.value);
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
     if (theme.value === "system") applyTheme("system");
@@ -52,10 +60,12 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener("scroll", updateTopbarState);
+  window.removeEventListener("pointerdown", closeUserMenu);
 });
 
 watch(() => route.fullPath, () => {
   mobileNavOpen.value = false;
+  userMenuOpen.value = false;
 });
 </script>
 
@@ -75,17 +85,28 @@ watch(() => route.fullPath, () => {
           <RouterLink v-if="session.user?.role === 'ADMIN'" to="/admin"><Settings :size="16" />管理</RouterLink>
         </nav>
         <div class="topbar-actions">
-          <RouterLink v-if="!session.user && !isWorkspace" class="topbar-cta" to="/login">开始做题</RouterLink>
-          <button class="icon-button topbar-theme-button" type="button" :title="'主题：' + theme" @click="cycleTheme">
-            <Sun v-if="theme === 'light'" :size="17" />
-            <Moon v-else-if="theme === 'dark'" :size="17" />
-            <span v-else class="system-theme">A</span>
-          </button>
+          <div class="topbar-theme-toggle" role="radiogroup" aria-label="主题">
+            <button class="topbar-theme-option" :class="{ active: theme === 'light' }" type="button" role="radio" :aria-checked="theme === 'light'" title="浅色主题" @click="applyTheme('light')"><Sun :size="14" /></button>
+            <button class="topbar-theme-option" :class="{ active: theme === 'system' }" type="button" role="radio" :aria-checked="theme === 'system'" title="跟随系统" @click="applyTheme('system')"><Monitor :size="14" /></button>
+            <button class="topbar-theme-option" :class="{ active: theme === 'dark' }" type="button" role="radio" :aria-checked="theme === 'dark'" title="深色主题" @click="applyTheme('dark')"><Moon :size="14" /></button>
+          </div>
           <template v-if="session.user">
-            <span class="user-name">{{ session.user.username }}</span>
-            <button class="icon-button" type="button" title="退出登录" @click="logout"><LogOut :size="17" /></button>
+            <div class="topbar-account">
+              <button class="topbar-user-trigger" type="button" :aria-expanded="userMenuOpen" aria-haspopup="menu" @click.stop="userMenuOpen = !userMenuOpen">
+                <span class="topbar-user-avatar" aria-hidden="true">{{ userInitial }}</span>
+                <span class="topbar-user-label">{{ session.user.username }}</span>
+                <ChevronDown :size="14" aria-hidden="true" />
+              </button>
+              <div v-if="userMenuOpen" class="topbar-user-menu" role="menu">
+                <div class="topbar-user-menu-label">{{ session.user.username }}</div>
+                <button class="topbar-user-menu-item" type="button" role="menuitem" @click="logout"><LogOut :size="15" />退出登录</button>
+              </div>
+            </div>
           </template>
-          <RouterLink v-else-if="!isWorkspace" class="command-link topbar-login" to="/login"><LogIn :size="16" />登录</RouterLink>
+          <template v-else-if="!isWorkspace">
+            <RouterLink class="command-link topbar-login" to="/login">登录</RouterLink>
+            <RouterLink class="topbar-register" to="/register">注册</RouterLink>
+          </template>
         </div>
         <button v-if="!isWorkspace" class="topbar-menu-toggle" type="button" :aria-expanded="mobileNavOpen" aria-label="打开导航菜单" @click="mobileNavOpen = !mobileNavOpen">
           <span :class="{ 'topbar-menu-toggle__line--open': mobileNavOpen }" />
@@ -99,6 +120,7 @@ watch(() => route.fullPath, () => {
         <RouterLink v-if="session.user" to="/training"><Trophy :size="16" />训练</RouterLink>
         <RouterLink v-if="session.user?.role === 'ADMIN'" to="/admin"><Settings :size="16" />管理</RouterLink>
         <RouterLink v-if="!session.user" to="/login"><LogIn :size="16" />登录</RouterLink>
+        <RouterLink v-if="!session.user" to="/register"><UserPlus :size="16" />注册</RouterLink>
       </nav>
     </header>
     <main :class="isWorkspace ? 'workspace-main' : 'page-main'">

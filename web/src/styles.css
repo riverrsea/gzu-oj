@@ -1,7 +1,7 @@
 :root {
   font-family: Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
-  color: #0a0f1c;
-  background: #ffffff;
+  color: var(--text);
+  background: var(--bg);
   color-scheme: light;
   --bg: #ffffff;
   --surface: #ffffff;
@@ -11,10 +11,16 @@
   --muted: #64748b;
   --accent: #4f46e5;
   --accent-strong: #4338ca;
+  --accent-contrast: #f8fafc;
+  --accent-soft: #eef2ff;
+  --accent-foreground: #312e81;
+  --input: #e2e8f0;
+  --ring: #4f46e5;
   --success: #16a34a;
   --warning: #ca8a04;
   --danger: #dc2626;
   --shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06);
+  --shadow-elevated: 0 8px 24px -8px rgba(15, 23, 42, 0.16), 0 2px 6px -2px rgba(15, 23, 42, 0.08);
   letter-spacing: 0;
 }
 
@@ -28,15 +34,29 @@
   --muted: #94a3b8;
   --accent: #818cf8;
   --accent-strong: #a5b4fc;
+  --accent-contrast: #050811;
+  --accent-soft: #1e1b4b;
+  --accent-foreground: #c7d2fe;
+  --input: #1f2937;
+  --ring: #818cf8;
   --success: #4ade80;
   --warning: #facc15;
   --danger: #f87171;
-  --shadow: none;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.24), 0 1px 3px rgba(0, 0, 0, 0.2);
+  --shadow-elevated: 0 14px 34px -12px rgba(0, 0, 0, 0.58), 0 3px 10px -3px rgba(0, 0, 0, 0.36);
 }
 
 * { box-sizing: border-box; }
 html, body, #app { min-height: 100%; margin: 0; }
-body { background: var(--bg); color: var(--text); }
+html { background: var(--bg); }
+body {
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--text); }
 button, input, textarea, select { font: inherit; letter-spacing: 0; }
 button { color: inherit; }
 a { color: inherit; text-decoration: none; }
@@ -1374,6 +1394,11 @@ a { color: inherit; text-decoration: none; }
   align-items: center;
   gap: 6px;
   min-width: 58px;
+  min-height: 24px;
+  justify-content: center;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 750;
@@ -1385,11 +1410,23 @@ a { color: inherit; text-decoration: none; }
   border-radius: 50%;
   background: var(--muted);
 }
-.app-shell--modern .problem-catalog-difficulty--easy { color: var(--success); }
+.app-shell--modern .problem-catalog-difficulty--easy {
+  border-color: color-mix(in srgb, var(--success) 20%, var(--border));
+  background: color-mix(in srgb, var(--success) 10%, var(--surface));
+  color: var(--success);
+}
 .app-shell--modern .problem-catalog-difficulty--easy i { background: var(--success); }
-.app-shell--modern .problem-catalog-difficulty--medium { color: var(--warning); }
+.app-shell--modern .problem-catalog-difficulty--medium {
+  border-color: color-mix(in srgb, var(--warning) 20%, var(--border));
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+  color: var(--warning);
+}
 .app-shell--modern .problem-catalog-difficulty--medium i { background: var(--warning); }
-.app-shell--modern .problem-catalog-difficulty--hard { color: var(--danger); }
+.app-shell--modern .problem-catalog-difficulty--hard {
+  border-color: color-mix(in srgb, var(--danger) 20%, var(--border));
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  color: var(--danger);
+}
 .app-shell--modern .problem-catalog-difficulty--hard i { background: var(--danger); }
 .app-shell--modern .problem-catalog-empty {
   display: grid;
@@ -1481,8 +1518,9 @@ a { color: inherit; text-decoration: none; }
     display: none;
   }
   .app-shell--modern .problem-catalog-difficulty {
-    min-width: 0;
-    font-size: 0;
+    min-width: 54px;
+    padding-inline: 7px;
+    font-size: 11px;
   }
   .app-shell--modern .problem-catalog-difficulty i {
     width: 8px;
@@ -1552,4 +1590,90 @@ a { color: inherit; text-decoration: none; }
   .app-shell--modern .admin-workspace--modern {
     padding: 22px 10px 44px;
   }
+}
+
+/* 主题视觉收口放在样式表末尾，确保浅色和深色令牌覆盖全部旧组件规则。 */
+.app-shell--modern .topbar--codex:hover,
+.app-shell--modern .topbar--codex.topbar--scrolled,
+.app-shell--modern .topbar--codex.topbar--menu-open {
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--border) 92%, transparent);
+  box-shadow: var(--shadow-elevated);
+}
+
+.app-shell--modern .topbar-nav a:hover,
+.app-shell--modern .topbar-mobile-nav a.router-link-active,
+.app-shell--modern .topbar-mobile-nav a:hover {
+  background: color-mix(in srgb, var(--accent-soft) 78%, transparent);
+  color: var(--accent-foreground);
+}
+
+.app-shell--modern .topbar-theme-toggle {
+  border-color: var(--input);
+  background: color-mix(in srgb, var(--surface-subtle) 76%, transparent);
+}
+
+.app-shell--modern .topbar-theme-option.active,
+.app-shell--modern .topbar-register,
+.app-shell--modern .bg-brand.text-white,
+.app-shell--modern .upload-command {
+  color: var(--accent-contrast);
+}
+
+.app-shell--modern .topbar-theme-option.active {
+  background: var(--accent);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.app-shell--modern .topbar-register {
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.app-shell--modern input:not([type]),
+.app-shell--modern input:is([type="text"], [type="search"], [type="number"], [type="email"], [type="password"], [type="url"], [type="tel"]),
+.app-shell--modern textarea,
+.app-shell--modern select {
+  border-color: var(--input);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.app-shell--modern input:not([type])::placeholder,
+.app-shell--modern input:is([type="text"], [type="search"], [type="number"], [type="email"], [type="password"], [type="url"], [type="tel"])::placeholder,
+.app-shell--modern textarea::placeholder {
+  color: var(--muted);
+  opacity: 0.86;
+}
+
+.app-shell--modern input:not([type]):focus-visible,
+.app-shell--modern input:is([type="text"], [type="search"], [type="number"], [type="email"], [type="password"], [type="url"], [type="tel"]):focus-visible,
+.app-shell--modern textarea:focus-visible,
+.app-shell--modern select:focus-visible {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 18%, transparent);
+}
+
+.app-shell--modern .oj-page .catalog-toolbar--modern,
+.app-shell--modern .oj-page .admin-catalog-filters--modern,
+.app-shell--modern .ui-table-surface,
+.app-shell--modern .admin-catalog-table,
+.app-shell--modern .problem-catalog-row,
+.app-shell--modern .problem-catalog-skeleton {
+  box-shadow: var(--shadow);
+}
+
+.app-shell--modern .problem-catalog-row:hover,
+.app-shell--modern .problem-catalog-row:focus-visible {
+  background: color-mix(in srgb, var(--accent-soft) 62%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+  box-shadow: var(--shadow-elevated);
+}
+
+.app-shell--modern .problem-catalog-tags span {
+  border-color: color-mix(in srgb, var(--border) 88%, var(--accent-soft));
+  background: color-mix(in srgb, var(--surface-subtle) 76%, var(--accent-soft));
+}
+
+.app-shell--modern .problem-catalog-empty {
+  background: color-mix(in srgb, var(--surface) 82%, var(--accent-soft));
 }

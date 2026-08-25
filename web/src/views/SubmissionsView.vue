@@ -20,7 +20,7 @@ onMounted(load);
 
 <template>
   <section class="content-page content-page--modern oj-page submissions-page">
-    <div class="page-heading"><div><h1>提交记录</h1><p>源码仅本人和管理员可见，测点结果不包含隐藏输入输出</p></div></div>
+    <div class="page-heading"><h1>提交记录</h1></div>
     <UiTable>
       <thead class="border-b border-line bg-canvas text-left text-[11px] font-bold uppercase text-quiet"><tr><th class="px-4 py-3">提交时间</th><th class="px-4 py-3">语言</th><th class="px-4 py-3">状态</th><th class="px-4 py-3">得分</th><th class="px-4 py-3">测点</th></tr></thead>
       <tbody v-if="submissions.length" class="divide-y divide-line">

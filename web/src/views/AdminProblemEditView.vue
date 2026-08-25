@@ -334,13 +334,13 @@ onUnmounted(() => {
   <section class="content-page content-page--modern oj-page admin-problem-page loading-shell" :aria-busy="loading">
     <div v-if="loading" class="loading-overlay"><span class="loading-spinner" aria-label="加载中" /></div>
     <div class="page-heading">
-      <div><h1>编辑题目草稿</h1><p>版本 v{{ detail?.versionNumber }} · 外部题目标识 {{ detail?.externalKey || '手工题目' }}（只读）· 第二阶段录入测试点</p></div>
+      <h1>编辑题目草稿</h1>
       <UiButton variant="ghost" @click="router.push('/admin/problems')"><ArrowLeft :size="16" />返回题库</UiButton>
     </div>
 
     <section class="ai-flow-panel">
       <header class="ai-flow-header">
-        <div><h2><Bot :size="19" />AI 录题流程</h2><p v-if="aiRun">状态：{{ majorLabels[aiRun.majorState] }}<template v-if="aiRun.majorState !== aiRun.state"> · {{ minorLabels[aiRun.state] ?? aiRun.state }}</template></p><p v-else>人工录题、批量导入和 AI 都从当前草稿继续。</p></div>
+        <div><h2><Bot :size="19" />AI 录题流程</h2><p v-if="aiRun">状态：{{ majorLabels[aiRun.majorState] }}<template v-if="aiRun.majorState !== aiRun.state"> · {{ minorLabels[aiRun.state] ?? aiRun.state }}</template></p></div>
         <span v-if="aiRun" class="ai-flow-run-id">{{ aiRun.id }}</span>
       </header>
       <div class="ai-flow-timeline" aria-label="AI 录题状态时间线">
@@ -372,7 +372,7 @@ onUnmounted(() => {
 
     <section v-if="aiRun" class="ai-response-panel">
       <header class="ai-response-header">
-        <div><h2>AI 返回</h2><p>每个已完成步骤的结构化结果都会保存，可展开查看原始 JSON。</p></div>
+        <div><h2>AI 返回</h2></div>
         <strong>{{ aiGeneratedTestCases.length }} / {{ aiRun.requestedTestCaseCount }} 个测试点 · {{ aiSteps.length }} 步</strong>
       </header>
       <section class="ai-generated-cases">

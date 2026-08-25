@@ -84,15 +84,15 @@ onMounted(async () => {
 
 <template>
   <section class="content-page content-page--modern oj-page admin-page">
-    <div class="page-heading"><div><h1>AI 录题</h1><p>为现有草稿启动多角色生成、审查和差分验证流程</p></div></div>
+    <div class="page-heading"><h1>AI 录题</h1></div>
     <section class="admin-tool-surface admin-ai-tool">
-      <header><Bot :size="21" /><div><h2>启动录题流程</h2><p>标准输出必须由沙箱中的已校验标程计算，并通过确定性发布门禁。</p></div></header>
+      <header><Bot :size="21" /><div><h2>启动录题流程</h2></div></header>
       <form class="problem-form" @submit.prevent="start">
         <div class="form-field"><UiLabel>草稿版本 ID</UiLabel><UiInput v-model="versionId" placeholder="题目草稿版本 UUID" /></div>
         <div class="form-field"><UiLabel>生成测试点数量</UiLabel><UiNumberField v-model="testCaseCount" :min="1" :max="200" /></div>
         <label class="checkbox-field"><UiCheckbox v-model="autoPublish" />差分通过后自动发布</label>
         <div v-if="autoPublish" class="form-field"><UiLabel>公开样例数量</UiLabel><UiNumberField v-model="sampleCount" :min="0" :max="testCaseCount" /></div>
-        <div class="form-actions"><span>Provider 默认关闭，可通过环境变量启用。</span><UiButton type="submit" :loading="loading">启动流程</UiButton></div>
+        <div class="form-actions"><UiButton type="submit" :loading="loading">启动流程</UiButton></div>
       </form>
     </section>
     <section v-if="run" class="ai-run-summary">

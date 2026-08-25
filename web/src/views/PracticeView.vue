@@ -22,7 +22,7 @@ onMounted(load);
 
 <template>
   <section class="content-page content-page--modern oj-page practice-page">
-    <div class="page-heading"><div><h1>练习簿</h1><p>错题历史在满分后仍保留，已解决状态会单独标记</p></div></div>
+    <div class="page-heading"><h1>练习簿</h1></div>
     <div class="ui-tabs">
       <div class="ui-tabs-list" role="tablist">
         <button type="button" :class="{ active: tab === 'wrong' }" @click="tab = 'wrong'">错题本</button>

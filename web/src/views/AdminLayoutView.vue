@@ -5,7 +5,7 @@ import { BookOpen, FileArchive, Plus, ServerCog } from "@lucide/vue";
 <template>
   <div class="admin-shell admin-shell--modern">
     <aside class="admin-sidebar admin-sidebar--modern">
-      <header><strong>管理中心</strong><span>内容与系统配置</span></header>
+      <header><strong>管理中心</strong></header>
       <nav aria-label="管理导航">
         <RouterLink to="/admin/problems"><BookOpen :size="17" />题库目录</RouterLink>
         <RouterLink to="/admin/problems/new"><Plus :size="17" />新建题目</RouterLink>

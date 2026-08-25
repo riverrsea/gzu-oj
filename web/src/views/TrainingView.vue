@@ -199,7 +199,7 @@ onBeforeUnmount(() => window.clearInterval(ticker));
   <section class="content-page content-page--modern oj-page training-page loading-shell" :aria-busy="loading">
     <div v-if="loading" class="loading-overlay"><span class="loading-spinner" aria-label="加载中" /></div>
     <div class="page-heading">
-      <div><h1>训练中心</h1><p>公开训练赛采用 OI 计分，个人套卷首次进入后独立计时</p></div>
+      <h1>训练中心</h1>
       <div class="heading-actions">
         <UiButton v-if="tab === 'contest'" @click="contestDialog = true"><Plus :size="16" />创建比赛</UiButton>
         <UiButton v-else @click="paperDialog = true"><Plus :size="16" />创建套卷</UiButton>

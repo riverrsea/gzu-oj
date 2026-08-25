@@ -263,7 +263,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section v-loading="loading" class="workspace-page">
+  <section v-loading="loading" class="workspace-page workspace-page--leetcode">
     <div class="mobile-workspace-tabs" role="tablist">
       <button :class="{ active: mobileTab === 'problem' }" @click="mobileTab = 'problem'">题目</button>
       <button :class="{ active: mobileTab === 'code' }" @click="mobileTab = 'code'">代码</button>
@@ -274,8 +274,8 @@ onBeforeUnmount(() => {
         正在继续你上次打开的版本 v{{ problem.versionNumber }}；当前最新版本为 v{{ latestVersion.versionNumber }}。
         <button type="button" @click="switchToLatestVersion">开始最新版本</button>
       </div>
-      <article class="statement-panel" :class="{ 'mobile-hidden': mobileTab !== 'problem' }">
-        <header class="statement-header">
+      <article class="statement-panel statement-panel--card" :class="{ 'mobile-hidden': mobileTab !== 'problem' }">
+        <header class="statement-header statement-header--card">
           <div><span class="source-key">{{ problem.externalKey || '手工题目' }}</span><h1>{{ problem.title }}</h1><p>{{ problem.school }} · {{ problem.year }} · 版本 {{ problem.versionNumber }}</p></div>
           <button class="icon-button" type="button" title="收藏题目" @click="session.user ? api.favorite(problem.id).then(() => ElMessage.success('已收藏')) : router.push('/login')"><Heart :size="19" /></button>
         </header>
@@ -284,14 +284,14 @@ onBeforeUnmount(() => {
         <section v-if="problem.samples.length" class="samples"><h2>公开样例</h2><div v-for="sample in problem.samples" :key="sample.ordinal" class="sample-block"><strong>样例 {{ sample.ordinal }}</strong><div class="sample-columns"><div><span>输入</span><pre>{{ sample.input }}</pre></div><div><span>输出</span><pre>{{ sample.output }}</pre></div></div></div></section>
       </article>
       <div class="split-handle" role="separator" aria-orientation="vertical" title="拖动调整题面宽度" @pointerdown="startHorizontalResize" />
-      <section ref="editorPanel" class="editor-panel" :class="{ 'mobile-hidden': mobileTab === 'problem' || mobileTab === 'result' }">
-        <header class="editor-toolbar">
+      <section ref="editorPanel" class="editor-panel editor-panel--card" :class="{ 'mobile-hidden': mobileTab === 'problem' || mobileTab === 'result' }">
+        <header class="editor-toolbar editor-toolbar--card">
           <div class="toolbar-group"><el-select v-model="language" size="small" aria-label="编程语言"><el-option label="GNU C17" value="C17" /><el-option label="GNU C++17" value="CPP17" /><el-option label="OpenJDK 21" value="JAVA21" /><el-option label="CPython 3" value="PYTHON3" /></el-select><span v-if="activeLimit" class="limit-text">{{ activeLimit.timeLimitMs }} ms · {{ activeLimit.memoryLimitMiB }} MiB</span></div>
           <div class="toolbar-group"><el-dropdown trigger="click"><button class="icon-button" type="button" title="编辑器设置"><Settings2 :size="18" /></button><template #dropdown><el-dropdown-menu><el-dropdown-item><span class="font-setting">字号 <el-input-number v-model="fontSize" :min="12" :max="22" size="small" /></span></el-dropdown-item></el-dropdown-menu></template></el-dropdown><button class="icon-button" type="button" title="重置代码" @click="resetCode"><RotateCcw :size="18" /></button></div>
         </header>
         <div class="editor-stage" :style="{ '--drawer-height': drawerOpen ? drawerHeight + '%' : '0%' }">
           <div class="editor-host"><CodeEditor v-model="code" :language="language" :font-size="fontSize" :dark="dark" /></div>
-          <section v-if="drawerOpen" class="result-drawer">
+          <section v-if="drawerOpen" class="result-drawer result-drawer--card">
             <div class="drawer-resize" title="拖动调整结果区高度" @pointerdown="startDrawerResize" />
             <header class="drawer-tabs"><button :class="{ active: drawerTab === 'cases' }" @click="drawerTab = 'cases'">测试用例</button><button :class="{ active: drawerTab === 'result' }" @click="drawerTab = 'result'">测试结果</button><button class="drawer-collapse" type="button" title="收起结果" @click="drawerOpen = false"><ChevronDown :size="18" /></button></header>
             <div class="drawer-content">

@@ -140,6 +140,75 @@ a { color: inherit; text-decoration: none; }
 .waiting-text { color: var(--muted); }
 .mobile-workspace-tabs, .mobile-result-panel { display: none; }
 
+/* 做题工作区采用独立卡片分区，保留左右题面/编辑器的 OJ 操作结构。 */
+.workspace-page--leetcode .workspace-grid {
+  grid-template-columns: var(--problem-width) 6px minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg);
+}
+.workspace-page--leetcode .statement-panel--card,
+.workspace-page--leetcode .editor-panel--card {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.workspace-page--leetcode .statement-panel--card {
+  overflow: auto;
+  padding: 24px clamp(20px, 3vw, 38px) 52px;
+}
+.workspace-page--leetcode .statement-header--card {
+  padding-bottom: 20px;
+}
+.workspace-page--leetcode .statement-header--card h1 {
+  font-size: 24px;
+  letter-spacing: -0.01em;
+}
+.workspace-page--leetcode .problem-meta {
+  min-height: 42px;
+  padding: 13px 0 9px;
+}
+.workspace-page--leetcode .plain-tag {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
+  color: var(--accent);
+}
+.workspace-page--leetcode .markdown-body {
+  padding-top: 4px;
+}
+.workspace-page--leetcode .samples {
+  margin-top: 30px;
+  padding-top: 22px;
+  border-top: 1px solid var(--border);
+}
+.workspace-page--leetcode .editor-panel--card {
+  background: var(--surface);
+}
+.workspace-page--leetcode .editor-toolbar--card {
+  min-height: 48px;
+  background: var(--surface-subtle);
+}
+.workspace-page--leetcode .editor-stage {
+  background: var(--surface);
+}
+.workspace-page--leetcode .workspace-actions {
+  min-height: 52px;
+  background: var(--surface-subtle);
+}
+.workspace-page--leetcode .result-drawer--card {
+  background: var(--surface);
+}
+.workspace-page--leetcode .split-handle {
+  background: transparent;
+  border-radius: 999px;
+}
+.workspace-page--leetcode .split-handle:hover::after {
+  inset: 0 2px;
+  border-radius: 999px;
+}
+
 .heading-actions { display: flex; align-items: center; gap: 8px; }
 .interactive-table { cursor: pointer; }
 .training-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(310px, 0.8fr); gap: 18px; align-items: start; }
@@ -396,4 +465,26 @@ a { color: inherit; text-decoration: none; }
   .topbar-mobile-nav a { display: flex; align-items: center; gap: 9px; min-height: 40px; padding: 0 11px; border-radius: 5px; color: var(--muted); font-size: 13px; }
   .topbar-mobile-nav a.router-link-active, .topbar-mobile-nav a:hover { background: var(--surface-subtle); color: var(--text); }
   .app-shell--workspace .workspace-main { height: calc(100vh - 60px); }
+}
+
+@media (max-width: 760px) {
+  /* 小屏仍使用同一套卡片语义，但去掉外层间距以保留全屏编辑空间。 */
+  .workspace-page--leetcode .workspace-grid {
+    gap: 0;
+    padding: 0;
+    background: var(--surface);
+  }
+  .workspace-page--leetcode .statement-panel--card,
+  .workspace-page--leetcode .editor-panel--card {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .workspace-page--leetcode .statement-panel--card {
+    padding: 18px 16px 48px;
+  }
+  .workspace-page--leetcode .editor-toolbar--card,
+  .workspace-page--leetcode .workspace-actions {
+    background: var(--surface);
+  }
 }

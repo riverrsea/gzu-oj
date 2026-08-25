@@ -153,6 +153,55 @@ test("退出后重新登录会刷新 CSRF 令牌", async ({ page }) => {
   expect(csrfRequests).toBe(2);
 });
 
+/** 验证注册、邮箱验证和找回密码在同一张认证卡片中连续切换。 */
+test("认证卡片可完成注册验证和找回密码切换", async ({ page }) => {
+  await page.route("**/api/v1/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    const json = (body: unknown, status = 200) => route.fulfill({
+      status,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
+
+    if (path === "/api/v1/auth/me") return json({ code: "UNAUTHENTICATED", message: "请先登录" }, 401);
+    if (path === "/api/v1/auth/captcha") {
+      return route.fulfill({ status: 200, contentType: "image/svg+xml", body: "<svg xmlns='http://www.w3.org/2000/svg' />" });
+    }
+    if (path === "/api/v1/csrf") return json({ headerName: "X-XSRF-TOKEN", token: "auth-flow-csrf" });
+    if (path === "/api/v1/auth/register" && request.method() === "POST") return json({ message: "注册成功，请查收邮箱验证码" });
+    if (path === "/api/v1/auth/verify-email" && request.method() === "POST") return json({ message: "邮箱验证成功" });
+    if (path === "/api/v1/auth/password-reset/request" && request.method() === "POST") {
+      return json({ message: "若邮箱已注册，重置邮件将很快送达" });
+    }
+    return json({ code: "UNMOCKED", message: "未配置的浏览器测试请求" }, 404);
+  });
+
+  await page.goto("/login");
+  await expect(page.locator(".auth-copy")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "登录" })).toHaveCount(0);
+  await page.getByRole("button", { name: "创建账号" }).click();
+  await expect(page).toHaveURL(/\/register/);
+  await page.getByLabel("用户名").fill("candidate");
+  await page.getByLabel("邮箱").fill("candidate@example.com");
+  await page.getByLabel("密码").fill("password-123");
+  await page.getByLabel("图形验证码").fill("ABCDE");
+  await page.getByRole("button", { name: "继续" }).click();
+  await expect(page.getByRole("heading", { name: "验证邮箱" })).toBeVisible();
+  await page.getByLabel("六位验证码").fill("123456");
+  await page.getByRole("button", { name: "完成验证" }).click();
+  await expect(page.getByRole("heading", { name: "登录" })).toBeVisible();
+
+  await page.getByRole("button", { name: "忘记密码？" }).click();
+  await expect(page.getByRole("heading", { name: "找回密码" })).toBeVisible();
+  await page.getByLabel("邮箱").fill("candidate@example.com");
+  await page.getByLabel("图形验证码").fill("ABCDE");
+  await page.getByRole("button", { name: "发送重置邮件" }).click();
+  await expect(page.getByRole("heading", { name: "邮件已发送" })).toBeVisible();
+  await page.getByRole("button", { name: "返回登录" }).last().click();
+  await expect(page.getByRole("heading", { name: "登录" })).toBeVisible();
+});
+
 /** 验证桌面题库、做题工作区和公开运行抽屉。 */
 test("桌面端题库和做题工作区可操作", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "此用例只验证桌面工作区");

@@ -74,12 +74,21 @@ async function request<T>(path: string, init: RequestInit = {}, retryAfterCsrf =
 
 export const api = {
   me: () => request<CurrentUser>("/api/v1/auth/me"),
+  /** 使用用户名或邮箱、密码及图形验证码创建登录会话。 */
   login: (body: { identity: string; password: string; captcha: string }) =>
     request<CurrentUser>("/api/v1/auth/login", { method: "POST", body: JSON.stringify(body) }),
+  /** 创建账号并向注册邮箱发送验证码。 */
   register: (body: { username: string; email: string; password: string; captcha: string }) =>
     request<{ message: string }>("/api/v1/auth/register", { method: "POST", body: JSON.stringify(body) }),
+  /** 完成注册邮箱验证。 */
   verifyEmail: (body: { email: string; code: string }) =>
     request<{ message: string }>("/api/v1/auth/verify-email", { method: "POST", body: JSON.stringify(body) }),
+  /** 校验图形验证码后发送密码重置邮件。 */
+  requestPasswordReset: (body: { email: string; captcha: string }) =>
+    request<{ message: string }>("/api/v1/auth/password-reset/request", { method: "POST", body: JSON.stringify(body) }),
+  /** 使用邮件中的一次性令牌设置新密码。 */
+  confirmPasswordReset: (body: { token: string; newPassword: string }) =>
+    request<{ message: string }>("/api/v1/auth/password-reset/confirm", { method: "POST", body: JSON.stringify(body) }),
   /** 注销后清除页面级 CSRF 缓存，确保下一次登录重新获取令牌。 */
   logout: async () => {
     try {

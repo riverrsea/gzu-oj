@@ -20,6 +20,8 @@ const userMenuOpen = ref(false);
 const isWorkspace = computed(() => route.meta.workspace === true);
 /** 当前是否处于独立的管理员壳层。 */
 const isAdmin = computed(() => route.matched.some((record) => record.meta.admin === true));
+/** 当前是否处于认证卡片页面。 */
+const isAuth = computed(() => route.matched.some((record) => record.meta.auth === true));
 /** 登录用户在顶栏头像中显示的首字母。 */
 const userInitial = computed(() => session.user?.username.trim().slice(0, 1).toUpperCase() ?? "U");
 
@@ -105,7 +107,7 @@ watch(() => route.fullPath, () => {
               </div>
             </div>
           </template>
-          <template v-else-if="!isWorkspace">
+          <template v-else-if="!isWorkspace && !isAuth">
             <RouterLink class="command-link topbar-login" to="/login">登录</RouterLink>
             <RouterLink class="topbar-register" to="/register">注册</RouterLink>
           </template>
@@ -121,11 +123,11 @@ watch(() => route.fullPath, () => {
         <RouterLink v-if="session.user" to="/submissions"><ClipboardList :size="16" />提交</RouterLink>
         <RouterLink v-if="session.user" to="/training"><Trophy :size="16" />训练</RouterLink>
         <RouterLink v-if="session.user?.role === 'ADMIN'" to="/admin"><Settings :size="16" />管理</RouterLink>
-        <RouterLink v-if="!session.user" to="/login"><LogIn :size="16" />登录</RouterLink>
-        <RouterLink v-if="!session.user" to="/register"><UserPlus :size="16" />注册</RouterLink>
+        <RouterLink v-if="!session.user && !isAuth" to="/login"><LogIn :size="16" />登录</RouterLink>
+        <RouterLink v-if="!session.user && !isAuth" to="/register"><UserPlus :size="16" />注册</RouterLink>
       </nav>
     </header>
-    <main :class="isWorkspace ? 'workspace-main' : isAdmin ? 'admin-main' : 'page-main'">
+    <main :class="isWorkspace ? 'workspace-main' : isAdmin ? 'admin-main' : isAuth ? 'auth-main' : 'page-main'">
       <RouterView />
     </main>
     <ToastHost />

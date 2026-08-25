@@ -5,8 +5,9 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: "/", redirect: "/problems" },
-    { path: "/login", component: () => import("./views/AuthView.vue"), meta: { public: true } },
-    { path: "/register", component: () => import("./views/AuthView.vue"), meta: { public: true } },
+    { path: "/login", component: () => import("./views/AuthView.vue"), meta: { public: true, auth: true } },
+    { path: "/register", component: () => import("./views/AuthView.vue"), meta: { public: true, auth: true } },
+    { path: "/reset-password", component: () => import("./views/AuthView.vue"), meta: { public: true, auth: true } },
     { path: "/problems", component: () => import("./views/ProblemListView.vue"), meta: { public: true } },
     { path: "/problems/:id", component: () => import("./views/WorkspaceView.vue"), meta: { public: true, workspace: true } },
     { path: "/submissions", component: () => import("./views/SubmissionsView.vue") },

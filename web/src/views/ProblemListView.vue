@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
 import { Search } from "@lucide/vue";
-import { ElMessage } from "element-plus";
+import { toast } from "../lib/notify";
 import { api } from "../api/client";
 import type { Difficulty, ProblemSummary } from "../api/types";
 import UiButton from "../components/ui/Button.vue";
@@ -30,7 +30,7 @@ async function load(): Promise<void> {
   try {
     problems.value = await api.problems(filters);
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "题库加载失败");
+    toast.error(error instanceof Error ? error.message : "题库加载失败");
   } finally {
     loading.value = false;
   }

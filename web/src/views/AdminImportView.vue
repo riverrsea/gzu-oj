@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { FileArchive, Upload } from "@lucide/vue";
-import { ElMessage } from "element-plus";
+import { toast } from "../lib/notify";
 import { api } from "../api/client";
 import type { ImportBatch } from "../api/types";
+import UiButton from "../components/ui/Button.vue";
+import UiTable from "../components/ui/Table.vue";
 
 /** 待上传的标准导入包。 */
 const file = ref<File>();
@@ -25,15 +27,15 @@ function selectFile(event: Event): void {
 /** 上传 ZIP 并展示服务端安全校验预览。 */
 async function stageImport(): Promise<void> {
   if (!file.value) {
-    ElMessage.warning("请先选择标准导入 ZIP");
+    toast.warning("请先选择标准导入 ZIP");
     return;
   }
   staging.value = true;
   try {
     batch.value = await api.stageImport(file.value);
-    ElMessage.success("导入包校验完成");
+    toast.success("导入包校验完成");
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "导入包校验失败");
+    toast.error(error instanceof Error ? error.message : "导入包校验失败");
   } finally {
     staging.value = false;
   }
@@ -46,9 +48,9 @@ async function commitImport(): Promise<void> {
   try {
     const result = await api.commitImport(batch.value.id);
     batch.value.status = "IMPORTED";
-    ElMessage.success(`已导入 ${result.imported} 题，跳过 ${result.skipped} 题，失败 ${result.invalid} 题`);
+    toast.success(`已导入 ${result.imported} 题，跳过 ${result.skipped} 题，失败 ${result.invalid} 题`);
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "批次提交失败");
+    toast.error(error instanceof Error ? error.message : "批次提交失败");
   } finally {
     committing.value = false;
   }
@@ -60,10 +62,13 @@ async function commitImport(): Promise<void> {
     <div class="page-heading"><div><h1>批量导入</h1><p>上传标准 ZIP，先完成安全校验和预览，再写入题目草稿</p></div></div>
     <section class="admin-tool-surface">
       <header><FileArchive :size="21" /><div><h2>标准 ZIP 导入</h2><p>服务端检查编码、目录穿越、压缩炸弹、重复外部题目标识、题面与测试数据。</p></div></header>
-      <div class="upload-row"><label class="upload-command"><Upload :size="18" />选择 ZIP<input type="file" accept=".zip,application/zip" @change="selectFile" /></label><span>{{ file?.name ?? '尚未选择文件' }}</span><el-button :loading="staging" :disabled="!file" @click="stageImport">校验预览</el-button></div>
+      <div class="upload-row"><label class="upload-command"><Upload :size="18" />选择 ZIP<input type="file" accept=".zip,application/zip" @change="selectFile" /></label><span>{{ file?.name ?? '尚未选择文件' }}</span><UiButton :loading="staging" :disabled="!file" @click="stageImport">校验预览</UiButton></div>
       <template v-if="batch">
-        <el-table :data="batch.items" size="small" row-key="externalKey"><el-table-column prop="externalKey" label="外部题目标识" min-width="150" /><el-table-column prop="title" label="标题" min-width="180" /><el-table-column prop="testCaseCount" label="测点" width="70" /><el-table-column prop="status" label="状态" width="90" /><el-table-column label="错误" min-width="190"><template #default="{ row }">{{ row.errors.join('；') || '—' }}</template></el-table-column></el-table>
-        <div class="tool-actions"><span>批次 {{ batch.id }} · {{ batch.status }}</span><el-button type="primary" :loading="committing" :disabled="hasInvalidItems || batch.status !== 'VALIDATED'" @click="commitImport">提交导入</el-button></div>
+        <UiTable>
+          <thead><tr><th>外部题目标识</th><th>标题</th><th>测点</th><th>状态</th><th>错误</th></tr></thead>
+          <tbody><tr v-for="row in batch.items" :key="row.externalKey"><td>{{ row.externalKey }}</td><td>{{ row.title }}</td><td>{{ row.testCaseCount }}</td><td>{{ row.status }}</td><td>{{ row.errors.join('；') || '—' }}</td></tr></tbody>
+        </UiTable>
+        <div class="tool-actions"><span>批次 {{ batch.id }} · {{ batch.status }}</span><UiButton :loading="committing" :disabled="hasInvalidItems || batch.status !== 'VALIDATED'" @click="commitImport">提交导入</UiButton></div>
       </template>
     </section>
   </section>

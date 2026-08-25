@@ -2,7 +2,7 @@
 import { ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { RefreshCw } from "@lucide/vue";
-import { ElMessage } from "element-plus";
+import { toast } from "../lib/notify";
 import { api, captchaUrl } from "../api/client";
 import { setSession } from "../stores/session";
 import UiButton from "../components/ui/Button.vue";
@@ -26,7 +26,7 @@ async function submitLogin(): Promise<void> {
     setSession(await api.login(login.value));
     await router.push(String(route.query.redirect ?? "/problems"));
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "登录失败");
+    toast.error(error instanceof Error ? error.message : "登录失败");
     refreshCaptcha();
   } finally { busy.value = false; }
 }
@@ -37,9 +37,9 @@ async function submitRegistration(): Promise<void> {
     const response = await api.register(registration.value);
     verification.value.email = registration.value.email;
     mode.value = "verify";
-    ElMessage.success(response.message);
+    toast.success(response.message);
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "注册失败");
+    toast.error(error instanceof Error ? error.message : "注册失败");
     refreshCaptcha();
   } finally { busy.value = false; }
 }
@@ -48,12 +48,12 @@ async function submitVerification(): Promise<void> {
   busy.value = true;
   try {
     const response = await api.verifyEmail(verification.value);
-    ElMessage.success(response.message);
+    toast.success(response.message);
     login.value.identity = verification.value.email;
     mode.value = "login";
     refreshCaptcha();
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "验证失败");
+    toast.error(error instanceof Error ? error.message : "验证失败");
   } finally { busy.value = false; }
 }
 </script>

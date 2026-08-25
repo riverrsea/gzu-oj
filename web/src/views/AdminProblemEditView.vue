@@ -2,10 +2,18 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ArrowLeft, Bot, Plus, RefreshCw, Save, Send, Trash2, XCircle } from "@lucide/vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { confirmAction, toast } from "../lib/notify";
 import { api } from "../api/client";
 import type { AdminProblemVersionDetail, AiMajorState, AiRun, AiStepResponse, Difficulty } from "../api/types";
 import ProblemStatementEditor from "../components/ProblemStatementEditor.vue";
+import UiAlert from "../components/ui/Alert.vue";
+import UiButton from "../components/ui/Button.vue";
+import UiCheckbox from "../components/ui/Checkbox.vue";
+import UiInput from "../components/ui/Input.vue";
+import UiNumberField from "../components/ui/NumberField.vue";
+import UiSelect from "../components/ui/Select.vue";
+import UiLabel from "../components/ui/Label.vue";
+import UiTextarea from "../components/ui/Textarea.vue";
 
 interface TestCaseForm {
   input: string;
@@ -144,7 +152,7 @@ function addCase(): void {
 
 function removeCase(index: number): void {
   if (form.testCases.length === 1) {
-    ElMessage.warning("至少需要一个测试点");
+    toast.warning("至少需要一个测试点");
     return;
   }
   form.testCases.splice(index, 1);
@@ -154,7 +162,7 @@ async function load(): Promise<void> {
   try {
     detail.value = await api.adminProblemVersion(String(route.params.versionId));
     if (detail.value.status !== "DRAFT") {
-      ElMessage.warning("只有草稿版本可以编辑");
+    toast.warning("只有草稿版本可以编辑");
       await router.replace("/admin/problems");
       return;
     }
@@ -171,7 +179,7 @@ async function load(): Promise<void> {
     form.testCases = detail.value.testCases.map(({ input, output, score, sample }) => ({ input, output, score, sample }));
     await loadAiRun();
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "草稿加载失败");
+    toast.error(error instanceof Error ? error.message : "草稿加载失败");
     await router.replace("/admin/problems");
   } finally {
     loading.value = false;
@@ -189,7 +197,7 @@ async function loadAiRun(): Promise<void> {
       aiSampleCount.value = aiRun.value.requestedSampleCount;
     }
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "AI 状态加载失败");
+    toast.error(error instanceof Error ? error.message : "AI 状态加载失败");
   }
 }
 
@@ -212,7 +220,7 @@ async function refreshAi(): Promise<void> {
     // AI 写入测试点会改变草稿内容哈希；人工接管前重新加载，避免后续保存覆盖新数据。
     if (next && next.state !== "PUBLISHED" && next.generatedTestCases.length > previousGeneratedCount) await load();
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "AI 状态刷新失败");
+    toast.error(error instanceof Error ? error.message : "AI 状态刷新失败");
   } finally {
     aiLoading.value = false;
   }
@@ -222,25 +230,23 @@ async function refreshAi(): Promise<void> {
 async function startAi(): Promise<void> {
   if (!detail.value || aiLoading.value || !aiCanRestart.value) return;
   if (!Number.isInteger(aiTestCaseCount.value) || aiTestCaseCount.value < 1 || aiTestCaseCount.value > 200) {
-    ElMessage.warning("AI 生成测试点数量必须位于 1 到 200");
+      toast.warning("AI 生成测试点数量必须位于 1 到 200");
     return;
   }
   if (!Number.isInteger(aiSampleCount.value) || aiSampleCount.value < 0 || aiSampleCount.value > aiTestCaseCount.value) {
-    ElMessage.warning("公开样例数量必须位于 0 到生成测试点数量之间");
+      toast.warning("公开样例数量必须位于 0 到生成测试点数量之间");
     return;
   }
   if (!aiAutoPublish.value && aiSampleCount.value > 0) {
-    ElMessage.warning("关闭自动发布时请将公开样例数量设为 0，生成后可在测试点列表中手动勾选");
+      toast.warning("关闭自动发布时请将公开样例数量设为 0，生成后可在测试点列表中手动勾选");
     return;
   }
   if (form.testCases.length > 0) {
     try {
-      await ElMessageBox.confirm(
+      await confirmAction(
         aiAutoPublish.value
           ? `当前草稿已有 ${form.testCases.length} 个测试点。AI 差分全部通过后，将用新生成的 ${aiTestCaseCount.value} 个测试点替换它们，并自动发布；前 ${aiSampleCount.value} 个测试点会作为公开样例。`
-          : `当前草稿已有 ${form.testCases.length} 个测试点。AI 差分全部通过后，将用新生成的 ${aiTestCaseCount.value} 个测试点替换它们，但不会自动发布；你可以检查并手动勾选公开样例。`,
-        "确认生成测试点",
-        { type: "warning", confirmButtonText: "启动 AI", cancelButtonText: "取消" },
+          : `当前草稿已有 ${form.testCases.length} 个测试点。AI 差分全部通过后，将用新生成的 ${aiTestCaseCount.value} 个测试点替换它们，但不会自动发布；你可以检查并手动勾选公开样例。` + "\n\n确认启动 AI 吗？",
       );
     } catch {
       return;
@@ -250,9 +256,9 @@ async function startAi(): Promise<void> {
   try {
     aiRun.value = await api.startAiRun(detail.value.versionId, aiTestCaseCount.value, aiAutoPublish.value, aiSampleCount.value);
     detail.value.activeAiRun = true;
-    ElMessage.success("AI 录题流程已启动");
+    toast.success("AI 录题流程已启动");
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "AI 流程启动失败");
+    toast.error(error instanceof Error ? error.message : "AI 流程启动失败");
   } finally {
     aiLoading.value = false;
   }
@@ -262,7 +268,7 @@ async function startAi(): Promise<void> {
 async function cancelAi(): Promise<void> {
   if (!aiRun.value || !detail.value || aiLoading.value) return;
   try {
-    await ElMessageBox.confirm("取消后可以继续手工编辑草稿，已保存的 AI 步骤仍会保留。", "取消 AI 流程", { type: "warning", confirmButtonText: "取消流程", cancelButtonText: "返回" });
+    await confirmAction("取消后可以继续手工编辑草稿，已保存的 AI 步骤仍会保留。\n\n确认取消 AI 流程吗？");
   } catch {
     return;
   }
@@ -270,9 +276,9 @@ async function cancelAi(): Promise<void> {
   try {
     aiRun.value = await api.cancelAiRun(aiRun.value.id);
     detail.value.activeAiRun = false;
-    ElMessage.success("AI 流程已取消，可继续人工编辑");
+    toast.success("AI 流程已取消，可继续人工编辑");
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "AI 流程取消失败");
+    toast.error(error instanceof Error ? error.message : "AI 流程取消失败");
   } finally {
     aiLoading.value = false;
   }
@@ -281,12 +287,12 @@ async function cancelAi(): Promise<void> {
 async function save(publish: boolean): Promise<void> {
   if (!detail.value || saving.value || aiLocked.value) return;
   if (publish && totalScore.value !== 100) {
-    ElMessage.error("发布时测试点分值之和必须为 100");
+    toast.error("发布时测试点分值之和必须为 100");
     return;
   }
   if (publish) {
     try {
-      await ElMessageBox.confirm("发布后该版本将不可再编辑，并会成为这道题的当前公开版本。", "确认发布", { type: "warning", confirmButtonText: "发布", cancelButtonText: "取消" });
+      await confirmAction("发布后该版本将不可再编辑，并会成为这道题的当前公开版本。\n\n确认发布吗？");
     } catch {
       return;
     }
@@ -301,14 +307,14 @@ async function save(publish: boolean): Promise<void> {
       tags: tagText.value.split(/[，,]/).map((tag) => tag.trim()).filter(Boolean),
       publish,
     });
-    ElMessage.success(publish ? "题目版本已发布" : "草稿已保存");
+    toast.success(publish ? "题目版本已发布" : "草稿已保存");
     if (publish) {
       await router.replace("/admin/problems");
     } else {
       await load();
     }
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "草稿保存失败");
+    toast.error(error instanceof Error ? error.message : "草稿保存失败");
   } finally {
     saving.value = false;
   }
@@ -325,10 +331,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section v-loading="loading" class="content-page content-page--modern oj-page admin-problem-page">
+  <section class="content-page content-page--modern oj-page admin-problem-page loading-shell" :aria-busy="loading">
+    <div v-if="loading" class="loading-overlay"><span class="loading-spinner" aria-label="加载中" /></div>
     <div class="page-heading">
       <div><h1>编辑题目草稿</h1><p>版本 v{{ detail?.versionNumber }} · 外部题目标识 {{ detail?.externalKey || '手工题目' }}（只读）· 第二阶段录入测试点</p></div>
-      <el-button text @click="router.push('/admin/problems')"><ArrowLeft :size="16" />返回题库</el-button>
+      <UiButton variant="ghost" @click="router.push('/admin/problems')"><ArrowLeft :size="16" />返回题库</UiButton>
     </div>
 
     <section class="ai-flow-panel">
@@ -342,24 +349,24 @@ onUnmounted(() => {
           <div><strong>{{ majorLabels[stage] }}</strong><small v-if="stage === currentMajor && aiRun && aiRun.majorState !== aiRun.state">{{ minorLabels[aiRun.state] ?? aiRun.state }}</small><time v-if="latestHistory(stage)">{{ new Date(latestHistory(stage)!.createdAt).toLocaleString() }}</time></div>
         </article>
       </div>
-      <el-alert v-if="aiRun && ['NEEDS_REVIEW', 'FAILED', 'CANCELED'].includes(aiRun.state)" :type="aiRun.state === 'NEEDS_REVIEW' ? 'warning' : 'error'" show-icon :title="aiRun.failureReason || majorLabels[aiRun.majorState]" />
-      <el-alert v-if="aiRun && aiRun.state === 'VALIDATING' && !aiRun.autoPublish" type="success" show-icon title="AI 测试点已生成并通过门禁。请检查下方测试点，勾选公开样例后保存并发布；当前不会自动发布。" />
+      <UiAlert v-if="aiRun && ['NEEDS_REVIEW', 'FAILED', 'CANCELED'].includes(aiRun.state)" :variant="aiRun.state === 'NEEDS_REVIEW' ? 'warning' : 'error'" :title="aiRun.failureReason || majorLabels[aiRun.majorState]" />
+      <UiAlert v-if="aiRun && aiRun.state === 'VALIDATING' && !aiRun.autoPublish" variant="success" title="AI 测试点已生成并通过门禁。请检查下方测试点，勾选公开样例后保存并发布；当前不会自动发布。" />
       <footer class="ai-flow-actions">
         <label v-if="aiCanRestart" class="ai-case-count-control">
           <span>生成测试点数量</span>
-          <el-input-number v-model="aiTestCaseCount" :min="1" :max="200" :step="1" controls-position="right" />
+          <UiNumberField v-model="aiTestCaseCount" :min="1" :max="200" :step="1" />
         </label>
         <label v-if="aiCanRestart" class="ai-case-count-control ai-publish-control">
-          <el-checkbox v-model="aiAutoPublish">差分通过后自动发布</el-checkbox>
+          <span class="checkbox-field"><UiCheckbox v-model="aiAutoPublish" />差分通过后自动发布</span>
         </label>
         <label v-if="aiCanRestart && aiAutoPublish" class="ai-case-count-control">
           <span>公开样例数量</span>
-          <el-input-number v-model="aiSampleCount" :min="0" :max="aiTestCaseCount" :step="1" controls-position="right" />
+          <UiNumberField v-model="aiSampleCount" :min="0" :max="aiTestCaseCount" :step="1" />
         </label>
         <span v-else-if="aiRun" class="ai-case-count-summary">计划 {{ aiRun.requestedTestCaseCount }} 个 · 已生成 {{ aiGeneratedTestCases.length }} 个 · {{ aiRun.autoPublish ? `自动发布 · 样例 ${aiRun.requestedSampleCount} 个` : "人工检查后发布" }}</span>
-        <el-button v-if="aiCanRestart" type="primary" :loading="aiLoading" @click="startAi"><Bot :size="16" />启动 AI</el-button>
-        <el-button v-if="aiRun && !aiTerminal" :loading="aiLoading" @click="cancelAi"><XCircle :size="16" />取消流程</el-button>
-        <el-button v-if="aiRun" :loading="aiLoading" @click="refreshAi"><RefreshCw :size="16" />刷新状态</el-button>
+        <UiButton v-if="aiCanRestart" :loading="aiLoading" @click="startAi"><Bot :size="16" />启动 AI</UiButton>
+        <UiButton v-if="aiRun && !aiTerminal" :loading="aiLoading" @click="cancelAi"><XCircle :size="16" />取消流程</UiButton>
+        <UiButton v-if="aiRun" :loading="aiLoading" @click="refreshAi"><RefreshCw :size="16" />刷新状态</UiButton>
       </footer>
     </section>
 
@@ -407,49 +414,49 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <el-alert v-if="aiLocked" type="warning" show-icon title="该草稿存在进行中的 AI 流程，内容暂时锁定；流程结束或取消后可继续编辑。" />
-    <el-alert v-else-if="detail && form.testCases.length === 0" type="info" show-icon title="当前草稿还没有测试点；请添加测试点并保存，分值合计 100 后才能发布。" />
-    <el-form label-position="top" class="problem-form" @submit.prevent="save(false)">
+    <UiAlert v-if="aiLocked" variant="warning" title="该草稿存在进行中的 AI 流程，内容暂时锁定；流程结束或取消后可继续编辑。" />
+    <UiAlert v-else-if="detail && form.testCases.length === 0" variant="info" title="当前草稿还没有测试点；请添加测试点并保存，分值合计 100 后才能发布。" />
+    <form class="problem-form" @submit.prevent="save(false)">
       <section class="form-section">
         <h2>题目元数据</h2>
         <div class="form-grid form-grid--three">
-          <el-form-item label="外部题目标识"><el-input :model-value="detail?.externalKey || '手工题目'" disabled /></el-form-item>
-          <el-form-item label="学校"><el-input v-model="form.school" maxlength="200" :disabled="aiLocked" /></el-form-item>
-          <el-form-item label="年份"><el-input-number v-model="form.year" :min="1900" :max="2200" :disabled="aiLocked" /></el-form-item>
+          <div class="form-field"><UiLabel>外部题目标识</UiLabel><UiInput :model-value="detail?.externalKey || '手工题目'" disabled /></div>
+          <div class="form-field"><UiLabel>学校</UiLabel><UiInput v-model="form.school" maxlength="200" :disabled="aiLocked" /></div>
+          <div class="form-field"><UiLabel>年份</UiLabel><UiNumberField v-model="form.year" :min="1900" :max="2200" :disabled="aiLocked" /></div>
         </div>
-        <el-form-item label="标题"><el-input v-model="form.title" maxlength="200" :disabled="aiLocked" /></el-form-item>
+        <div class="form-field"><UiLabel>标题</UiLabel><UiInput v-model="form.title" maxlength="200" :disabled="aiLocked" /></div>
         <div class="form-grid form-grid--three">
-          <el-form-item label="难度"><el-select v-model="form.difficulty" :disabled="aiLocked"><el-option label="基础" value="EASY" /><el-option label="综合" value="MEDIUM" /><el-option label="高难" value="HARD" /></el-select></el-form-item>
-          <el-form-item label="标签（逗号分隔）"><el-input v-model="tagText" :disabled="aiLocked" /></el-form-item>
-          <el-form-item label="来源链接"><el-input v-model="form.sourceUrl" placeholder="https://..." :disabled="aiLocked" /></el-form-item>
+          <div class="form-field"><UiLabel>难度</UiLabel><UiSelect v-model="form.difficulty" placeholder="" :disabled="aiLocked"><option value="EASY">基础</option><option value="MEDIUM">综合</option><option value="HARD">高难</option></UiSelect></div>
+          <div class="form-field"><UiLabel>标签（逗号分隔）</UiLabel><UiInput v-model="tagText" :disabled="aiLocked" /></div>
+          <div class="form-field"><UiLabel>来源链接</UiLabel><UiInput v-model="form.sourceUrl" placeholder="https://..." :disabled="aiLocked" /></div>
         </div>
       </section>
 
       <section class="form-section">
         <h2>题面与限制</h2>
-        <el-form-item label="题面内容" class="statement-form-item"><ProblemStatementEditor v-model="form.statementMarkdown" :disabled="aiLocked" /></el-form-item>
+        <div class="form-field statement-form-item"><UiLabel>题面内容</UiLabel><ProblemStatementEditor v-model="form.statementMarkdown" :disabled="aiLocked" /></div>
         <div class="form-grid form-grid--three">
-          <el-form-item label="基准时间限制（ms）"><el-input-number v-model="form.timeLimitMs" :min="100" :max="60000" :step="100" :disabled="aiLocked" /></el-form-item>
-          <el-form-item label="基准内存限制（MiB）"><el-input-number v-model="form.memoryLimitMiB" :min="16" :max="2048" :step="16" :disabled="aiLocked" /></el-form-item>
-          <el-form-item label="数据声明"><el-input v-model="form.dataNotice" maxlength="200" :disabled="aiLocked" /></el-form-item>
+          <div class="form-field"><UiLabel>基准时间限制（ms）</UiLabel><UiNumberField v-model="form.timeLimitMs" :min="100" :max="60000" :step="100" :disabled="aiLocked" /></div>
+          <div class="form-field"><UiLabel>基准内存限制（MiB）</UiLabel><UiNumberField v-model="form.memoryLimitMiB" :min="16" :max="2048" :step="16" :disabled="aiLocked" /></div>
+          <div class="form-field"><UiLabel>数据声明</UiLabel><UiInput v-model="form.dataNotice" maxlength="200" :disabled="aiLocked" /></div>
         </div>
       </section>
 
       <section class="form-section">
-        <header class="section-heading"><div><h2>测试点</h2><p :class="{ 'score-invalid': totalScore !== 100 }">总分 {{ totalScore }} / 100</p></div><el-button :disabled="aiLocked" @click="addCase"><Plus :size="16" />添加测试点</el-button></header>
+        <header class="section-heading"><div><h2>测试点</h2><p :class="{ 'score-invalid': totalScore !== 100 }">总分 {{ totalScore }} / 100</p></div><UiButton :disabled="aiLocked" @click="addCase"><Plus :size="16" />添加测试点</UiButton></header>
         <div class="test-case-editor">
           <article v-for="(item, index) in form.testCases" :key="index" class="test-case-card">
             <header><strong>测试点 {{ index + 1 }}</strong><button class="icon-button" type="button" title="删除测试点" :disabled="aiLocked" @click="removeCase(index)"><Trash2 :size="17" /></button></header>
-            <div class="test-case-columns"><el-form-item label="输入"><el-input v-model="item.input" type="textarea" :rows="5" :disabled="aiLocked" /></el-form-item><el-form-item label="标准输出"><el-input v-model="item.output" type="textarea" :rows="5" :disabled="aiLocked" /></el-form-item></div>
-            <footer><el-checkbox v-model="item.sample" :disabled="aiLocked">公开样例</el-checkbox><el-form-item label="分值"><el-input-number v-model="item.score" :min="0" :max="100" :disabled="aiLocked" /></el-form-item></footer>
+            <div class="test-case-columns"><div class="form-field"><UiLabel>输入</UiLabel><UiTextarea v-model="item.input" :rows="5" :disabled="aiLocked" /></div><div class="form-field"><UiLabel>标准输出</UiLabel><UiTextarea v-model="item.output" :rows="5" :disabled="aiLocked" /></div></div>
+            <footer><label class="checkbox-field"><UiCheckbox v-model="item.sample" :disabled="aiLocked" />公开样例</label><div class="form-field"><UiLabel>分值</UiLabel><UiNumberField v-model="item.score" :min="0" :max="100" :disabled="aiLocked" /></div></footer>
           </article>
         </div>
       </section>
 
       <footer class="form-actions">
-        <el-button :disabled="aiLocked" :loading="saving" @click="save(false)"><Save :size="16" />保存草稿</el-button>
-        <el-button type="primary" :disabled="aiLocked" :loading="saving" @click="save(true)"><Send :size="16" />保存并发布</el-button>
+        <UiButton :disabled="aiLocked" :loading="saving" @click="save(false)"><Save :size="16" />保存草稿</UiButton>
+        <UiButton :disabled="aiLocked" :loading="saving" @click="save(true)"><Send :size="16" />保存并发布</UiButton>
       </footer>
-    </el-form>
+    </form>
   </section>
 </template>

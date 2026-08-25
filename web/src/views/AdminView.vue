@@ -1,10 +1,16 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
 import { CopyPlus, Edit3, ExternalLink, Plus, Search, Send } from "@lucide/vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { confirmAction, toast } from "../lib/notify";
 import { useRouter } from "vue-router";
 import { api } from "../api/client";
 import type { AdminProblemSummary, Difficulty, ProblemVersionStatus } from "../api/types";
+import UiButton from "../components/ui/Button.vue";
+import UiEmptyState from "../components/ui/EmptyState.vue";
+import UiInput from "../components/ui/Input.vue";
+import UiNumberField from "../components/ui/NumberField.vue";
+import UiPagination from "../components/ui/Pagination.vue";
+import UiSelect from "../components/ui/Select.vue";
 
 /** 管理员题库的分页大小。 */
 const pageSize = 20;
@@ -56,7 +62,7 @@ async function load(resetPage = false): Promise<void> {
     problems.value = result.items;
     total.value = result.total;
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "管理员题库加载失败");
+    toast.error(error instanceof Error ? error.message : "管理员题库加载失败");
   } finally {
     loading.value = false;
   }
@@ -86,12 +92,12 @@ function createNextVersion(problem: AdminProblemSummary): void {
 /** 发布已经校验过的草稿版本。 */
 async function publishDraft(versionId: string): Promise<void> {
   try {
-    await ElMessageBox.confirm("发布后该版本不可再编辑，并会成为当前公开版本。", "确认发布", { type: "warning", confirmButtonText: "发布", cancelButtonText: "取消" });
+    await confirmAction("发布后该版本不可再编辑，并会成为当前公开版本。\n\n确认发布吗？");
     await api.publishDraft(versionId);
-    ElMessage.success("题目版本已发布");
+    toast.success("题目版本已发布");
     await load();
   } catch (error) {
-    if (error !== "cancel" && error !== "close") ElMessage.error(error instanceof Error ? error.message : "题目发布失败");
+    if (error !== "cancel" && error !== "close") toast.error(error instanceof Error ? error.message : "题目发布失败");
   }
 }
 
@@ -104,31 +110,24 @@ onMounted(() => {
   <section class="content-page content-page--modern admin-page admin-page--modern">
     <div class="page-heading">
       <div><h1>题库管理</h1><p>查看草稿、已发布题目和不可变历史版本</p></div>
-      <div class="heading-actions"><span class="result-count">{{ total }} 个版本</span><el-button type="primary" @click="$router.push('/admin/problems/new')"><Plus :size="16" />新建题目</el-button></div>
+      <div class="heading-actions"><span class="result-count">{{ total }} 个版本</span><UiButton @click="$router.push('/admin/problems/new')"><Plus :size="16" />新建题目</UiButton></div>
     </div>
 
     <form class="admin-catalog-filters admin-catalog-filters--modern" @submit.prevent="search">
-      <el-input v-model="filters.keyword" clearable placeholder="标题或外部题目标识" />
-      <el-input v-model="filters.school" clearable placeholder="学校" />
-      <el-input-number v-model="filters.year" :min="1900" :max="2200" :controls="false" placeholder="年份" />
-      <el-input v-model="filters.tag" clearable placeholder="标签" />
-      <el-select v-model="filters.status" clearable placeholder="版本状态"><el-option label="草稿" value="DRAFT" /><el-option label="已发布" value="PUBLISHED" /><el-option label="已撤回" value="WITHDRAWN" /></el-select>
-      <el-select v-model="filters.difficulty" clearable placeholder="难度"><el-option label="简单" value="EASY" /><el-option label="中等" value="MEDIUM" /><el-option label="困难" value="HARD" /></el-select>
-      <el-button native-type="submit" type="primary" :loading="loading"><Search :size="16" />筛选</el-button>
+      <UiInput v-model="filters.keyword" placeholder="标题或外部题目标识" />
+      <UiInput v-model="filters.school" placeholder="学校" />
+      <UiNumberField v-model="filters.year" :min="1900" :max="2200" placeholder="年份" />
+      <UiInput v-model="filters.tag" placeholder="标签" />
+      <UiSelect v-model="filters.status" placeholder="版本状态"><option value="DRAFT">草稿</option><option value="PUBLISHED">已发布</option><option value="WITHDRAWN">已撤回</option></UiSelect>
+      <UiSelect v-model="filters.difficulty" placeholder="难度"><option value="EASY">简单</option><option value="MEDIUM">中等</option><option value="HARD">困难</option></UiSelect>
+      <UiButton type="submit" :loading="loading"><Search :size="16" />筛选</UiButton>
     </form>
 
-    <el-table v-loading="loading" :data="problems" row-key="versionId" class="admin-catalog-table admin-catalog-table--modern">
-      <el-table-column label="题目" min-width="260"><template #default="{ row }"><div class="problem-title"><strong>{{ row.title }}</strong><span>{{ row.externalKey || '手工题目' }}</span></div></template></el-table-column>
-      <el-table-column prop="school" label="学校" min-width="140" />
-      <el-table-column prop="year" label="年份" width="76" />
-      <el-table-column label="版本" width="72"><template #default="{ row }">v{{ row.versionNumber }}</template></el-table-column>
-      <el-table-column label="状态" width="92"><template #default="{ row }"><el-tag size="small" :type="row.status === 'PUBLISHED' ? 'success' : row.status === 'DRAFT' ? 'warning' : 'info'">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
-      <el-table-column label="测点" width="105"><template #default="{ row }">{{ row.testCaseCount }} 个 / {{ row.scoreSum }} 分</template></el-table-column>
-      <el-table-column label="难度" width="76"><template #default="{ row }"><span :class="['difficulty', 'difficulty--' + row.difficulty.toLowerCase()]">{{ difficultyLabel(row.difficulty) }}</span></template></el-table-column>
-      <el-table-column label="创建时间" width="165"><template #default="{ row }">{{ formatDate(row.createdAt) }}</template></el-table-column>
-      <el-table-column label="操作" width="230" fixed="right"><template #default="{ row }"><template v-if="row.status === 'PUBLISHED'"><el-button text type="primary" @click.stop="$router.push('/problems/' + row.problemId)"><ExternalLink :size="14" />查看</el-button><el-button text @click.stop="createNextVersion(row)"><CopyPlus :size="14" />新版本</el-button></template><template v-else-if="row.status === 'DRAFT'"><el-button text type="primary" @click.stop="editDraft(row.versionId)"><Edit3 :size="14" />编辑</el-button><el-button text type="success" @click.stop="publishDraft(row.versionId)"><Send :size="14" />发布</el-button></template><el-button v-else text @click.stop="createNextVersion(row)"><CopyPlus :size="14" />新版本</el-button></template></el-table-column>
-    </el-table>
-    <el-empty v-if="!loading && problems.length === 0" description="没有符合条件的题目版本" />
-    <div v-if="total > pageSize" class="admin-catalog-pagination"><el-pagination background layout="prev, pager, next" :current-page="page" :page-size="pageSize" :total="total" @current-change="changePage" /></div>
+    <div class="admin-catalog-table admin-catalog-table--modern loading-shell" :aria-busy="loading">
+      <div v-if="loading" class="loading-overlay"><span class="loading-spinner" aria-label="加载中" /></div>
+      <div class="w-full overflow-x-auto"><table class="w-full min-w-[1120px] text-left text-sm"><thead><tr><th>题目</th><th>学校</th><th>年份</th><th>版本</th><th>状态</th><th>测点</th><th>难度</th><th>创建时间</th><th>操作</th></tr></thead><tbody><tr v-for="row in problems" :key="row.versionId"><td><div class="problem-title"><strong>{{ row.title }}</strong><span>{{ row.externalKey || '手工题目' }}</span></div></td><td>{{ row.school }}</td><td>{{ row.year }}</td><td>v{{ row.versionNumber }}</td><td><span :class="['status-pill', 'status-pill--' + row.status.toLowerCase()]">{{ statusLabel(row.status) }}</span></td><td>{{ row.testCaseCount }} 个 / {{ row.scoreSum }} 分</td><td><span :class="['difficulty', 'difficulty--' + row.difficulty.toLowerCase()]">{{ difficultyLabel(row.difficulty) }}</span></td><td>{{ formatDate(row.createdAt) }}</td><td><div class="table-actions"><template v-if="row.status === 'PUBLISHED'"><UiButton variant="ghost" size="sm" @click.stop="$router.push('/problems/' + row.problemId)"><ExternalLink :size="14" />查看</UiButton><UiButton variant="ghost" size="sm" @click.stop="createNextVersion(row)"><CopyPlus :size="14" />新版本</UiButton></template><template v-else-if="row.status === 'DRAFT'"><UiButton variant="ghost" size="sm" @click.stop="editDraft(row.versionId)"><Edit3 :size="14" />编辑</UiButton><UiButton variant="ghost" size="sm" @click.stop="publishDraft(row.versionId)"><Send :size="14" />发布</UiButton></template><UiButton v-else variant="ghost" size="sm" @click.stop="createNextVersion(row)"><CopyPlus :size="14" />新版本</UiButton></div></td></tr></tbody></table></div>
+      <UiEmptyState v-if="!loading && problems.length === 0" description="没有符合条件的题目版本" />
+    </div>
+    <div v-if="total > pageSize" class="admin-catalog-pagination"><UiPagination :page="page" :page-size="pageSize" :total="total" @change="changePage" /></div>
   </section>
 </template>

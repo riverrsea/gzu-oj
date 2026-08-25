@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
 import { Copy, KeyRound, ServerCog, ShieldCheck } from "@lucide/vue";
-import { ElMessage } from "element-plus";
+import { toast } from "../lib/notify";
 import { api } from "../api/client";
 import type { CreatedWorker } from "../api/types";
+import UiAlert from "../components/ui/Alert.vue";
+import UiButton from "../components/ui/Button.vue";
+import UiInput from "../components/ui/Input.vue";
+import UiNumberField from "../components/ui/NumberField.vue";
+import UiLabel from "../components/ui/Label.vue";
 
 /** 新节点表单。 */
 const form = reactive({
@@ -28,15 +33,15 @@ const validAiSlots = computed(() => Number.isInteger(form.aiSlots) && form.aiSlo
 /** 创建节点凭据，并保留页面上的一次性展示结果。 */
 async function createWorker(): Promise<void> {
   if (!validName.value) {
-    ElMessage.warning("名称需为 2-100 位字母、数字、点、下划线或短横线");
+    toast.warning("名称需为 2-100 位字母、数字、点、下划线或短横线");
     return;
   }
   if (!validSlots.value) {
-    ElMessage.warning("并发槽位需设置为 1-64");
+    toast.warning("并发槽位需设置为 1-64");
     return;
   }
   if (!validAiSlots.value) {
-    ElMessage.warning("AI 槽位需设置为 0-16");
+    toast.warning("AI 槽位需设置为 0-16");
     return;
   }
 
@@ -44,9 +49,9 @@ async function createWorker(): Promise<void> {
   try {
     created.value = await api.createWorker({ name: form.name.trim(), slots: form.slots, aiSlots: form.aiSlots });
     copied.value = false;
-    ElMessage.success("Worker 凭据已创建");
+    toast.success("Worker 凭据已创建");
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "Worker 凭据创建失败");
+    toast.error(error instanceof Error ? error.message : "Worker 凭据创建失败");
   } finally {
     creating.value = false;
   }
@@ -58,12 +63,12 @@ async function copyToken(): Promise<void> {
   try {
     await navigator.clipboard.writeText(created.value.token);
     copied.value = true;
-    ElMessage.success("Token 已复制");
+    toast.success("Token 已复制");
     window.setTimeout(() => {
       copied.value = false;
     }, 1800);
   } catch {
-    ElMessage.error("复制失败，请手动选择 Token");
+    toast.error("复制失败，请手动选择 Token");
   }
 }
 </script>
@@ -85,26 +90,20 @@ async function copyToken(): Promise<void> {
           <div><h2>创建 Worker 凭据</h2><p>节点名称用于日志和租约审计；槽位数应与该主机可承受的并发判题数一致。</p></div>
         </header>
 
-        <el-form label-position="top" @submit.prevent="createWorker">
-          <el-form-item label="节点名称">
-            <el-input v-model="form.name" maxlength="100" show-word-limit autocomplete="off" placeholder="wsl-judge-1" />
-          </el-form-item>
-          <el-form-item label="并发槽位">
-            <el-input-number v-model="form.slots" :min="1" :max="64" controls-position="right" />
-          </el-form-item>
-          <el-form-item label="AI 生成与差分槽位">
-            <el-input-number v-model="form.aiSlots" :min="0" :max="16" controls-position="right" />
-          </el-form-item>
-          <el-alert title="Token 只返回一次" type="warning" :closable="false" show-icon>
+        <form class="problem-form" @submit.prevent="createWorker">
+          <div class="form-field"><UiLabel>节点名称</UiLabel><UiInput v-model="form.name" maxlength="100" autocomplete="off" placeholder="wsl-judge-1" /></div>
+          <div class="form-field"><UiLabel>并发槽位</UiLabel><UiNumberField v-model="form.slots" :min="1" :max="64" /></div>
+          <div class="form-field"><UiLabel>AI 生成与差分槽位</UiLabel><UiNumberField v-model="form.aiSlots" :min="0" :max="16" /></div>
+          <UiAlert title="Token 只返回一次" variant="warning">
             创建完成后请立即复制并保存。服务端只保存哈希，刷新或离开页面后无法再次查看。
-          </el-alert>
+          </UiAlert>
           <div class="form-actions">
             <span>创建后还需要在 Worker 环境配置 go-judge Token。</span>
-            <el-button type="primary" :loading="creating" :disabled="!validName || !validSlots || !validAiSlots" @click="createWorker">
+            <UiButton :loading="creating" :disabled="!validName || !validSlots || !validAiSlots" @click="createWorker">
               <KeyRound :size="16" />创建凭据
-            </el-button>
+            </UiButton>
           </div>
-        </el-form>
+        </form>
       </article>
 
       <aside class="worker-side">
@@ -116,10 +115,10 @@ async function copyToken(): Promise<void> {
           <div class="worker-id"><span>节点 ID</span><code>{{ created.id }}</code></div>
           <label class="token-label" for="worker-token">Worker Token（仅展示一次）</label>
           <div class="token-row">
-            <el-input id="worker-token" :model-value="created.token" readonly />
-            <el-button type="primary" :title="copied ? '已复制' : '复制 Token'" @click="copyToken"><Copy :size="16" />{{ copied ? '已复制' : '复制' }}</el-button>
+            <UiInput id="worker-token" :model-value="created.token" readonly />
+            <UiButton :title="copied ? '已复制' : '复制 Token'" @click="copyToken"><Copy :size="16" />{{ copied ? '已复制' : '复制' }}</UiButton>
           </div>
-          <el-alert class="token-alert" title="请将 Token 写入 GZU_OJ_WORKER_TOKEN" type="success" :closable="false" show-icon />
+          <UiAlert class="token-alert" title="请将 Token 写入 GZU_OJ_WORKER_TOKEN" variant="success" />
         </article>
 
         <article class="tool-card">

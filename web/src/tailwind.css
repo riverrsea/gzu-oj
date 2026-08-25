@@ -70,31 +70,6 @@
     @apply overflow-hidden rounded-panel border border-line bg-paper shadow-panel;
   }
 
-  .problem-table--modern .el-table__inner-wrapper::before,
-  .admin-catalog-table--modern .el-table__inner-wrapper::before {
-    @apply hidden;
-  }
-
-  .problem-table--modern .el-table__header-wrapper th.el-table__cell,
-  .admin-catalog-table--modern .el-table__header-wrapper th.el-table__cell {
-    @apply border-b border-line bg-canvas text-[11px] font-bold uppercase tracking-[0.08em] text-quiet;
-  }
-
-  .problem-table--modern .el-table__body tr,
-  .admin-catalog-table--modern .el-table__body tr {
-    @apply transition-colors duration-150;
-  }
-
-  .problem-table--modern .el-table__body tr:hover > td.el-table__cell,
-  .admin-catalog-table--modern .el-table__body tr:hover > td.el-table__cell {
-    background: color-mix(in srgb, var(--accent) 5%, transparent);
-  }
-
-  .problem-table--modern .el-table__body td.el-table__cell,
-  .admin-catalog-table--modern .el-table__body td.el-table__cell {
-    @apply border-b border-line py-4;
-  }
-
   /* 管理端是独立工作台，侧栏用更深的色块形成稳定的导航锚点。 */
   .admin-shell--modern {
     @apply gap-8;

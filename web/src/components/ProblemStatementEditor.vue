@@ -3,6 +3,8 @@ import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { computed, reactive, ref, watch } from "vue";
 import { Eye } from "@lucide/vue";
+import UiEmptyState from "./ui/EmptyState.vue";
+import UiTextarea from "./ui/Textarea.vue";
 
 /** 结构化题面的章节字段。内容仍使用 Markdown，便于保留公式、代码和列表。 */
 type StatementSectionKey = "description" | "inputFormat" | "outputFormat" | "constraints" | "notes";
@@ -145,30 +147,30 @@ watch(serializedStatement, (value) => {
       <div class="statement-fields">
         <section class="statement-field statement-field--wide">
           <header><strong>题目描述</strong><span>说明题目背景、目标和需要完成的任务</span></header>
-          <el-input v-model="sections.description" type="textarea" :rows="7" :disabled="disabled" placeholder="例如：给定两个整数 A、B，请计算它们的和。" />
+          <UiTextarea v-model="sections.description" :rows="7" :disabled="disabled" placeholder="例如：给定两个整数 A、B，请计算它们的和。" />
         </section>
         <section class="statement-field">
           <header><strong>输入格式</strong><span>输入数据的结构、顺序和分隔方式</span></header>
-          <el-input v-model="sections.inputFormat" type="textarea" :rows="7" :disabled="disabled" placeholder="例如：一行包含两个整数 A 和 B，用空格分隔。" />
+          <UiTextarea v-model="sections.inputFormat" :rows="7" :disabled="disabled" placeholder="例如：一行包含两个整数 A 和 B，用空格分隔。" />
         </section>
         <section class="statement-field">
           <header><strong>输出格式</strong><span>输出内容、格式和精度要求</span></header>
-          <el-input v-model="sections.outputFormat" type="textarea" :rows="7" :disabled="disabled" placeholder="例如：输出一个整数，表示 A+B 的值。" />
+          <UiTextarea v-model="sections.outputFormat" :rows="7" :disabled="disabled" placeholder="例如：输出一个整数，表示 A+B 的值。" />
         </section>
         <section class="statement-field">
           <header><strong>数据范围</strong><span>约束、边界和特殊条件</span></header>
-          <el-input v-model="sections.constraints" type="textarea" :rows="5" :disabled="disabled" placeholder="例如：-10^9 ≤ A,B ≤ 10^9。" />
+          <UiTextarea v-model="sections.constraints" :rows="5" :disabled="disabled" placeholder="例如：-10^9 ≤ A,B ≤ 10^9。" />
         </section>
         <section class="statement-field">
           <header><strong>补充说明</strong><span>题解提示、特殊说明或未归类的 Markdown</span></header>
-          <el-input v-model="sections.notes" type="textarea" :rows="5" :disabled="disabled" placeholder="可选，例如多组数据说明、输出精度说明等。" />
+          <UiTextarea v-model="sections.notes" :rows="5" :disabled="disabled" placeholder="可选，例如多组数据说明、输出精度说明等。" />
         </section>
       </div>
 
       <aside class="statement-preview">
         <header><strong>题面预览</strong><span>{{ serializedStatement.length }} 字符</span></header>
         <article v-if="serializedStatement.trim()" class="markdown-body" v-html="renderedStatement" />
-        <el-empty v-else description="填写左侧内容后预览题面" :image-size="60" />
+        <UiEmptyState v-else description="填写左侧内容后预览题面" />
       </aside>
     </div>
 

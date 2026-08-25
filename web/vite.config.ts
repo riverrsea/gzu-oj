@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       /** Monaco 0.56 的 Worker 子路径需要显式指向实际文件。 */
       alias: {
+        "@": path.resolve(process.cwd(), "src"),
         "monaco-editor/esm/vs/editor/editor.api.js": path.resolve(process.cwd(), "node_modules/monaco-editor/esm/vs/editor/editor.api.js"),
         "monaco-editor/esm/vs/editor/editor.worker.js": path.resolve(process.cwd(), "node_modules/monaco-editor/esm/vs/editor/editor.worker.js"),
         "monaco-editor/esm/vs/languages/definitions/cpp/register.js": path.resolve(process.cwd(), "node_modules/monaco-editor/esm/vs/languages/definitions/cpp/register.js"),

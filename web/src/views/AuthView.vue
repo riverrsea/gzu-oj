@@ -5,6 +5,9 @@ import { RefreshCw } from "@lucide/vue";
 import { ElMessage } from "element-plus";
 import { api, captchaUrl } from "../api/client";
 import { setSession } from "../stores/session";
+import UiButton from "../components/ui/Button.vue";
+import UiInput from "../components/ui/Input.vue";
+import UiLabel from "../components/ui/Label.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -68,26 +71,24 @@ async function submitVerification(): Promise<void> {
         <button :class="{ active: mode === 'register' }" @click="mode = 'register'">注册</button>
         <button :class="{ active: mode === 'verify' }" @click="mode = 'verify'">验证邮箱</button>
       </div>
-      <el-form v-if="mode === 'login'" label-position="top" @submit.prevent="submitLogin">
-        <el-form-item label="用户名或邮箱"><el-input v-model="login.identity" autocomplete="username" /></el-form-item>
-        <el-form-item label="密码"><el-input v-model="login.password" type="password" show-password autocomplete="current-password" /></el-form-item>
-        <el-form-item label="图形验证码">
-          <div class="captcha-row"><el-input v-model="login.captcha" maxlength="5" /><img :src="captcha" alt="图形验证码" /><button class="icon-button" type="button" title="刷新验证码" @click="refreshCaptcha"><RefreshCw :size="18" /></button></div>
-        </el-form-item>
-        <el-button native-type="submit" type="primary" :loading="busy">登录</el-button>
-      </el-form>
-      <el-form v-else-if="mode === 'register'" label-position="top" @submit.prevent="submitRegistration">
-        <el-form-item label="用户名"><el-input v-model="registration.username" autocomplete="username" /></el-form-item>
-        <el-form-item label="邮箱"><el-input v-model="registration.email" type="email" autocomplete="email" /></el-form-item>
-        <el-form-item label="密码"><el-input v-model="registration.password" type="password" show-password autocomplete="new-password" /></el-form-item>
-        <el-form-item label="图形验证码"><div class="captcha-row"><el-input v-model="registration.captcha" maxlength="5" /><img :src="captcha" alt="图形验证码" /><button class="icon-button" type="button" title="刷新验证码" @click="refreshCaptcha"><RefreshCw :size="18" /></button></div></el-form-item>
-        <el-button native-type="submit" type="primary" :loading="busy">创建账号</el-button>
-      </el-form>
-      <el-form v-else label-position="top" @submit.prevent="submitVerification">
-        <el-form-item label="邮箱"><el-input v-model="verification.email" type="email" /></el-form-item>
-        <el-form-item label="六位验证码"><el-input v-model="verification.code" maxlength="6" inputmode="numeric" /></el-form-item>
-        <el-button native-type="submit" type="primary" :loading="busy">完成验证</el-button>
-      </el-form>
+      <form v-if="mode === 'login'" class="grid gap-5" @submit.prevent="submitLogin">
+        <div class="grid gap-2"><UiLabel for="login-identity">用户名或邮箱</UiLabel><UiInput id="login-identity" v-model="login.identity" autocomplete="username" /></div>
+        <div class="grid gap-2"><UiLabel for="login-password">密码</UiLabel><UiInput id="login-password" v-model="login.password" type="password" autocomplete="current-password" /></div>
+        <div class="grid gap-2"><UiLabel for="login-captcha">图形验证码</UiLabel><div class="captcha-row"><UiInput id="login-captcha" v-model="login.captcha" maxlength="5" /><img :src="captcha" alt="图形验证码" /><button class="icon-button" type="button" title="刷新验证码" @click="refreshCaptcha"><RefreshCw :size="18" /></button></div></div>
+        <UiButton type="submit" :loading="busy" class="w-full">登录</UiButton>
+      </form>
+      <form v-else-if="mode === 'register'" class="grid gap-5" @submit.prevent="submitRegistration">
+        <div class="grid gap-2"><UiLabel for="register-username">用户名</UiLabel><UiInput id="register-username" v-model="registration.username" autocomplete="username" /></div>
+        <div class="grid gap-2"><UiLabel for="register-email">邮箱</UiLabel><UiInput id="register-email" v-model="registration.email" type="email" autocomplete="email" /></div>
+        <div class="grid gap-2"><UiLabel for="register-password">密码</UiLabel><UiInput id="register-password" v-model="registration.password" type="password" autocomplete="new-password" /></div>
+        <div class="grid gap-2"><UiLabel for="register-captcha">图形验证码</UiLabel><div class="captcha-row"><UiInput id="register-captcha" v-model="registration.captcha" maxlength="5" /><img :src="captcha" alt="图形验证码" /><button class="icon-button" type="button" title="刷新验证码" @click="refreshCaptcha"><RefreshCw :size="18" /></button></div></div>
+        <UiButton type="submit" :loading="busy" class="w-full">创建账号</UiButton>
+      </form>
+      <form v-else class="grid gap-5" @submit.prevent="submitVerification">
+        <div class="grid gap-2"><UiLabel for="verification-email">邮箱</UiLabel><UiInput id="verification-email" v-model="verification.email" type="email" /></div>
+        <div class="grid gap-2"><UiLabel for="verification-code">六位验证码</UiLabel><UiInput id="verification-code" v-model="verification.code" maxlength="6" inputmode="numeric" /></div>
+        <UiButton type="submit" :loading="busy" class="w-full">完成验证</UiButton>
+      </form>
     </div>
   </section>
 </template>

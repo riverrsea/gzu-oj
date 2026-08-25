@@ -3,6 +3,7 @@ import { onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { api } from "../api/client";
 import type { Submission } from "../api/types";
+import UiTable from "../components/ui/Table.vue";
 
 const loading = ref(false);
 const submissions = ref<Submission[]>([]);
@@ -20,12 +21,12 @@ onMounted(load);
 <template>
   <section class="content-page">
     <div class="page-heading"><div><h1>提交记录</h1><p>源码仅本人和管理员可见，测点结果不包含隐藏输入输出</p></div></div>
-    <el-table v-loading="loading" :data="submissions" row-key="id">
-      <el-table-column prop="createdAt" label="提交时间" min-width="190"><template #default="{ row }">{{ new Date(row.createdAt).toLocaleString() }}</template></el-table-column>
-      <el-table-column prop="language" label="语言" width="110" />
-      <el-table-column label="状态" width="130"><template #default="{ row }"><span :class="['status-text', 'status-text--' + row.status.toLowerCase()]">{{ row.status }}</span></template></el-table-column>
-      <el-table-column prop="score" label="得分" width="90" />
-      <el-table-column label="测点" min-width="240"><template #default="{ row }">{{ row.testCases.length ? row.testCases.map((item: Submission['testCases'][number]) => item.status).join(' · ') : '等待判题' }}</template></el-table-column>
-    </el-table>
+    <UiTable>
+      <thead class="border-b border-line bg-canvas text-left text-[11px] font-bold uppercase text-quiet"><tr><th class="px-4 py-3">提交时间</th><th class="px-4 py-3">语言</th><th class="px-4 py-3">状态</th><th class="px-4 py-3">得分</th><th class="px-4 py-3">测点</th></tr></thead>
+      <tbody v-if="submissions.length" class="divide-y divide-line">
+        <tr v-for="row in submissions" :key="row.id" class="transition-colors hover:bg-canvas"><td class="px-4 py-4">{{ new Date(row.createdAt).toLocaleString() }}</td><td class="px-4 py-4">{{ row.language }}</td><td class="px-4 py-4"><span :class="['status-text', 'status-text--' + row.status.toLowerCase()]">{{ row.status }}</span></td><td class="px-4 py-4">{{ row.score }}</td><td class="px-4 py-4">{{ row.testCases.length ? row.testCases.map((item: Submission['testCases'][number]) => item.status).join(' · ') : '等待判题' }}</td></tr>
+      </tbody>
+      <tbody v-else><tr><td colspan="5" class="h-44 text-center text-sm text-quiet">{{ loading ? '加载中…' : '还没有提交记录' }}</td></tr></tbody>
+    </UiTable>
   </section>
 </template>

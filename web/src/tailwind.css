@@ -1,5 +1,12 @@
+@tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 0.5rem;
+  }
+}
 
 @layer components {
   /* 全局应用框架：轻量、留白明确，内容页与做题页保持不同密度。 */

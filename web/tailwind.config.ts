@@ -20,6 +20,8 @@ const config: Config = {
         quiet: "var(--muted)",
         brand: "var(--accent)",
         "brand-strong": "var(--accent-strong)",
+        warning: "var(--warning)",
+        danger: "var(--danger)",
       },
       boxShadow: {
         panel: "var(--shadow)",

@@ -1,13 +1,48 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import { Building2, CalendarDays, Circle, Search, SearchX } from "@lucide/vue";
 import { toast } from "../lib/notify";
 import { api } from "../api/client";
 import type { Difficulty, ProblemSummary } from "../api/types";
+import UiInput from "../components/ui/Input.vue";
 
+/** 题库请求是否仍在加载，用于控制骨架屏。 */
 const loading = ref(false);
+/** 当前从公开题库接口加载的题目列表。 */
 const problems = ref<ProblemSummary[]>([]);
+/** 用户输入的题目标题关键字。 */
+const search = ref("");
+/** 用户输入的学校关键字。 */
+const schoolSearch = ref("");
+/** 用户输入的年份关键字，保留字符串以支持输入年份前缀。 */
+const yearSearch = ref("");
+/** 当前选中的难度筛选项，空字符串代表全部难度。 */
+const difficulty = ref<Difficulty | "">("");
+/** 后端难度枚举对应的中文显示文本。 */
 const difficultyText: Record<Difficulty, string> = { EASY: "简单", MEDIUM: "中等", HARD: "困难" };
+/** 题库顶部可选择的难度筛选项。 */
+const difficultyOptions: Array<{ value: Difficulty | ""; label: string }> = [
+  { value: "", label: "全部" },
+  { value: "EASY", label: "简单" },
+  { value: "MEDIUM", label: "中等" },
+  { value: "HARD", label: "困难" },
+];
 
+/** 按标题、学校、年份和难度筛选已加载的公开题目，不改变后端题库接口。 */
+const visibleProblems = computed(() => {
+  const keyword = search.value.trim().toLocaleLowerCase();
+  const schoolKeyword = schoolSearch.value.trim().toLocaleLowerCase();
+  const yearKeyword = yearSearch.value.trim();
+  return problems.value.filter((problem) => {
+    const matchesDifficulty = !difficulty.value || problem.difficulty === difficulty.value;
+    const matchesTitle = !keyword || problem.title.toLocaleLowerCase().includes(keyword);
+    const matchesSchool = !schoolKeyword || problem.school.toLocaleLowerCase().includes(schoolKeyword);
+    const matchesYear = !yearKeyword || String(problem.year).includes(yearKeyword);
+    return matchesDifficulty && matchesTitle && matchesSchool && matchesYear;
+  });
+});
+
+/** 加载所有已发布题目，失败时显示统一错误提示。 */
 async function load(): Promise<void> {
   loading.value = true;
   try {
@@ -23,20 +58,77 @@ onMounted(load);
 </script>
 
 <template>
-  <section class="content-page content-page--modern oj-page oj-catalog-page">
-    <div class="page-heading">
+  <section class="content-page content-page--modern oj-page problem-catalog-page">
+    <div class="page-heading problem-catalog-heading">
       <h1>题库</h1>
     </div>
-    <div class="problem-list-surface">
-      <div v-if="problems.length" class="problem-list-leetrank">
-        <article v-for="(row, index) in problems" :key="row.id" class="problem-row-leetrank" role="link" tabindex="0" @click="$router.push('/problems/' + row.id)" @keydown.enter="$router.push('/problems/' + row.id)">
-          <div class="problem-row-index"><span>{{ String(index + 1).padStart(2, '0') }}</span><i :class="['problem-difficulty-dot', 'problem-difficulty-dot--' + row.difficulty.toLowerCase()]" aria-hidden="true" /></div>
-          <div class="problem-row-main"><strong>{{ row.title }}</strong><div class="problem-row-tags"><span v-for="tag in row.tags" :key="tag" class="plain-tag">{{ tag }}</span></div></div>
-          <div class="problem-row-meta"><span>{{ row.school || '未注明学校' }}</span><span>{{ row.year }}</span><strong :class="['difficulty', 'difficulty--' + row.difficulty.toLowerCase()]">{{ difficultyText[row.difficulty as Difficulty] }}</strong></div>
-        </article>
+    <div class="problem-catalog-toolbar">
+      <div class="problem-catalog-tabs" role="tablist" aria-label="难度">
+        <button
+          v-for="option in difficultyOptions"
+          :key="option.value || 'all'"
+          type="button"
+          role="tab"
+          :aria-selected="difficulty === option.value"
+          :class="{ active: difficulty === option.value }"
+          @click="difficulty = option.value"
+        >
+          {{ option.label }}
+        </button>
       </div>
-      <div v-else-if="!loading" class="problem-list-empty">没有符合条件的题目</div>
-      <div v-else class="problem-list-empty">正在加载题库…</div>
+      <div class="problem-catalog-searches">
+        <label class="problem-catalog-search problem-catalog-search--title">
+          <Search :size="16" aria-hidden="true" />
+          <UiInput v-model="search" type="search" placeholder="搜索题目" aria-label="搜索题目" />
+        </label>
+        <label class="problem-catalog-search problem-catalog-search--school">
+          <Building2 :size="16" aria-hidden="true" />
+          <UiInput v-model="schoolSearch" type="search" placeholder="搜索学校" aria-label="搜索学校" />
+        </label>
+        <label class="problem-catalog-search problem-catalog-search--year">
+          <CalendarDays :size="16" aria-hidden="true" />
+          <UiInput v-model="yearSearch" type="number" min="1900" max="2200" placeholder="年份" aria-label="搜索年份" />
+        </label>
+      </div>
+    </div>
+    <div v-if="loading" class="problem-catalog-list" aria-busy="true" aria-label="正在加载题库">
+      <div v-for="index in 8" :key="index" class="problem-catalog-skeleton">
+        <span />
+        <div><i /><i /></div>
+        <b />
+      </div>
+    </div>
+    <div v-else-if="visibleProblems.length" class="problem-catalog-list">
+      <article
+        v-for="row in visibleProblems"
+        :key="row.id"
+        class="problem-catalog-row"
+        role="link"
+        tabindex="0"
+        @click="$router.push('/problems/' + row.id)"
+        @keydown.enter="$router.push('/problems/' + row.id)"
+      >
+        <Circle class="problem-catalog-status" :size="20" aria-hidden="true" />
+        <div class="problem-catalog-main">
+          <strong>{{ row.title }}</strong>
+          <div v-if="row.tags.length" class="problem-catalog-tags">
+            <span v-for="tag in row.tags.slice(0, 3)" :key="tag">{{ tag }}</span>
+            <em v-if="row.tags.length > 3">+{{ row.tags.length - 3 }}</em>
+          </div>
+        </div>
+        <div class="problem-catalog-context">
+          <span>{{ row.school || '未注明学校' }}</span>
+          <span>{{ row.year }}</span>
+        </div>
+        <span :class="['problem-catalog-difficulty', 'problem-catalog-difficulty--' + row.difficulty.toLowerCase()]">
+          <i aria-hidden="true" />{{ difficultyText[row.difficulty] }}
+        </span>
+      </article>
+    </div>
+    <div v-else class="problem-catalog-empty">
+      <SearchX :size="28" aria-hidden="true" />
+      <strong>没有找到题目</strong>
+      <button v-if="search || schoolSearch || yearSearch || difficulty" type="button" @click="search = ''; schoolSearch = ''; yearSearch = ''; difficulty = ''">清除筛选</button>
     </div>
   </section>
 </template>

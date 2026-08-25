@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { BookOpen, ClipboardList, Heart, LogIn, LogOut, Moon, Settings, Sun, Trophy } from "@lucide/vue";
 import { api } from "./api/client";
 import { loadSession, session, setSession } from "./stores/session";
+import ToastHost from "./components/ui/ToastHost.vue";
 
 type Theme = "system" | "light" | "dark";
 
@@ -103,5 +104,6 @@ watch(() => route.fullPath, () => {
     <main :class="isWorkspace ? 'workspace-main' : 'page-main'">
       <RouterView />
     </main>
+    <ToastHost />
   </div>
 </template>

@@ -4,11 +4,14 @@ import { marked } from "marked";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ChevronDown, ChevronUp, Heart, Play, RotateCcw, Send, Settings2 } from "@lucide/vue";
-import { ElMessage } from "element-plus";
+import { toast } from "../lib/notify";
 import { api, ApiError } from "../api/client";
 import type { JudgeLanguage, JudgeStatus, ProblemDetail, Submission } from "../api/types";
 import { session } from "../stores/session";
 import CodeEditor from "../components/CodeEditor.vue";
+import UiButton from "../components/ui/Button.vue";
+import UiEmptyState from "../components/ui/EmptyState.vue";
+import UiNumberField from "../components/ui/NumberField.vue";
 
 type MobileTab = "problem" | "code" | "result";
 type DrawerTab = "cases" | "result";
@@ -32,6 +35,7 @@ const running = ref(false);
 const submission = ref<Submission>();
 const runInputs = ref<string[]>([]);
 const dark = ref(document.documentElement.dataset.theme === "dark");
+const settingsOpen = ref(false);
 const workspace = ref<HTMLElement>();
 const editorPanel = ref<HTMLElement>();
 let pollTimer: number | undefined;
@@ -94,7 +98,7 @@ function switchToLatestVersion(): void {
 function resetCode(): void {
   code.value = templates[language.value];
   localStorage.setItem(draftKey(), code.value);
-  ElMessage.success("代码已重置");
+  toast.success("代码已重置");
 }
 
 function startHorizontalResize(event: PointerEvent): void {
@@ -155,7 +159,7 @@ async function runSamples(): Promise<void> {
     });
     schedulePoll();
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "运行失败");
+    toast.error(error instanceof Error ? error.message : "运行失败");
   } finally {
     running.value = false;
   }
@@ -182,7 +186,7 @@ async function submit(): Promise<void> {
     });
     schedulePoll();
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "提交失败");
+    toast.error(error instanceof Error ? error.message : "提交失败");
   } finally {
     submitting.value = false;
   }
@@ -234,7 +238,7 @@ async function loadProblem(): Promise<void> {
       : [""];
     loadDraft();
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "题目加载失败");
+    toast.error(error instanceof Error ? error.message : "题目加载失败");
     await router.push("/problems");
   } finally {
     loading.value = false;
@@ -263,7 +267,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section v-loading="loading" class="workspace-page workspace-page--leetrank">
+  <section class="workspace-page workspace-page--leetrank loading-shell" :aria-busy="loading">
+    <div v-if="loading" class="loading-overlay"><span class="loading-spinner" aria-label="加载中" /></div>
     <div class="mobile-workspace-tabs" role="tablist">
       <button :class="{ active: mobileTab === 'problem' }" @click="mobileTab = 'problem'">题目</button>
       <button :class="{ active: mobileTab === 'code' }" @click="mobileTab = 'code'">代码</button>
@@ -277,7 +282,7 @@ onBeforeUnmount(() => {
       <article class="statement-panel statement-panel--card" :class="{ 'mobile-hidden': mobileTab !== 'problem' }">
         <header class="statement-header statement-header--card">
           <div><span class="source-key">{{ problem.externalKey || '手工题目' }}</span><h1>{{ problem.title }}</h1><p>{{ problem.school }} · {{ problem.year }} · 版本 {{ problem.versionNumber }}</p></div>
-          <button class="icon-button" type="button" title="收藏题目" @click="session.user ? api.favorite(problem.id).then(() => ElMessage.success('已收藏')) : router.push('/login')"><Heart :size="19" /></button>
+          <button class="icon-button" type="button" title="收藏题目" @click="session.user ? api.favorite(problem.id).then(() => toast.success('已收藏')) : router.push('/login')"><Heart :size="19" /></button>
         </header>
         <div class="problem-meta"><span v-for="tag in problem.tags" :key="tag" class="plain-tag">{{ tag }}</span><span v-if="problem.dataNotice" class="data-notice">{{ problem.dataNotice }}</span></div>
         <div class="markdown-body" v-html="renderedStatement" />
@@ -286,8 +291,8 @@ onBeforeUnmount(() => {
       <div class="split-handle" role="separator" aria-orientation="vertical" title="拖动调整题面宽度" @pointerdown="startHorizontalResize" />
       <section ref="editorPanel" class="editor-panel editor-panel--card" :class="{ 'mobile-hidden': mobileTab === 'problem' || mobileTab === 'result' }">
         <header class="editor-toolbar editor-toolbar--card">
-          <div class="toolbar-group"><el-select v-model="language" size="small" aria-label="编程语言"><el-option label="GNU C17" value="C17" /><el-option label="GNU C++17" value="CPP17" /><el-option label="OpenJDK 21" value="JAVA21" /><el-option label="CPython 3" value="PYTHON3" /></el-select><span v-if="activeLimit" class="limit-text">{{ activeLimit.timeLimitMs }} ms · {{ activeLimit.memoryLimitMiB }} MiB</span></div>
-          <div class="toolbar-group"><el-dropdown trigger="click"><button class="icon-button" type="button" title="编辑器设置"><Settings2 :size="18" /></button><template #dropdown><el-dropdown-menu><el-dropdown-item><span class="font-setting">字号 <el-input-number v-model="fontSize" :min="12" :max="22" size="small" /></span></el-dropdown-item></el-dropdown-menu></template></el-dropdown><button class="icon-button" type="button" title="重置代码" @click="resetCode"><RotateCcw :size="18" /></button></div>
+          <div class="toolbar-group"><select v-model="language" class="compact-select" aria-label="编程语言"><option value="C17">GNU C17</option><option value="CPP17">GNU C++17</option><option value="JAVA21">OpenJDK 21</option><option value="PYTHON3">CPython 3</option></select><span v-if="activeLimit" class="limit-text">{{ activeLimit.timeLimitMs }} ms · {{ activeLimit.memoryLimitMiB }} MiB</span></div>
+          <div class="toolbar-group"><div class="editor-settings"><button class="icon-button" type="button" title="编辑器设置" :aria-expanded="settingsOpen" @click="settingsOpen = !settingsOpen"><Settings2 :size="18" /></button><div v-if="settingsOpen" class="editor-settings-popover"><label class="font-setting">字号 <UiNumberField v-model="fontSize" :min="12" :max="22" /></label></div></div><button class="icon-button" type="button" title="重置代码" @click="resetCode"><RotateCcw :size="18" /></button></div>
         </header>
         <div class="editor-stage" :style="{ '--drawer-height': drawerOpen ? drawerHeight + '%' : '0%' }">
           <div class="editor-host"><CodeEditor v-model="code" :language="language" :font-size="fontSize" :dark="dark" /></div>
@@ -296,13 +301,13 @@ onBeforeUnmount(() => {
             <header class="drawer-tabs"><button :class="{ active: drawerTab === 'cases' }" @click="drawerTab = 'cases'">测试用例</button><button :class="{ active: drawerTab === 'result' }" @click="drawerTab = 'result'">测试结果</button><button class="drawer-collapse" type="button" title="收起结果" @click="drawerOpen = false"><ChevronDown :size="18" /></button></header>
             <div class="drawer-content">
               <template v-if="drawerTab === 'cases'"><div class="case-tabs"><div v-for="(_, index) in runInputs" :key="index" class="editable-case"><strong>用例 {{ index + 1 }}</strong><textarea v-model="runInputs[index]" :aria-label="'公开用例 ' + (index + 1) + ' 输入'" /></div></div></template>
-              <template v-else><div v-if="submission" class="submission-result"><div class="result-summary"><span :class="['status-badge', 'status-badge--' + submission.status.toLowerCase()]">{{ submission.status }}</span><strong v-if="submission.executionMode === 'SUBMIT'">{{ submission.score }} 分</strong><strong v-else>公开运行</strong></div><pre v-if="submission.compileMessage" class="compile-output">{{ submission.compileMessage }}</pre><div v-if="submission.testCases.length" :class="submission.executionMode === 'RUN' ? 'run-results' : 'case-results'"><div v-for="item in submission.testCases" :key="item.ordinal"><template v-if="submission.executionMode === 'RUN'"><header><strong>用例 {{ item.ordinal }} · {{ item.status }}</strong><span>{{ item.timeMs }} ms · {{ item.memoryKiB }} KiB</span></header><div class="run-output-columns"><div><span>输入</span><pre>{{ item.input }}</pre></div><div><span>实际输出</span><pre>{{ item.actualOutput ?? '等待运行结果' }}</pre></div></div></template><template v-else><span>#{{ item.ordinal }}</span><strong>{{ item.status }}</strong><span>{{ item.score }} 分</span><span>{{ item.timeMs }} ms</span><span>{{ item.memoryKiB }} KiB</span></template></div></div><p v-else class="waiting-text">{{ terminalStatuses.has(submission.status) ? '没有测点结果' : '任务已进入持久化队列' }}</p></div><el-empty v-else description="运行或提交后在此查看结果" :image-size="56" /></template>
+              <template v-else><div v-if="submission" class="submission-result"><div class="result-summary"><span :class="['status-badge', 'status-badge--' + submission.status.toLowerCase()]">{{ submission.status }}</span><strong v-if="submission.executionMode === 'SUBMIT'">{{ submission.score }} 分</strong><strong v-else>公开运行</strong></div><pre v-if="submission.compileMessage" class="compile-output">{{ submission.compileMessage }}</pre><div v-if="submission.testCases.length" :class="submission.executionMode === 'RUN' ? 'run-results' : 'case-results'"><div v-for="item in submission.testCases" :key="item.ordinal"><template v-if="submission.executionMode === 'RUN'"><header><strong>用例 {{ item.ordinal }} · {{ item.status }}</strong><span>{{ item.timeMs }} ms · {{ item.memoryKiB }} KiB</span></header><div class="run-output-columns"><div><span>输入</span><pre>{{ item.input }}</pre></div><div><span>实际输出</span><pre>{{ item.actualOutput ?? '等待运行结果' }}</pre></div></div></template><template v-else><span>#{{ item.ordinal }}</span><strong>{{ item.status }}</strong><span>{{ item.score }} 分</span><span>{{ item.timeMs }} ms</span><span>{{ item.memoryKiB }} KiB</span></template></div></div><p v-else class="waiting-text">{{ terminalStatuses.has(submission.status) ? '没有测点结果' : '任务已进入持久化队列' }}</p></div><UiEmptyState v-else description="运行或提交后在此查看结果" /></template>
             </div>
           </section>
         </div>
-        <footer class="workspace-actions"><span :class="['live-status', 'live-status--' + statusLabel.toLowerCase()]">{{ statusLabel }}</span><button v-if="!drawerOpen" class="icon-button" type="button" title="展开测试与结果" @click="showCases"><ChevronUp :size="18" /></button><el-button :loading="running" @click="runSamples"><Play :size="16" />运行</el-button><el-button type="primary" :loading="submitting" @click="submit"><Send :size="16" />提交</el-button></footer>
+        <footer class="workspace-actions"><span :class="['live-status', 'live-status--' + statusLabel.toLowerCase()]">{{ statusLabel }}</span><button v-if="!drawerOpen" class="icon-button" type="button" title="展开测试与结果" @click="showCases"><ChevronUp :size="18" /></button><UiButton :loading="running" @click="runSamples"><Play :size="16" />运行</UiButton><UiButton :loading="submitting" @click="submit"><Send :size="16" />提交</UiButton></footer>
       </section>
-      <section class="mobile-result-panel" :class="{ 'mobile-hidden': mobileTab !== 'result' }"><header><strong>测试与结果</strong><span>{{ statusLabel }}</span></header><div v-if="submission" class="submission-result"><div class="result-summary"><span :class="['status-badge', 'status-badge--' + submission.status.toLowerCase()]">{{ submission.status }}</span><strong v-if="submission.executionMode === 'SUBMIT'">{{ submission.score }} 分</strong><strong v-else>公开运行</strong></div><pre v-if="submission.compileMessage" class="compile-output">{{ submission.compileMessage }}</pre><div v-if="submission.executionMode === 'RUN'" class="run-results"><div v-for="item in submission.testCases" :key="item.ordinal"><header><strong>用例 {{ item.ordinal }} · {{ item.status }}</strong><span>{{ item.timeMs }} ms</span></header><div class="run-output-columns"><div><span>输入</span><pre>{{ item.input }}</pre></div><div><span>实际输出</span><pre>{{ item.actualOutput ?? '等待运行结果' }}</pre></div></div></div></div><div v-else class="case-results"><div v-for="item in submission.testCases" :key="item.ordinal"><span>#{{ item.ordinal }}</span><strong>{{ item.status }}</strong><span>{{ item.score }} 分</span></div></div></div><div v-else class="mobile-run-actions"><p>选择运行公开样例或提交全部隐藏测试点。</p><el-button @click="runSamples"><Play :size="16" />运行</el-button><el-button type="primary" @click="submit"><Send :size="16" />提交</el-button></div></section>
+      <section class="mobile-result-panel" :class="{ 'mobile-hidden': mobileTab !== 'result' }"><header><strong>测试与结果</strong><span>{{ statusLabel }}</span></header><div v-if="submission" class="submission-result"><div class="result-summary"><span :class="['status-badge', 'status-badge--' + submission.status.toLowerCase()]">{{ submission.status }}</span><strong v-if="submission.executionMode === 'SUBMIT'">{{ submission.score }} 分</strong><strong v-else>公开运行</strong></div><pre v-if="submission.compileMessage" class="compile-output">{{ submission.compileMessage }}</pre><div v-if="submission.executionMode === 'RUN'" class="run-results"><div v-for="item in submission.testCases" :key="item.ordinal"><header><strong>用例 {{ item.ordinal }} · {{ item.status }}</strong><span>{{ item.timeMs }} ms</span></header><div class="run-output-columns"><div><span>输入</span><pre>{{ item.input }}</pre></div><div><span>实际输出</span><pre>{{ item.actualOutput ?? '等待运行结果' }}</pre></div></div></div></div><div v-else class="case-results"><div v-for="item in submission.testCases" :key="item.ordinal"><span>#{{ item.ordinal }}</span><strong>{{ item.status }}</strong><span>{{ item.score }} 分</span></div></div></div><div v-else class="mobile-run-actions"><p>选择运行公开样例或提交全部隐藏测试点。</p><UiButton @click="runSamples"><Play :size="16" />运行</UiButton><UiButton @click="submit"><Send :size="16" />提交</UiButton></div></section>
     </div>
   </section>
 </template>

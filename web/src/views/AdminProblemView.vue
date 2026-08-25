@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { Save } from "@lucide/vue";
-import { ElMessage } from "element-plus";
+import { toast } from "../lib/notify";
 import { useRoute, useRouter } from "vue-router";
 import { api } from "../api/client";
 import type { AdminProblemVersionDetail, Difficulty } from "../api/types";
 import ProblemStatementEditor from "../components/ProblemStatementEditor.vue";
+import UiButton from "../components/ui/Button.vue";
+import UiInput from "../components/ui/Input.vue";
+import UiNumberField from "../components/ui/NumberField.vue";
+import UiSelect from "../components/ui/Select.vue";
+import UiLabel from "../components/ui/Label.vue";
 
 /** 页面路由器。 */
 const router = useRouter();
@@ -55,7 +60,7 @@ async function loadBaseVersion(): Promise<void> {
     form.dataNotice = loaded.dataNotice ?? "";
     tagText.value = loaded.tags.join(", ");
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "基础版本加载失败");
+    toast.error(error instanceof Error ? error.message : "基础版本加载失败");
     await router.replace("/admin/problems");
   } finally {
     loading.value = false;
@@ -78,10 +83,10 @@ async function save(): Promise<void> {
     const created = baseVersion.value
       ? await api.createProblemVersion(baseVersion.value.problemId, body)
       : await api.createProblem(body);
-    ElMessage.success("题目草稿已创建，请继续录入测试点");
+    toast.success("题目草稿已创建，请继续录入测试点");
     await router.replace(`/admin/problems/${created.versionId}/edit`);
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "题目保存失败");
+    toast.error(error instanceof Error ? error.message : "题目保存失败");
   } finally {
     saving.value = false;
   }
@@ -91,40 +96,41 @@ onMounted(() => void loadBaseVersion());
 </script>
 
 <template>
-  <section v-loading="loading" class="content-page content-page--modern oj-page admin-problem-page">
+  <section class="content-page content-page--modern oj-page admin-problem-page loading-shell" :aria-busy="loading">
+    <div v-if="loading" class="loading-overlay"><span class="loading-spinner" aria-label="加载中" /></div>
     <div class="page-heading">
       <div><h1>{{ creatingNextVersion ? '新建题目版本草稿' : '新建题目草稿' }}</h1><p>{{ creatingNextVersion ? `复制 v${baseVersion?.versionNumber} 的题面，新草稿仍归属于原题目 ID` : '第一阶段先保存题面和元数据，测试点将在草稿编辑页单独录入' }}</p></div>
     </div>
 
-    <el-form label-position="top" class="problem-form" @submit.prevent="save">
+    <form class="problem-form" @submit.prevent="save">
       <section class="form-section">
         <h2>题目元数据</h2>
         <div class="form-grid form-grid--three">
-          <el-form-item label="外部题目标识"><el-input v-model="form.externalKey" maxlength="128" placeholder="noobdream:1006（手工题可留空）" :disabled="creatingNextVersion" /></el-form-item>
-          <el-form-item label="学校"><el-input v-model="form.school" maxlength="200" /></el-form-item>
-          <el-form-item label="年份"><el-input-number v-model="form.year" :min="1900" :max="2200" /></el-form-item>
+          <div class="form-field"><UiLabel>外部题目标识</UiLabel><UiInput v-model="form.externalKey" maxlength="128" placeholder="noobdream:1006（手工题可留空）" :disabled="creatingNextVersion" /></div>
+          <div class="form-field"><UiLabel>学校</UiLabel><UiInput v-model="form.school" maxlength="200" /></div>
+          <div class="form-field"><UiLabel>年份</UiLabel><UiNumberField v-model="form.year" :min="1900" :max="2200" /></div>
         </div>
-        <el-form-item label="标题"><el-input v-model="form.title" maxlength="200" /></el-form-item>
+        <div class="form-field"><UiLabel>标题</UiLabel><UiInput v-model="form.title" maxlength="200" /></div>
         <div class="form-grid form-grid--three">
-          <el-form-item label="难度"><el-select v-model="form.difficulty"><el-option label="基础" value="EASY" /><el-option label="综合" value="MEDIUM" /><el-option label="高难" value="HARD" /></el-select></el-form-item>
-          <el-form-item label="标签（逗号分隔）"><el-input v-model="tagText" placeholder="动态规划, 图论" /></el-form-item>
-          <el-form-item label="来源链接"><el-input v-model="form.sourceUrl" placeholder="https://..." /></el-form-item>
+          <div class="form-field"><UiLabel>难度</UiLabel><UiSelect v-model="form.difficulty" placeholder=""><option value="EASY">基础</option><option value="MEDIUM">综合</option><option value="HARD">高难</option></UiSelect></div>
+          <div class="form-field"><UiLabel>标签（逗号分隔）</UiLabel><UiInput v-model="tagText" placeholder="动态规划, 图论" /></div>
+          <div class="form-field"><UiLabel>来源链接</UiLabel><UiInput v-model="form.sourceUrl" placeholder="https://..." /></div>
         </div>
       </section>
 
       <section class="form-section">
         <h2>题面与限制</h2>
-        <el-form-item label="题面内容" class="statement-form-item"><ProblemStatementEditor v-model="form.statementMarkdown" /></el-form-item>
+        <div class="form-field statement-form-item"><UiLabel>题面内容</UiLabel><ProblemStatementEditor v-model="form.statementMarkdown" /></div>
         <div class="form-grid form-grid--three">
-          <el-form-item label="基准时间限制（ms）"><el-input-number v-model="form.timeLimitMs" :min="100" :max="60000" :step="100" /></el-form-item>
-          <el-form-item label="基准内存限制（MiB）"><el-input-number v-model="form.memoryLimitMiB" :min="16" :max="2048" :step="16" /></el-form-item>
-          <el-form-item label="数据声明"><el-input v-model="form.dataNotice" maxlength="200" placeholder="AI 数据请注明非官方" /></el-form-item>
+          <div class="form-field"><UiLabel>基准时间限制（ms）</UiLabel><UiNumberField v-model="form.timeLimitMs" :min="100" :max="60000" :step="100" /></div>
+          <div class="form-field"><UiLabel>基准内存限制（MiB）</UiLabel><UiNumberField v-model="form.memoryLimitMiB" :min="16" :max="2048" :step="16" /></div>
+          <div class="form-field"><UiLabel>数据声明</UiLabel><UiInput v-model="form.dataNotice" maxlength="200" placeholder="AI 数据请注明非官方" /></div>
         </div>
       </section>
 
       <footer class="form-actions">
-        <el-button type="primary" native-type="submit" :loading="saving"><Save :size="16" />创建草稿并继续</el-button>
+        <UiButton type="submit" :loading="saving"><Save :size="16" />创建草稿并继续</UiButton>
       </footer>
-    </el-form>
+    </form>
   </section>
 </template>

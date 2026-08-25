@@ -22,6 +22,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { defaultKeymap, history, historyKeymap, indentWithTab, redo, undo } from "@codemirror/commands";
 import { Compartment, EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers, placeholder } from "@codemirror/view";
+import UiEmptyState from "./ui/EmptyState.vue";
 
 /** Markdown 编辑器显示模式。 */
 type EditorMode = "edit" | "split" | "preview";
@@ -269,7 +270,7 @@ onBeforeUnmount(() => {
       <div v-show="mode !== 'preview'" class="markdown-editor-pane"><div ref="host" class="markdown-editor-host" /></div>
       <article v-show="mode !== 'edit'" class="markdown-preview-pane">
         <div v-if="modelValue.trim()" class="markdown-body" v-html="renderedMarkdown" />
-        <el-empty v-else description="暂无题面内容" :image-size="54" />
+        <UiEmptyState v-else description="暂无题面内容" />
       </article>
     </div>
   </section>

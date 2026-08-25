@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { ElMessage } from "element-plus";
+import { toast } from "../lib/notify";
 import { api } from "../api/client";
 import type { Submission } from "../api/types";
 import UiTable from "../components/ui/Table.vue";
@@ -11,7 +11,7 @@ const submissions = ref<Submission[]>([]);
 async function load(): Promise<void> {
   loading.value = true;
   try { submissions.value = await api.submissions(); }
-  catch (error) { ElMessage.error(error instanceof Error ? error.message : "提交记录加载失败"); }
+  catch (error) { toast.error(error instanceof Error ? error.message : "提交记录加载失败"); }
   finally { loading.value = false; }
 }
 

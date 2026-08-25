@@ -6,7 +6,7 @@ const classes = computed(() => cn("w-full caption-bottom text-sm", props.class))
 </script>
 
 <template>
-  <div class="w-full overflow-x-auto rounded-lg border border-line bg-paper shadow-panel">
+  <div class="ui-table-surface w-full overflow-x-auto rounded-lg border border-line bg-paper shadow-panel">
     <table :class="classes"><slot /></table>
   </div>
 </template>

@@ -189,7 +189,7 @@ onBeforeUnmount(() => window.clearInterval(ticker));
 </script>
 
 <template>
-  <section v-loading="loading" class="content-page training-page">
+  <section v-loading="loading" class="content-page content-page--modern oj-page training-page">
     <div class="page-heading">
       <div><h1>训练中心</h1><p>公开训练赛采用 OI 计分，个人套卷首次进入后独立计时</p></div>
       <div class="heading-actions">

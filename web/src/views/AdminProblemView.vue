@@ -91,7 +91,7 @@ onMounted(() => void loadBaseVersion());
 </script>
 
 <template>
-  <section v-loading="loading" class="content-page admin-problem-page">
+  <section v-loading="loading" class="content-page content-page--modern oj-page admin-problem-page">
     <div class="page-heading">
       <div><h1>{{ creatingNextVersion ? '新建题目版本草稿' : '新建题目草稿' }}</h1><p>{{ creatingNextVersion ? `复制 v${baseVersion?.versionNumber} 的题面，新草稿仍归属于原题目 ID` : '第一阶段先保存题面和元数据，测试点将在草稿编辑页单独录入' }}</p></div>
     </div>

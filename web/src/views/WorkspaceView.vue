@@ -263,7 +263,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section v-loading="loading" class="workspace-page workspace-page--leetcode">
+  <section v-loading="loading" class="workspace-page workspace-page--leetrank">
     <div class="mobile-workspace-tabs" role="tablist">
       <button :class="{ active: mobileTab === 'problem' }" @click="mobileTab = 'problem'">题目</button>
       <button :class="{ active: mobileTab === 'code' }" @click="mobileTab = 'code'">代码</button>

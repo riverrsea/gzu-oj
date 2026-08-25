@@ -78,7 +78,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="content-page admin-page">
+  <section class="content-page content-page--modern oj-page admin-page">
     <div class="page-heading"><div><h1>AI 录题</h1><p>为现有草稿启动多角色生成、审查和差分验证流程</p></div></div>
     <section class="admin-tool-surface admin-ai-tool">
       <header><Bot :size="21" /><div><h2>启动录题流程</h2><p>标准输出必须由沙箱中的已校验标程计算，并通过确定性发布门禁。</p></div></header>

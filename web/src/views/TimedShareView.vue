@@ -28,7 +28,7 @@ onMounted(load);
 </script>
 
 <template>
-  <section v-loading="loading" class="content-page share-page">
+  <section v-loading="loading" class="content-page content-page--modern oj-page share-page">
     <template v-if="attempt">
       <div class="page-heading"><div><h1>{{ attempt.paper.title }}</h1><p>个人计时套卷只读结果</p></div><strong class="share-score">{{ attempt.totalScore }} 分</strong></div>
       <div class="share-meta"><span><Clock3 :size="16" />{{ attempt.paper.durationMinutes }} 分钟</span><span>{{ attempt.finished ? '已结束' : '进行中' }}</span><span>{{ new Date(attempt.startedAt).toLocaleString() }}</span></div>

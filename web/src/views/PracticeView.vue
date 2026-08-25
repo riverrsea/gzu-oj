@@ -21,7 +21,7 @@ onMounted(load);
 </script>
 
 <template>
-  <section class="content-page">
+  <section class="content-page content-page--modern oj-page practice-page">
     <div class="page-heading"><div><h1>练习簿</h1><p>错题历史在满分后仍保留，已解决状态会单独标记</p></div></div>
     <el-tabs v-model="tab">
       <el-tab-pane label="错题本" name="wrong">

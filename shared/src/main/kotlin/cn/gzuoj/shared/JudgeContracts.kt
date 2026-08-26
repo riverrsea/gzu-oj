@@ -99,6 +99,8 @@ data class JudgeCaseLease(
     val expectedOutputSha256: String? = null,
     /** 公开运行模式使用的用户输入；正式提交时为空。 */
     val inlineInput: String? = null,
+    /** 公开运行模式使用的样例标准输出；正式提交时为空。 */
+    val inlineExpectedOutput: String? = null,
 )
 
 /** Worker 领取到的一份完整提交任务。 */

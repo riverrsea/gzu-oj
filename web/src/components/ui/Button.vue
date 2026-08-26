@@ -21,23 +21,23 @@ const props = withDefaults(defineProps<{
 });
 
 const classes = computed(() => cn(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:pointer-events-none disabled:opacity-50",
-  props.variant === "default" && "bg-brand text-white hover:bg-brand-strong",
-  props.variant === "outline" && "border border-line bg-paper text-ink hover:bg-canvas",
-  props.variant === "ghost" && "text-quiet hover:bg-canvas hover:text-ink",
-  props.variant === "destructive" && "bg-danger text-white hover:opacity-90",
-  props.variant === "link" && "text-brand underline-offset-4 hover:underline",
-  props.size === "default" && "h-10 px-4 py-2",
-  props.size === "sm" && "h-9 rounded-md px-3 text-xs",
-  props.size === "lg" && "h-11 rounded-md px-8",
-  props.size === "icon" && "h-10 w-10",
+  "ui-button",
+  props.variant === "default" && "ui-button--default",
+  props.variant === "outline" && "ui-button--outline",
+  props.variant === "ghost" && "ui-button--ghost",
+  props.variant === "destructive" && "ui-button--destructive",
+  props.variant === "link" && "ui-button--link",
+  props.size === "default" && "ui-button--size-default",
+  props.size === "sm" && "ui-button--size-sm",
+  props.size === "lg" && "ui-button--size-lg",
+  props.size === "icon" && "ui-button--size-icon",
   props.class,
 ));
 </script>
 
 <template>
   <button :type="type" :class="classes" :disabled="disabled || loading">
-    <span v-if="loading" class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
+    <span v-if="loading" class="ui-button-spinner" aria-hidden="true" />
     <slot v-else />
   </button>
 </template>

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { BookOpen, ChevronDown, ClipboardList, Heart, LogIn, LogOut, Moon, Monitor, Settings, Sun, Trophy, UserPlus } from "@lucide/vue";
+import { ArrowLeft, BookOpen, ChevronDown, ClipboardList, Heart, LogIn, LogOut, Moon, Monitor, Play, Send, Settings, Sun, Trophy, UserPlus } from "@lucide/vue";
 import { api } from "./api/client";
 import { loadSession, session, setSession } from "./stores/session";
+import { workspaceToolbar } from "./stores/workspaceToolbar";
 import ToastHost from "./components/ui/ToastHost.vue";
+import UiButton from "./components/ui/Button.vue";
 
 type Theme = "system" | "light" | "dark";
 
@@ -76,18 +78,23 @@ watch(() => route.fullPath, () => {
 <template>
   <div class="app-shell app-shell--modern" :class="{ 'app-shell--workspace': isWorkspace, 'app-shell--admin': isAdmin }">
     <header class="topbar topbar--codex" :class="{ 'topbar--scrolled': topbarScrolled, 'topbar--menu-open': mobileNavOpen }">
-      <div class="topbar-inner">
+      <div class="topbar-inner" :class="{ 'topbar-inner--workspace': isWorkspace }">
+        <button v-if="isWorkspace && workspaceToolbar.active" class="workspace-back-button" type="button" title="返回题库" aria-label="返回题库" @click="workspaceToolbar.back?.()"><ArrowLeft :size="17" /></button>
         <RouterLink class="brand topbar-brand" to="/problems" aria-label="研试 OJ 题库">
           <img src="/brand-mark.svg" alt="" />
           <span>研试 OJ</span>
         </RouterLink>
-        <nav v-if="!isWorkspace && !isAdmin" class="main-nav topbar-nav" aria-label="主导航">
+        <nav v-if="!isAdmin" class="main-nav topbar-nav" aria-label="主导航">
           <RouterLink to="/problems"><BookOpen :size="16" />题库</RouterLink>
           <RouterLink v-if="session.user" to="/practice"><Heart :size="16" />练习簿</RouterLink>
           <RouterLink v-if="session.user" to="/submissions"><ClipboardList :size="16" />提交</RouterLink>
           <RouterLink v-if="session.user" to="/training"><Trophy :size="16" />训练</RouterLink>
           <RouterLink v-if="session.user?.role === 'ADMIN'" to="/admin"><Settings :size="16" />管理</RouterLink>
         </nav>
+        <div v-if="isWorkspace && workspaceToolbar.active" class="workspace-topbar-center" aria-label="做题操作">
+          <UiButton variant="outline" size="sm" class="workspace-run-button" :loading="workspaceToolbar.running" :disabled="!workspaceToolbar.ready || workspaceToolbar.submitting || workspaceToolbar.coolingDown" @click="workspaceToolbar.run?.()"><Play :size="14" fill="currentColor" aria-hidden="true" />运行</UiButton>
+          <UiButton variant="default" size="sm" class="workspace-submit-button" :loading="workspaceToolbar.submitting" :disabled="!workspaceToolbar.ready || workspaceToolbar.running || workspaceToolbar.coolingDown" @click="workspaceToolbar.submit?.()"><Send :size="14" aria-hidden="true" />提交</UiButton>
+        </div>
         <div class="topbar-actions">
           <div class="topbar-theme-toggle" role="radiogroup" aria-label="主题">
             <button class="topbar-theme-option" :class="{ active: theme === 'light' }" type="button" role="radio" :aria-checked="theme === 'light'" title="浅色主题" @click="applyTheme('light')"><Sun :size="14" /></button>
@@ -107,17 +114,17 @@ watch(() => route.fullPath, () => {
               </div>
             </div>
           </template>
-          <template v-else-if="!isWorkspace && !isAuth">
+          <template v-else-if="!isAuth">
             <RouterLink class="command-link topbar-login" to="/login">登录</RouterLink>
             <RouterLink class="topbar-register" to="/register">注册</RouterLink>
           </template>
         </div>
-        <button v-if="!isWorkspace && !isAdmin" class="topbar-menu-toggle" type="button" :aria-expanded="mobileNavOpen" aria-label="打开导航菜单" @click="mobileNavOpen = !mobileNavOpen">
+        <button v-if="!isAdmin" class="topbar-menu-toggle" type="button" :aria-expanded="mobileNavOpen" aria-label="打开导航菜单" @click="mobileNavOpen = !mobileNavOpen">
           <span :class="{ 'topbar-menu-toggle__line--open': mobileNavOpen }" />
           <span :class="{ 'topbar-menu-toggle__line--open': mobileNavOpen }" />
         </button>
       </div>
-      <nav v-if="!isWorkspace && !isAdmin && mobileNavOpen" class="topbar-mobile-nav" aria-label="移动端主导航">
+      <nav v-if="!isAdmin && mobileNavOpen" class="topbar-mobile-nav" aria-label="移动端主导航">
         <RouterLink to="/problems"><BookOpen :size="16" />题库</RouterLink>
         <RouterLink v-if="session.user" to="/practice"><Heart :size="16" />练习簿</RouterLink>
         <RouterLink v-if="session.user" to="/submissions"><ClipboardList :size="16" />提交</RouterLink>

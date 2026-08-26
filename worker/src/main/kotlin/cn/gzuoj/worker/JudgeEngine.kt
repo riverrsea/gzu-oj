@@ -156,7 +156,8 @@ class JudgeEngine(
                 testCase.expectedOutputSha256 ?: throw JudgeInfrastructureFailure("标准输出哈希缺失"),
             )
         } else {
-            null
+            // 公开运行的样例输出由控制端随运行用例一并下发，仍交给统一比较器判定。
+            testCase.inlineExpectedOutput?.toByteArray(StandardCharsets.UTF_8)
         }
         val result = goJudge.run(
             GoJudgeCommand(

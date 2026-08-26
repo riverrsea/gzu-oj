@@ -48,7 +48,7 @@ async function ensureCsrf(): Promise<string> {
 }
 
 /** 发起 API 请求；CSRF 令牌失效时只对变更请求自动刷新并重试一次。 */
-async function request<T>(path: string, init: RequestInit = {}, retryAfterCsrf = true): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}, retryAfterCsrf = true, timeoutMs?: number): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
   const method = (init.method ?? "GET").toUpperCase();
@@ -56,7 +56,20 @@ async function request<T>(path: string, init: RequestInit = {}, retryAfterCsrf =
   if (changesState) {
     headers.set("X-XSRF-TOKEN", await ensureCsrf());
   }
-  const response = await fetch(path, { ...init, headers, credentials: "same-origin" });
+  // 仅为显式要求超时的短请求创建控制器，避免中断 ZIP 导入等长耗时请求。
+  const controller = timeoutMs ? new AbortController() : undefined;
+  const timeoutId = timeoutMs ? window.setTimeout(() => controller?.abort(), timeoutMs) : undefined;
+  let response: Response;
+  try {
+    response = await fetch(path, { ...init, headers, credentials: "same-origin", signal: controller?.signal ?? init.signal });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError(0, "REQUEST_TIMEOUT", "控制端响应超时，请确认 API 服务已经启动");
+    }
+    throw new ApiError(0, "NETWORK_ERROR", "无法连接控制端，请检查 API 地址和服务状态");
+  } finally {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+  }
   if (!response.ok) {
     const error = (await response.json().catch(() => null)) as ApiErrorBody | null;
     // Spring Security 的注销处理器会清除 CSRF Cookie；缓存令牌会导致下一次登录 403。
@@ -122,15 +135,15 @@ export const api = {
     return request<AdminProblemPage>("/api/v1/admin/problems?" + query.toString());
   },
   adminProblemVersion: (versionId: string) => request<AdminProblemVersionDetail>("/api/v1/admin/problems/versions/" + versionId),
-  problem: (id: string) => request<ProblemDetail>("/api/v1/problems/" + id),
-  problemVersion: (id: string) => request<ProblemDetail>("/api/v1/problems/versions/" + id),
+  problem: (id: string) => request<ProblemDetail>("/api/v1/problems/" + id, {}, true, 15_000),
+  problemVersion: (id: string) => request<ProblemDetail>("/api/v1/problems/versions/" + id, {}, true, 15_000),
   submit: (body: { problemId: string; problemVersionId: string; language: JudgeLanguage; sourceCode: string; contestId?: string; timedPaperAttemptId?: string }) =>
     request<Submission>("/api/v1/submissions", {
       method: "POST",
       headers: { "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify(body),
     }),
-  run: (body: { problemId: string; problemVersionId: string; language: JudgeLanguage; sourceCode: string; inputs: string[] }) =>
+  run: (body: { problemId: string; problemVersionId: string; language: JudgeLanguage; sourceCode: string; inputs: string[]; expectedOutputs: string[] }) =>
     request<Submission>("/api/v1/runs", {
       method: "POST",
       headers: { "Idempotency-Key": crypto.randomUUID() },

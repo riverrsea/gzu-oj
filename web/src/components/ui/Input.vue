@@ -15,7 +15,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{ "update:modelValue": [value: string] }>();
 const classes = computed(() => cn(
-  "flex h-10 w-full rounded-md border border-line bg-paper px-3 py-2 text-sm text-ink shadow-sm outline-none transition-colors placeholder:text-quiet focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/20 disabled:cursor-not-allowed disabled:opacity-50",
+  "ui-control",
   props.class,
 ));
 </script>

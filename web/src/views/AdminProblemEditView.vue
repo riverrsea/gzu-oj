@@ -420,7 +420,6 @@ onUnmounted(() => {
       <section class="form-section">
         <h2>题目元数据</h2>
         <div class="form-grid form-grid--three">
-          <div class="form-field"><UiLabel>外部题目标识</UiLabel><UiInput :model-value="detail?.externalKey || '手工题目'" disabled /></div>
           <div class="form-field"><UiLabel>学校</UiLabel><UiInput v-model="form.school" maxlength="200" :disabled="aiLocked" /></div>
           <div class="form-field"><UiLabel>年份</UiLabel><UiNumberField v-model="form.year" :min="1900" :max="2200" :disabled="aiLocked" /></div>
         </div>

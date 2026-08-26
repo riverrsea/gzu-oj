@@ -400,13 +400,14 @@ class PostgresJudgeQueue(
     private fun loadCases(claimed: ClaimRow, attemptId: UUID, leaseToken: String): List<JudgeCaseLease> {
         if (claimed.executionMode == JudgeExecutionMode.RUN) {
             return jdbc.query(
-                "SELECT id, ordinal, input_text FROM submission_run_case WHERE submission_id = ? ORDER BY ordinal",
+                "SELECT id, ordinal, input_text, expected_output_text FROM submission_run_case WHERE submission_id = ? ORDER BY ordinal",
                 { result, _ ->
                     JudgeCaseLease(
                         caseId = result.getObject("id", UUID::class.java),
                         ordinal = result.getInt("ordinal"),
                         score = 0,
                         inlineInput = result.getString("input_text"),
+                        inlineExpectedOutput = result.getString("expected_output_text"),
                     )
                 },
                 claimed.submissionId,

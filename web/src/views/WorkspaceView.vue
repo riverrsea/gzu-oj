@@ -13,7 +13,7 @@ import { session } from "../stores/session";
 import { resetWorkspaceToolbar, workspaceToolbar } from "../stores/workspaceToolbar";
 import WorkspaceDockPanel from "../components/WorkspaceDockPanel.vue";
 import WorkspaceDockPanelAdapter from "../components/WorkspaceDockPanelAdapter.vue";
-import type { WorkspacePanelContext, WorkspacePanelKind } from "./workspacePanel";
+import type { CodeSaveState, WorkspacePanelContext, WorkspacePanelKind } from "./workspacePanel";
 import UiButton from "../components/ui/Button.vue";
 
 /** 移动端的五个工作区标签。桌面端由 Dockview 管理同名面板。 */
@@ -37,6 +37,7 @@ const actionCoolingDown = ref(false);
 const submission = ref<Submission>();
 const runSubmission = ref<Submission>();
 const submitSubmission = ref<Submission>();
+const codeSaveState = ref<CodeSaveState>("saved");
 const runInputs = ref<string[]>([]);
 const dark = ref(document.documentElement.dataset.theme === "dark");
 const settingsOpen = ref(false);
@@ -56,7 +57,12 @@ const dockPanelKinds: Record<string, WorkspacePanelKind> = {
 let dockLayoutSubscription: { dispose: () => void } | undefined;
 let dockLayoutSaveTimer: number | undefined;
 let actionCooldownTimer: number | undefined;
+let codeSaveTimer: number | undefined;
+let suppressNextCodeAutosave = false;
+let codeSaveErrorNotified = false;
 const ACTION_COOLDOWN_MS = 1000;
+/** 用户停止输入后的源码自动保存等待时间。 */
+const CODE_AUTOSAVE_DELAY_MS = 700;
 
 const terminalStatuses = new Set<JudgeStatus>(["AC", "PARTIAL", "WA", "CE", "TLE", "MLE", "RE", "OLE", "SYSTEM_ERROR", "CANCELED"]);
 const renderedStatement = computed(() => {
@@ -173,6 +179,7 @@ const dockContext = reactive<WorkspacePanelContext>({
   submitSubmission: undefined,
   running: false,
   submitting: false,
+  codeSaveState: "saved",
   terminalStatuses,
   setCode: (value) => { code.value = value; },
   setLanguage: (value) => { language.value = value; },
@@ -215,8 +222,82 @@ function bookmarkedVersionId(): string | null {
   }
 }
 
+/** 清理尚未执行的源码自动保存任务。 */
+function clearCodeSaveTimer(): void {
+  if (codeSaveTimer !== undefined) window.clearTimeout(codeSaveTimer);
+  codeSaveTimer = undefined;
+}
+
+/** 记录本地草稿保存失败，并避免同一故障持续刷屏。 */
+function markCodeSaveFailure(notify = true): void {
+  codeSaveState.value = "error";
+  if (notify && !codeSaveErrorNotified) {
+    toast.error("代码自动保存失败，请检查浏览器本地存储空间");
+    codeSaveErrorNotified = true;
+  }
+}
+
+/** 立即写入指定语言的源码草稿，供快捷键、切换版本和离开页面使用。 */
+function saveCodeDraftNow(
+  value = code.value,
+  selected = language.value,
+  options: { notifyFailure?: boolean } = {},
+): boolean {
+  clearCodeSaveTimer();
+  codeSaveState.value = "saving";
+  try {
+    localStorage.setItem(draftKey(selected), value);
+    codeSaveState.value = "saved";
+    codeSaveErrorNotified = false;
+    return true;
+  } catch {
+    markCodeSaveFailure(options.notifyFailure !== false);
+    return false;
+  }
+}
+
+/** 在用户停止输入一小段时间后保存源码，避免每次击键都写入存储。 */
+function scheduleCodeDraftSave(value: string): void {
+  clearCodeSaveTimer();
+  codeSaveState.value = "pending";
+  codeSaveTimer = window.setTimeout(() => {
+    codeSaveTimer = undefined;
+    saveCodeDraftNow(value, language.value, { notifyFailure: false });
+  }, CODE_AUTOSAVE_DELAY_MS);
+}
+
+/** 拦截 Windows/Linux 的 Ctrl+S 和 macOS 的 Cmd+S，立即保存当前源码。 */
+function handleCodeSaveShortcut(event: KeyboardEvent): void {
+  if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "s") return;
+  event.preventDefault();
+  if (!problem.value || loading.value || loadingError.value) return;
+  if (saveCodeDraftNow(code.value, language.value)) {
+    toast.success("代码已保存到本地");
+  }
+}
+
+/** 浏览器刷新或关闭前同步写入当前源码，尽量避免最后一段输入丢失。 */
+function handleCodeBeforeUnload(): void {
+  if (problem.value) saveCodeDraftNow(code.value, language.value, { notifyFailure: false });
+}
+
 function loadDraft(): void {
-  code.value = localStorage.getItem(draftKey()) ?? templates[language.value];
+  clearCodeSaveTimer();
+  suppressNextCodeAutosave = false;
+  let stored: string | null = null;
+  let readFailed = false;
+  try {
+    stored = localStorage.getItem(draftKey());
+  } catch {
+    readFailed = true;
+    markCodeSaveFailure(false);
+  }
+  const nextCode = stored ?? templates[language.value];
+  if (code.value !== nextCode) {
+    suppressNextCodeAutosave = true;
+    code.value = nextCode;
+  }
+  if (!readFailed) codeSaveState.value = "saved";
 }
 
 /** 收藏当前题目；未登录时进入登录卡片。 */
@@ -237,6 +318,7 @@ async function favoriteProblem(): Promise<void> {
 function switchToLatestVersion(): void {
   const latest = latestVersion.value;
   if (!latest) return;
+  saveCodeDraftNow(code.value, language.value, { notifyFailure: false });
   Object.values(pollTimers).forEach((timer) => window.clearTimeout(timer));
   problem.value = latest;
   latestVersion.value = undefined;
@@ -257,8 +339,11 @@ function switchToLatestVersion(): void {
 
 function resetCode(): void {
   code.value = templates[language.value];
-  localStorage.setItem(draftKey(), code.value);
-  toast.success("代码已重置");
+  if (saveCodeDraftNow(code.value, language.value, { notifyFailure: false })) {
+    toast.success("代码已重置并保存到本地");
+  } else {
+    toast.warning("代码已重置，但本地保存失败");
+  }
 }
 
 /** 将桌面端测试结果面板切换为当前标签；移动端使用独立标签状态。 */
@@ -467,6 +552,7 @@ watchEffect(() => {
   dockContext.submitSubmission = submitSubmission.value;
   dockContext.running = running.value;
   dockContext.submitting = submitting.value;
+  dockContext.codeSaveState = codeSaveState.value;
   workspaceToolbar.active = true;
   workspaceToolbar.ready = Boolean(problem.value) && !loading.value && !loadingError.value;
   workspaceToolbar.running = running.value;
@@ -477,10 +563,16 @@ watchEffect(() => {
   workspaceToolbar.back = () => { void router.push("/problems"); };
 });
 
-watch(code, (value) => localStorage.setItem(draftKey(), value));
+watch(code, (value) => {
+  if (suppressNextCodeAutosave) {
+    suppressNextCodeAutosave = false;
+    return;
+  }
+  scheduleCodeDraftSave(value);
+}, { flush: "sync" });
 watch(language, (next, previous) => {
   localStorage.setItem("gzu-oj.language", next);
-  if (previous) localStorage.setItem(draftKey(previous), code.value);
+  if (previous) saveCodeDraftNow(code.value, previous, { notifyFailure: false });
   nextTick(loadDraft);
 });
 watch(fontSize, (value) => localStorage.setItem("gzu-oj.font-size", String(value)));
@@ -490,6 +582,8 @@ function syncTheme(event: Event): void {
 
 onMounted(() => {
   window.addEventListener("gzu-oj-theme-change", syncTheme);
+  window.addEventListener("keydown", handleCodeSaveShortcut, true);
+  window.addEventListener("beforeunload", handleCodeBeforeUnload);
   void loadProblem();
 });
 onBeforeUnmount(() => {
@@ -497,9 +591,12 @@ onBeforeUnmount(() => {
   if (actionCooldownTimer !== undefined) window.clearTimeout(actionCooldownTimer);
   actionCooldownTimer = undefined;
   if (dockLayoutSaveTimer !== undefined) window.clearTimeout(dockLayoutSaveTimer);
+  if (problem.value) saveCodeDraftNow(code.value, language.value, { notifyFailure: false });
   saveDockLayout();
   dockLayoutSubscription?.dispose();
   window.removeEventListener("gzu-oj-theme-change", syncTheme);
+  window.removeEventListener("keydown", handleCodeSaveShortcut, true);
+  window.removeEventListener("beforeunload", handleCodeBeforeUnload);
   resetWorkspaceToolbar();
 });
 </script>

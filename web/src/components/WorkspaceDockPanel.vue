@@ -41,6 +41,21 @@ function statusIcon(status: string): Component {
 function isPendingStatus(status: string): boolean {
   return ["QUEUED", "COMPILING", "JUDGING"].includes(status);
 }
+
+/** 将源码草稿保存状态转换为用户可读文本。 */
+function codeSaveStatusText(state: WorkspacePanelContext["codeSaveState"]): string {
+  if (state === "pending") return "等待保存";
+  if (state === "saving") return "保存中";
+  if (state === "error") return "保存失败";
+  return "已自动保存";
+}
+
+/** 为源码草稿保存状态选择对应图标。 */
+function codeSaveStatusIcon(state: WorkspacePanelContext["codeSaveState"]): Component {
+  if (state === "error") return CircleAlert;
+  if (state === "pending" || state === "saving") return LoaderCircle;
+  return CheckCircle2;
+}
 </script>
 
 <template>
@@ -79,6 +94,10 @@ function isPendingStatus(status: string): boolean {
           <option value="PYTHON3">CPython 3</option>
         </select>
         <span v-if="context.activeLimit" class="limit-text">{{ context.activeLimit.timeLimitMs }} ms · {{ context.activeLimit.memoryLimitMiB }} MiB</span>
+        <span :class="['code-save-status', 'code-save-status--' + context.codeSaveState]" role="status" aria-live="polite">
+          <component :is="codeSaveStatusIcon(context.codeSaveState)" :class="{ 'status-icon--loading': context.codeSaveState === 'pending' || context.codeSaveState === 'saving' }" :size="14" aria-hidden="true" />
+          {{ codeSaveStatusText(context.codeSaveState) }}
+        </span>
       </div>
       <div class="toolbar-group">
         <div class="editor-settings">

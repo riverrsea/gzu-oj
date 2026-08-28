@@ -1,5 +1,8 @@
 import type { JudgeLanguage, JudgeStatus, LanguageLimit, ProblemDetail, Submission } from "../api/types";
 
+/** 代码草稿在本地存储中的生命周期状态。 */
+export type CodeSaveState = "saved" | "pending" | "saving" | "error";
+
 /** 做题工作区中可被停靠面板共享的状态和操作。 */
 export interface WorkspacePanelContext {
   /** 当前锁定版本的题面。 */
@@ -30,6 +33,8 @@ export interface WorkspacePanelContext {
   running: boolean;
   /** 是否正在提交全部测试点。 */
   submitting: boolean;
+  /** 代码草稿的本地自动保存状态。 */
+  codeSaveState: CodeSaveState;
   /** 终态集合。 */
   terminalStatuses: Set<JudgeStatus>;
   /** 更新源码。 */

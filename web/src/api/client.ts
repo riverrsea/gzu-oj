@@ -150,7 +150,13 @@ export const api = {
       body: JSON.stringify(body),
     }),
   submission: (id: string) => request<Submission>("/api/v1/submissions/" + id),
-  submissions: () => request<Submission[]>("/api/v1/submissions?limit=50"),
+  /** 分页读取当前用户的正式提交历史；before 使用上一页最早提交时间作为游标。 */
+  submissions: (params: { limit?: number; before?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (params.limit !== undefined) query.set("limit", String(params.limit));
+    if (params.before) query.set("before", params.before);
+    return request<Submission[]>("/api/v1/submissions?" + query.toString());
+  },
   favorite: (problemId: string) => request<void>("/api/v1/favorites/" + problemId, { method: "POST" }),
   unfavorite: (problemId: string) => request<void>("/api/v1/favorites/" + problemId, { method: "DELETE" }),
   favorites: () => request<UserProblemSummary[]>("/api/v1/favorites"),

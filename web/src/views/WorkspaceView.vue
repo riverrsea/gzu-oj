@@ -16,7 +16,7 @@ import WorkspaceDockPanelAdapter from "../components/WorkspaceDockPanelAdapter.v
 import type { CodeSaveState, WorkspacePanelContext, WorkspacePanelKind } from "./workspacePanel";
 import UiButton from "../components/ui/Button.vue";
 
-/** 移动端的五个工作区标签。桌面端由 Dockview 管理同名面板。 */
+/** 移动端的六个工作区标签。桌面端由 Dockview 管理同名面板。 */
 type MobileTab = WorkspacePanelKind;
 
 const route = useRoute();
@@ -37,6 +37,9 @@ const actionCoolingDown = ref(false);
 const submission = ref<Submission>();
 const runSubmission = ref<Submission>();
 const submitSubmission = ref<Submission>();
+const submissionHistory = ref<Submission[]>([]);
+const submissionHistoryLoading = ref(false);
+const submissionHistoryError = ref("");
 const codeSaveState = ref<CodeSaveState>("saved");
 const runInputs = ref<string[]>([]);
 const dark = ref(document.documentElement.dataset.theme === "dark");
@@ -53,6 +56,7 @@ const dockPanelKinds: Record<string, WorkspacePanelKind> = {
   cases: "cases",
   result: "result",
   submit: "submit",
+  history: "history",
 };
 let dockLayoutSubscription: { dispose: () => void } | undefined;
 let dockLayoutSaveTimer: number | undefined;
@@ -179,6 +183,11 @@ const dockContext = reactive<WorkspacePanelContext>({
   submitSubmission: undefined,
   running: false,
   submitting: false,
+  submissionHistory: [],
+  submissionHistoryLoading: false,
+  submissionHistoryError: "",
+  refreshSubmissionHistory: () => { void loadSubmissionHistory(); },
+  openSubmissionDetail: (submissionId) => openSubmissionDetail(submissionId),
   codeSaveState: "saved",
   terminalStatuses,
   setCode: (value) => { code.value = value; },
@@ -358,6 +367,43 @@ function showSubmitPanel(): void {
   dockviewApi.value?.getPanel("submit")?.api.setActive();
 }
 
+/** 读取当前锁定题目版本的正式提交历史；列表只显示脱敏后的判题指标。 */
+async function loadSubmissionHistory(): Promise<void> {
+  const current = problem.value;
+  if (!current || !session.user) {
+    submissionHistory.value = [];
+    submissionHistoryError.value = session.user ? "题目尚未加载" : "登录后查看提交历史";
+    submissionHistoryLoading.value = false;
+    return;
+  }
+  submissionHistoryLoading.value = true;
+  submissionHistoryError.value = "";
+  try {
+    const rows = await api.submissions({ limit: 50 });
+    if (problem.value?.versionId !== current.versionId) return;
+    submissionHistory.value = rows.filter((row) => row.problemId === current.id && row.problemVersionId === current.versionId);
+  } catch (error) {
+    submissionHistory.value = [];
+    submissionHistoryError.value = error instanceof Error ? error.message : "提交历史加载失败";
+  } finally {
+    if (problem.value?.versionId === current.versionId) submissionHistoryLoading.value = false;
+  }
+}
+
+/** 从工作区打开提交详情，并保留当前题目版本作为返回列表筛选条件。 */
+function openSubmissionDetail(submissionId: string): void {
+  const current = problem.value;
+  void router.push({
+    path: "/submissions/" + submissionId,
+    query: current ? { problemId: current.id, versionId: current.versionId } : undefined,
+  });
+}
+
+/** 移动端切换工作区标签；提交历史直接在当前工作区展示。 */
+function selectMobileTab(tab: MobileTab): void {
+  mobileTab.value = tab;
+}
+
 /** 显示提交完成提示；源码和隐藏输入输出仍只留在后端判题记录。 */
 function notifyTerminalResult(value: Submission): void {
   if (!terminalStatuses.has(value.status)) return;
@@ -452,6 +498,7 @@ async function submit(): Promise<void> {
 function schedulePoll(current: Submission): void {
   notifyTerminalResult(current);
   if (terminalStatuses.has(current.status)) {
+    if (current.executionMode === "SUBMIT") void loadSubmissionHistory();
     releaseActionLock(current.executionMode);
     return;
   }
@@ -463,6 +510,7 @@ function schedulePoll(current: Submission): void {
       if (mode === "RUN") runSubmission.value = refreshed;
       else submitSubmission.value = refreshed;
       if (submission.value?.id === refreshed.id) submission.value = refreshed;
+      if (mode === "SUBMIT" && terminalStatuses.has(refreshed.status)) void loadSubmissionHistory();
       schedulePoll(refreshed);
     } catch (error) {
       if (!(error instanceof ApiError && error.status === 404)) console.error(error);
@@ -510,7 +558,7 @@ async function loadProblem(): Promise<void> {
   }
 }
 
-/** 初始化五个可拖动停靠面板；共享上下文由当前页面生命周期持有。 */
+/** 初始化六个可拖动停靠面板；共享上下文由当前页面生命周期持有。 */
 function onDockReady(event: DockviewReadyEvent): void {
   dockLayoutError.value = "";
   dockviewApi.value = event.api;
@@ -524,6 +572,7 @@ function onDockReady(event: DockviewReadyEvent): void {
       event.api.addPanel({ id: "cases", component: "workspacePanel", title: "测试用例", params: { kind: "cases", context: dockContext }, position: { referencePanel: "code", direction: "below" }, initialHeight: 280 });
       event.api.addPanel({ id: "result", component: "workspacePanel", title: "测试结果", params: { kind: "result", context: dockContext }, position: { referencePanel: "cases", direction: "within" }, inactive: true });
       event.api.addPanel({ id: "submit", component: "workspacePanel", title: "提交结果", params: { kind: "submit", context: dockContext }, position: { referencePanel: "result", direction: "within" }, inactive: true });
+      event.api.addPanel({ id: "history", component: "workspacePanel", title: "提交历史", params: { kind: "history", context: dockContext }, position: { referencePanel: "statement", direction: "within" }, inactive: true });
     }
     void nextTick(() => window.requestAnimationFrame(animateDockGroups));
   } catch (error) {
@@ -552,6 +601,9 @@ watchEffect(() => {
   dockContext.submitSubmission = submitSubmission.value;
   dockContext.running = running.value;
   dockContext.submitting = submitting.value;
+  dockContext.submissionHistory = submissionHistory.value;
+  dockContext.submissionHistoryLoading = submissionHistoryLoading.value;
+  dockContext.submissionHistoryError = submissionHistoryError.value;
   dockContext.codeSaveState = codeSaveState.value;
   workspaceToolbar.active = true;
   workspaceToolbar.ready = Boolean(problem.value) && !loading.value && !loadingError.value;
@@ -576,6 +628,9 @@ watch(language, (next, previous) => {
   nextTick(loadDraft);
 });
 watch(fontSize, (value) => localStorage.setItem("gzu-oj.font-size", String(value)));
+watch(() => [session.user?.id, problem.value?.versionId], () => {
+  void loadSubmissionHistory();
+});
 function syncTheme(event: Event): void {
   dark.value = Boolean((event as CustomEvent<{ dark: boolean }>).detail.dark);
 }
@@ -639,8 +694,8 @@ onBeforeUnmount(() => {
 
     <div v-if="problem && !loadingError" class="workspace-mobile-layout">
       <div class="mobile-workspace-tabs" role="tablist" aria-label="做题工作区面板">
-        <button v-for="tab in (['statement', 'code', 'cases', 'result', 'submit'] as MobileTab[])" :key="tab" type="button" role="tab" :aria-selected="mobileTab === tab" :class="{ active: mobileTab === tab }" @click="mobileTab = tab">
-          {{ tab === "statement" ? "题目描述" : tab === "code" ? "代码" : tab === "cases" ? "测试用例" : tab === "result" ? "测试结果" : "提交结果" }}
+        <button v-for="tab in (['statement', 'code', 'cases', 'result', 'submit', 'history'] as MobileTab[])" :key="tab" type="button" role="tab" :aria-selected="mobileTab === tab" :class="{ active: mobileTab === tab }" @click="selectMobileTab(tab)">
+          {{ tab === "statement" ? "题目描述" : tab === "code" ? "代码" : tab === "cases" ? "测试用例" : tab === "result" ? "测试结果" : tab === "submit" ? "提交结果" : "提交历史" }}
         </button>
       </div>
       <WorkspaceDockPanel :kind="mobileTab" :context="dockContext" />

@@ -69,6 +69,8 @@ export interface Submission {
   status: JudgeStatus;
   score: number;
   compileMessage: string | null;
+  /** 单条提交详情返回的源码；历史列表和状态推送为空。 */
+  sourceCode: string | null;
   createdAt: string;
   finishedAt: string | null;
   testCases: SubmissionCase[];

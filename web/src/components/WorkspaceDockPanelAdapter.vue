@@ -8,7 +8,7 @@ interface DockviewPanelProps {
   params: {
     /** 当前面板类型。 */
     kind: WorkspacePanelKind;
-    /** 四个面板共享的响应式工作区上下文。 */
+    /** 六个面板共享的响应式工作区上下文。 */
     context: WorkspacePanelContext;
   };
 }

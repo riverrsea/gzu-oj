@@ -102,6 +102,8 @@ data class SubmissionResponse(
     val score: Int,
     /** 编译失败时的编译器信息。 */
     val compileMessage: String?,
+    /** 单条提交详情中的用户源码；历史列表和状态推送不返回源码。 */
+    val sourceCode: String? = null,
     /** 提交时间。 */
     val createdAt: Instant,
     /** 完成时间。 */
@@ -283,13 +285,13 @@ class SubmissionService(
     }
 
     /** 读取一份提交；管理员可读取任意提交，普通用户只能读取自己的提交。 */
-    fun get(submissionId: UUID, userId: UUID, admin: Boolean): SubmissionResponse {
+    fun get(submissionId: UUID, userId: UUID, admin: Boolean, includeSource: Boolean = false): SubmissionResponse {
         val sql = buildString {
             append(
                 """
                 SELECT s.id, p.id AS problem_id, s.problem_version_id, s.execution_mode,
                        s.language, s.status, s.score,
-                       s.compile_message, s.created_at, s.finished_at
+                       s.compile_message, s.created_at, s.finished_at${if (includeSource) ", s.source_code" else ""}
                 FROM submission s
                 JOIN problem_version pv ON pv.id = s.problem_version_id
                 JOIN problem p ON p.id = pv.problem_id
@@ -309,6 +311,7 @@ class SubmissionService(
                 status = JudgeStatus.valueOf(result.getString("status")),
                 score = result.getInt("score"),
                 compileMessage = result.getString("compile_message"),
+                sourceCode = if (includeSource) result.getString("source_code") else null,
                 createdAt = result.getTimestamp("created_at").toInstant(),
                 finishedAt = result.getTimestamp("finished_at")?.toInstant(),
                 testCases = emptyList(),
@@ -689,7 +692,7 @@ class SubmissionController(
     fun get(
         @PathVariable submissionId: UUID,
         @AuthenticationPrincipal principal: AppPrincipal,
-    ): SubmissionResponse = service.get(submissionId, principal.userId, principal.role == "ADMIN")
+    ): SubmissionResponse = service.get(submissionId, principal.userId, principal.role == "ADMIN", includeSource = true)
 
     /** 订阅一份提交的实时状态。 */
     @GetMapping("/{submissionId}/events", produces = ["text/event-stream"])

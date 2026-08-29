@@ -33,6 +33,16 @@ export interface WorkspacePanelContext {
   running: boolean;
   /** 是否正在提交全部测试点。 */
   submitting: boolean;
+  /** 当前题目和版本的正式提交历史。 */
+  submissionHistory: Submission[];
+  /** 提交历史是否正在加载。 */
+  submissionHistoryLoading: boolean;
+  /** 提交历史加载失败或未登录时的提示。 */
+  submissionHistoryError: string;
+  /** 重新读取当前题目的提交历史。 */
+  refreshSubmissionHistory: () => void;
+  /** 打开一份提交详情。 */
+  openSubmissionDetail: (submissionId: string) => void;
   /** 代码草稿的本地自动保存状态。 */
   codeSaveState: CodeSaveState;
   /** 终态集合。 */
@@ -60,4 +70,4 @@ export interface WorkspacePanelContext {
 }
 
 /** Dockview 面板的业务类型。 */
-export type WorkspacePanelKind = "statement" | "code" | "cases" | "result" | "submit";
+export type WorkspacePanelKind = "statement" | "code" | "cases" | "result" | "submit" | "history";

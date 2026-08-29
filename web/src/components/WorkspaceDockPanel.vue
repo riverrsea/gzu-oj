@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { Component } from "vue";
-import { Bookmark, CheckCircle2, CircleAlert, CircleX, Clock3, Info, LoaderCircle, Maximize2, RotateCcw, Settings2 } from "@lucide/vue";
+import { Bookmark, CheckCircle2, ChevronRight, CircleAlert, CircleX, ClipboardList, Clock3, Info, LoaderCircle, Maximize2, MemoryStick, RefreshCw, RotateCcw, Settings2 } from "@lucide/vue";
 import type { WorkspacePanelContext, WorkspacePanelKind } from "../views/workspacePanel";
 import CodeEditor from "./CodeEditor.vue";
+import UiButton from "./ui/Button.vue";
 import UiNumberField from "./ui/NumberField.vue";
 import UiEmptyState from "./ui/EmptyState.vue";
 
@@ -40,6 +41,36 @@ function statusIcon(status: string): Component {
 /** 判断状态图标是否需要展示持续运行的加载动画。 */
 function isPendingStatus(status: string): boolean {
   return ["QUEUED", "COMPILING", "JUDGING"].includes(status);
+}
+
+/** 将提交时间转换为提交历史列表中的相对文案。 */
+function relativeSubmissionTime(value: string): string {
+  const elapsed = Math.max(0, Date.now() - new Date(value).getTime());
+  const minutes = Math.floor(elapsed / 60_000);
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return minutes + " 分钟前";
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours + " 小时前";
+  const days = Math.floor(hours / 24);
+  if (days < 7) return days + " 天前";
+  return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
+}
+
+/** 聚合正式提交的总执行时间；判题未完成时返回空值。 */
+function submissionTimeMs(row: WorkspacePanelContext["submissionHistory"][number]): number | null {
+  if (!row.testCases.length) return null;
+  return row.testCases.reduce((sum, item) => sum + item.timeMs, 0);
+}
+
+/** 聚合正式提交的峰值内存；判题未完成时返回空值。 */
+function submissionMemoryKiB(row: WorkspacePanelContext["submissionHistory"][number]): number | null {
+  if (!row.testCases.length) return null;
+  return row.testCases.reduce((max, item) => Math.max(max, item.memoryKiB), 0);
+}
+
+/** 将后端语言枚举转换为提交历史中的短文案。 */
+function historyLanguageLabel(language: string): string {
+  return { C17: "C", CPP17: "C++", JAVA21: "Java", PYTHON3: "Python" }[language] ?? language;
 }
 
 /** 将源码草稿保存状态转换为用户可读文本。 */
@@ -126,6 +157,46 @@ function codeSaveStatusIcon(state: WorkspacePanelContext["codeSaveState"]): Comp
           <div class="case-readonly-block"><span>输出</span><pre>{{ context.problem?.samples[context.activeCase]?.output ?? "暂无样例输出" }}</pre></div>
         </div>
       </div>
+    </div>
+  </article>
+
+  <article v-else-if="kind === 'history'" class="dock-panel dock-panel--history">
+    <div class="workspace-history-panel" :aria-busy="context.submissionHistoryLoading">
+      <div class="workspace-history-toolbar">
+        <UiButton variant="ghost" size="icon" title="刷新提交历史" aria-label="刷新提交历史" :loading="context.submissionHistoryLoading" @click="context.refreshSubmissionHistory"><RefreshCw :size="15" /></UiButton>
+      </div>
+      <div class="workspace-history-columns" aria-hidden="true">
+        <span />
+        <span>状态</span>
+        <span>语言</span>
+        <span><Clock3 :size="13" />执行用时</span>
+        <span><MemoryStick :size="13" />消耗内存</span>
+        <span>得分</span>
+        <span />
+      </div>
+      <div v-if="context.submissionHistoryLoading" class="workspace-history-skeleton-list" aria-label="正在加载提交历史">
+        <div v-for="index in 5" :key="index" class="workspace-history-skeleton"><i /><span /><b /><em /><u /><small /></div>
+      </div>
+      <UiEmptyState v-else-if="context.submissionHistoryError" :description="context.submissionHistoryError" class="workspace-history-empty">
+        <template #icon><ClipboardList :size="24" aria-hidden="true" /></template>
+      </UiEmptyState>
+      <div v-else-if="context.submissionHistory.length" class="workspace-history-list" role="list">
+        <button v-for="(row, index) in context.submissionHistory" :key="row.id" type="button" class="workspace-history-row" @click="context.openSubmissionDetail(row.id)">
+          <span class="workspace-history-index">{{ context.submissionHistory.length - index }}</span>
+          <span :class="['workspace-history-status', 'submission-status--' + row.status.toLowerCase()]">
+            <span><component :is="statusIcon(row.status)" :class="{ 'status-icon--loading': isPendingStatus(row.status) }" :size="16" aria-hidden="true" /><strong>{{ statusText(row.status) }}</strong></span>
+            <time :datetime="row.createdAt">{{ relativeSubmissionTime(row.createdAt) }}</time>
+          </span>
+          <span class="workspace-history-language">{{ historyLanguageLabel(row.language) }}</span>
+          <span class="workspace-history-metric">{{ submissionTimeMs(row) === null ? "N/A" : submissionTimeMs(row) + " ms" }}</span>
+          <span class="workspace-history-metric">{{ submissionMemoryKiB(row) === null ? "N/A" : (submissionMemoryKiB(row)! / 1024).toFixed(1) + " MiB" }}</span>
+          <span class="workspace-history-score">{{ row.score }}</span>
+          <ChevronRight class="workspace-history-chevron" :size="16" aria-hidden="true" />
+        </button>
+      </div>
+      <UiEmptyState v-else description="还没有提交记录" class="workspace-history-empty">
+        <template #icon><ClipboardList :size="24" aria-hidden="true" /></template>
+      </UiEmptyState>
     </div>
   </article>
 

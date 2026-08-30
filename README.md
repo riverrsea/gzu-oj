@@ -1,4 +1,4 @@
-# 研试 OJ
+# GZU_OJ
 
 面向学校复试机试真题和个人练习的小型在线判题系统。项目采用 Kotlin/JVM 21、Spring Boot、Spring AI、Vue 3、PostgreSQL、Caddy 和 go-judge，按控制端与判题端解耦部署。
 

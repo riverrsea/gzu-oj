@@ -80,9 +80,8 @@ watch(() => route.fullPath, () => {
     <header class="topbar topbar--codex" :class="{ 'topbar--scrolled': topbarScrolled, 'topbar--menu-open': mobileNavOpen }">
       <div class="topbar-inner" :class="{ 'topbar-inner--workspace': isWorkspace }">
         <button v-if="isWorkspace && workspaceToolbar.active" class="workspace-back-button" type="button" title="返回题库" aria-label="返回题库" @click="workspaceToolbar.back?.()"><ArrowLeft :size="17" /></button>
-        <RouterLink class="brand topbar-brand" to="/problems" aria-label="研试 OJ 题库">
-          <img src="/brand-mark.svg" alt="" />
-          <span>研试 OJ</span>
+        <RouterLink class="brand topbar-brand" to="/problems" aria-label="GZU_OJ 题库">
+          <span>GZU_OJ</span>
         </RouterLink>
         <nav v-if="!isAdmin" class="main-nav topbar-nav" aria-label="主导航">
           <RouterLink to="/problems"><BookOpen :size="16" />题库</RouterLink>

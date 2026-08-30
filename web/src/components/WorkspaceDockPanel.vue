@@ -93,7 +93,10 @@ function codeSaveStatusIcon(state: WorkspacePanelContext["codeSaveState"]): Comp
   <article v-if="kind === 'statement'" class="dock-panel dock-panel--statement">
     <header class="dock-panel-heading">
       <div v-if="context.problem">
-        <h1>{{ context.problem.title }}</h1>
+        <h1 class="dock-panel-title">
+          <span>{{ context.problem.title }}</span>
+          <span v-if="context.isSolved" class="workspace-solved-badge"><CheckCircle2 :size="15" aria-hidden="true" />已解决</span>
+        </h1>
         <p>{{ context.problem.school }} · {{ context.problem.year }} · 版本 {{ context.problem.versionNumber }}</p>
       </div>
       <button class="icon-button workspace-favorite-button" :class="{ 'is-favorited': context.isFavorited }" type="button" :title="context.isFavorited ? '取消收藏' : '收藏题目'" :aria-label="context.isFavorited ? '取消收藏' : '收藏题目'" :aria-pressed="context.isFavorited" :disabled="context.favoriteLoading" @click="context.favorite">

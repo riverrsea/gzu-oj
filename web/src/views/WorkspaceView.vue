@@ -34,6 +34,7 @@ const activeCase = ref(0);
 const submitting = ref(false);
 const running = ref(false);
 const actionCoolingDown = ref(false);
+const isSolved = ref(false);
 const isFavorited = ref(false);
 const favoriteLoading = ref(false);
 const submission = ref<Submission>();
@@ -191,6 +192,7 @@ const dockContext = reactive<WorkspacePanelContext>({
   submitSubmission: undefined,
   running: false,
   submitting: false,
+  isSolved: false,
   isFavorited: false,
   favoriteLoading: false,
   wrongBookPrompt: null,
@@ -350,6 +352,20 @@ async function loadFavoriteState(problemId: string): Promise<void> {
     if (problem.value?.id === problemId) isFavorited.value = rows.some((row) => row.problemId === problemId);
   } catch {
     isFavorited.value = false;
+  }
+}
+
+/** 读取当前题目是否存在用户正式通过记录，题目标识跨版本保持稳定。 */
+async function loadSolvedState(problemId: string): Promise<void> {
+  if (!session.user) {
+    isSolved.value = false;
+    return;
+  }
+  try {
+    const solvedIds = await api.solvedProblemIds();
+    if (problem.value?.id === problemId) isSolved.value = solvedIds.includes(problemId);
+  } catch {
+    isSolved.value = false;
   }
 }
 
@@ -601,6 +617,7 @@ async function submit(): Promise<void> {
 /** 轮询持久化判题队列，并在终态触发一次结果提醒。 */
 function schedulePoll(current: Submission): void {
   notifyTerminalResult(current);
+  if (current.executionMode === "SUBMIT" && current.status === "AC") isSolved.value = true;
   if (terminalStatuses.has(current.status)) {
     maybePromptWrongBook(current);
     if (current.executionMode === "SUBMIT") void loadSubmissionHistory();
@@ -631,6 +648,7 @@ async function loadProblem(): Promise<void> {
   // 路由复用时先清理上一题的运行态，避免收藏、版本提示和判题结果串题。
   latestVersion.value = undefined;
   resumedPreviousVersion.value = false;
+  isSolved.value = false;
   isFavorited.value = false;
   wrongBookPrompt.value = null;
   wrongBookPromptMessage.value = "";
@@ -662,6 +680,7 @@ async function loadProblem(): Promise<void> {
     activeCase.value = 0;
     loadDraft();
     await loadFavoriteState(problem.value.id);
+    await loadSolvedState(problem.value.id);
     await loadWrongBookState();
   } catch (error) {
     loadingError.value = error instanceof Error ? error.message : "题目加载失败";
@@ -714,6 +733,7 @@ watchEffect(() => {
   dockContext.submitSubmission = submitSubmission.value;
   dockContext.running = running.value;
   dockContext.submitting = submitting.value;
+  dockContext.isSolved = isSolved.value;
   dockContext.isFavorited = isFavorited.value;
   dockContext.favoriteLoading = favoriteLoading.value;
   dockContext.wrongBookPrompt = wrongBookPrompt.value;
@@ -749,7 +769,10 @@ watch(fontSize, (value) => localStorage.setItem("gzu-oj.font-size", String(value
 watch(() => [session.user?.id, problem.value?.versionId], () => {
   void loadSubmissionHistory();
   void loadWrongBookState();
-  if (problem.value) void loadFavoriteState(problem.value.id);
+  if (problem.value) {
+    void loadFavoriteState(problem.value.id);
+    void loadSolvedState(problem.value.id);
+  }
 });
 watch(() => [String(route.params.id), typeof route.query.versionId === "string" ? route.query.versionId : ""], (next, previous) => {
   if (previous && next.join("/") !== previous.join("/")) void loadProblem();

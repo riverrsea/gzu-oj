@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { Bookmark, BookmarkCheck, Building2, CalendarDays, Circle, Search, SearchX } from "@lucide/vue";
+import { Bookmark, BookmarkCheck, Building2, CalendarDays, CheckCircle2, Circle, Search, SearchX } from "@lucide/vue";
 import { toast } from "../lib/notify";
 import { api } from "../api/client";
 import type { Difficulty, ProblemSummary } from "../api/types";
@@ -35,6 +35,8 @@ const difficultyOptions: Array<{ value: Difficulty | ""; label: string }> = [
 const favoriteIds = ref<Set<string>>(new Set());
 /** 正在切换收藏的题目，避免连续点击产生重复请求。 */
 const favoriteBusyIds = ref<Set<string>>(new Set());
+/** 当前用户已经正式通过的题目标识，跨版本合并。 */
+const solvedIds = ref<Set<string>>(new Set());
 
 /** 按标题、学校、年份和难度筛选已加载的公开题目，不改变后端题库接口。 */
 const visibleProblems = computed(() => {
@@ -55,11 +57,24 @@ async function load(): Promise<void> {
   loading.value = true;
   try {
     problems.value = await api.problems({});
-    await loadFavorites();
+    await Promise.all([loadFavorites(), loadSolvedProblems()]);
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "题库加载失败");
   } finally {
     loading.value = false;
+  }
+}
+
+/** 读取已解决题目标识；未登录时保持空集合。 */
+async function loadSolvedProblems(): Promise<void> {
+  if (!session.user) {
+    solvedIds.value = new Set();
+    return;
+  }
+  try {
+    solvedIds.value = new Set(await api.solvedProblemIds());
+  } catch {
+    solvedIds.value = new Set();
   }
 }
 
@@ -79,6 +94,11 @@ async function loadFavorites(): Promise<void> {
 /** 返回题目当前收藏状态。 */
 function isFavorite(problem: ProblemSummary): boolean {
   return favoriteIds.value.has(problem.id);
+}
+
+/** 返回题目是否曾经有正式通过记录。 */
+function isSolved(problem: ProblemSummary): boolean {
+  return solvedIds.value.has(problem.id);
 }
 
 /** 切换题库中的收藏状态。 */
@@ -110,7 +130,10 @@ async function toggleFavorite(problem: ProblemSummary): Promise<void> {
 onMounted(() => {
   void load();
 });
-watch(() => session.user?.id, () => { void loadFavorites(); });
+watch(() => session.user?.id, () => {
+  void loadFavorites();
+  void loadSolvedProblems();
+});
 </script>
 
 <template>
@@ -164,7 +187,8 @@ watch(() => session.user?.id, () => { void loadFavorites(); });
         @click="router.push('/problems/' + row.id)"
         @keydown.enter="router.push('/problems/' + row.id)"
       >
-        <Circle class="problem-catalog-status" :size="20" aria-hidden="true" />
+        <CheckCircle2 v-if="isSolved(row)" class="problem-catalog-status problem-catalog-status--solved" :size="20" aria-label="已解决" />
+        <Circle v-else class="problem-catalog-status" :size="20" aria-hidden="true" />
         <div class="problem-catalog-main">
           <strong>{{ row.title }}</strong>
           <div v-if="row.tags.length" class="problem-catalog-tags">

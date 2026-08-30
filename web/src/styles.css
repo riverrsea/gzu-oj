@@ -82,6 +82,11 @@
 /* 题库收藏入口。 */
 .app-shell--modern .problem-catalog-row { grid-template-columns: 24px minmax(0, 1fr) auto auto 30px; }
 .problem-catalog-favorite { justify-self: end; }
+.problem-catalog-status--solved { color: var(--success); }
+
+/* 做题区标题旁的已解决标记与题库使用同一套成功色。 */
+.dock-panel-title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.workspace-solved-badge { display: inline-flex; align-items: center; gap: 4px; min-height: 23px; padding: 0 8px; border: 1px solid color-mix(in srgb, var(--success) 24%, var(--border)); border-radius: 999px; background: color-mix(in srgb, var(--success) 10%, var(--surface)); color: var(--success); font-size: 11px; font-weight: 700; white-space: nowrap; }
 
 /* 首次失败询问嵌入提交结果面板，保持低干扰且不使用 Toast/弹窗。 */
 .wrong-book-prompt { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 14px; padding: 11px 12px; border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--warning) 6%, var(--surface)); }

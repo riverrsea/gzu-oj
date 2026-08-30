@@ -160,6 +160,8 @@ export const api = {
   favorite: (problemId: string) => request<void>("/api/v1/favorites/" + problemId, { method: "POST" }),
   unfavorite: (problemId: string) => request<void>("/api/v1/favorites/" + problemId, { method: "DELETE" }),
   favorites: () => request<UserProblemSummary[]>("/api/v1/favorites"),
+  /** 查询当前用户曾经正式通过的题目 ID，跨题目版本合并。 */
+  solvedProblemIds: () => request<string[]>("/api/v1/solved-problems"),
   wrongProblems: () => request<WrongProblem[]>("/api/v1/wrong-problems"),
   addWrongProblem: (problemId: string, submissionId: string) => request<void>("/api/v1/wrong-problems/" + problemId, {
     method: "POST",

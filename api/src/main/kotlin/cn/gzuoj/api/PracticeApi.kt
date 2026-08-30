@@ -92,6 +92,18 @@ class PracticeService(
         userId,
     )
 
+    /** 返回用户曾经正式通过过的题目标识，跨题目版本合并。 */
+    fun solvedProblemIds(userId: UUID): List<UUID> = jdbc.query(
+        """
+        SELECT DISTINCT pv.problem_id
+        FROM submission s
+        JOIN problem_version pv ON pv.id = s.problem_version_id
+        WHERE s.user_id = ? AND s.execution_mode = 'SUBMIT' AND s.status = 'AC'
+        """.trimIndent(),
+        { result, _ -> result.getObject("problem_id", UUID::class.java) },
+        userId,
+    )
+
     /** 返回错题历史，可选择只查看尚未解决的题目。 */
     fun wrongProblems(userId: UUID, unresolvedOnly: Boolean): List<WrongProblemResponse> {
         val solvedFilter = if (unresolvedOnly) " AND w.solved_at IS NULL" else ""
@@ -219,6 +231,11 @@ class PracticeController(
     @GetMapping("/favorites")
     fun favorites(@AuthenticationPrincipal principal: AppPrincipal): List<UserProblemSummary> =
         service.favorites(principal.userId)
+
+    /** 查询当前用户已经正式通过的题目 ID。 */
+    @GetMapping("/solved-problems")
+    fun solvedProblemIds(@AuthenticationPrincipal principal: AppPrincipal): List<UUID> =
+        service.solvedProblemIds(principal.userId)
 
     /** 查询错题本。 */
     @GetMapping("/wrong-problems")

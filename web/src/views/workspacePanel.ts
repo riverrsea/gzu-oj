@@ -33,6 +33,8 @@ export interface WorkspacePanelContext {
   running: boolean;
   /** 是否正在提交全部测试点。 */
   submitting: boolean;
+  /** 当前题目是否曾经正式通过。 */
+  isSolved: boolean;
   /** 当前题目是否已被收藏。 */
   isFavorited: boolean;
   /** 收藏请求是否正在处理中。 */

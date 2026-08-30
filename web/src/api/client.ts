@@ -161,6 +161,10 @@ export const api = {
   unfavorite: (problemId: string) => request<void>("/api/v1/favorites/" + problemId, { method: "DELETE" }),
   favorites: () => request<UserProblemSummary[]>("/api/v1/favorites"),
   wrongProblems: () => request<WrongProblem[]>("/api/v1/wrong-problems"),
+  addWrongProblem: (problemId: string, submissionId: string) => request<void>("/api/v1/wrong-problems/" + problemId, {
+    method: "POST",
+    body: JSON.stringify({ submissionId }),
+  }),
   contests: () => request<Contest[]>("/api/v1/contests"),
   contest: (id: string) => request<Contest>("/api/v1/contests/" + id),
   createContest: (body: { title: string; visibility: ContestVisibility; password?: string; startsAt: string; durationMinutes: number; problemIds: string[] }) =>

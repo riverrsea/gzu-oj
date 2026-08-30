@@ -34,6 +34,8 @@ const activeCase = ref(0);
 const submitting = ref(false);
 const running = ref(false);
 const actionCoolingDown = ref(false);
+const isFavorited = ref(false);
+const favoriteLoading = ref(false);
 const submission = ref<Submission>();
 const runSubmission = ref<Submission>();
 const submitSubmission = ref<Submission>();
@@ -47,6 +49,10 @@ const settingsOpen = ref(false);
 const dockviewApi = ref<DockviewApi>();
 const dockLayoutError = ref("");
 const notifiedResultKey = ref("");
+const wrongBookProblemIds = ref<Set<string>>(new Set());
+const wrongBookPrompt = ref<{ submissionId: string; problemId: string } | null>(null);
+const wrongBookPromptLoading = ref(false);
+const wrongBookPromptMessage = ref("");
 const pollTimers: Record<"RUN" | "SUBMIT", number | undefined> = { RUN: undefined, SUBMIT: undefined };
 const dockLayoutStorageKey = "gzu-oj.workspace-dock-layout.v1";
 type DockLayoutSnapshot = ReturnType<DockviewApi["toJSON"]>;
@@ -69,6 +75,8 @@ const ACTION_COOLDOWN_MS = 1000;
 const CODE_AUTOSAVE_DELAY_MS = 700;
 
 const terminalStatuses = new Set<JudgeStatus>(["AC", "PARTIAL", "WA", "CE", "TLE", "MLE", "RE", "OLE", "SYSTEM_ERROR", "CANCELED"]);
+/** 会触发错题本询问的用户代码判题失败状态；基础设施错误和主动取消不计入。 */
+const wrongBookCandidateStatuses = new Set<JudgeStatus>(["PARTIAL", "WA", "CE", "TLE", "MLE", "RE", "OLE"]);
 const renderedStatement = computed(() => {
   if (!problem.value) return "";
   return DOMPurify.sanitize(marked.parse(problem.value.statementMarkdown, { async: false }) as string);
@@ -183,6 +191,11 @@ const dockContext = reactive<WorkspacePanelContext>({
   submitSubmission: undefined,
   running: false,
   submitting: false,
+  isFavorited: false,
+  favoriteLoading: false,
+  wrongBookPrompt: null,
+  wrongBookPromptLoading: false,
+  wrongBookPromptMessage: "",
   submissionHistory: [],
   submissionHistoryLoading: false,
   submissionHistoryError: "",
@@ -204,6 +217,8 @@ const dockContext = reactive<WorkspacePanelContext>({
   },
   setActiveCase: (index) => { activeCase.value = Math.max(0, Math.min(index, runInputs.value.length - 1)); },
   favorite: () => { void favoriteProblem(); },
+  addToWrongBook: () => { void addSubmissionToWrongBook(); },
+  dismissWrongBookPrompt: () => dismissWrongBookPrompt(),
   fullscreen: () => requestFullscreen(),
 });
 
@@ -309,18 +324,105 @@ function loadDraft(): void {
   if (!readFailed) codeSaveState.value = "saved";
 }
 
-/** 收藏当前题目；未登录时进入登录卡片。 */
+/** 读取当前用户的错题本题目标识，用于判断是否需要首次失败提示。 */
+async function loadWrongBookState(): Promise<void> {
+  if (!session.user) {
+    wrongBookProblemIds.value = new Set();
+    return;
+  }
+  try {
+    const rows = await api.wrongProblems();
+    wrongBookProblemIds.value = new Set(rows.map((row) => row.problem.problemId));
+  } catch {
+    // 错题本读取失败不应阻塞做题，失败时只是不显示可选提示。
+    wrongBookProblemIds.value = new Set();
+  }
+}
+
+/** 读取当前题目的收藏状态；收藏是题目级数据，与锁定版本无关。 */
+async function loadFavoriteState(problemId: string): Promise<void> {
+  if (!session.user) {
+    isFavorited.value = false;
+    return;
+  }
+  try {
+    const rows = await api.favorites();
+    if (problem.value?.id === problemId) isFavorited.value = rows.some((row) => row.problemId === problemId);
+  } catch {
+    isFavorited.value = false;
+  }
+}
+
+/** 收藏当前题目；再次点击同一图标即可取消收藏。 */
 async function favoriteProblem(): Promise<void> {
   if (!session.user) {
     await router.push({ path: "/login", query: { redirect: route.fullPath } });
     return;
   }
+  const problemId = problem.value?.id ?? String(route.params.id);
+  if (favoriteLoading.value) return;
+  favoriteLoading.value = true;
   try {
-    await api.favorite(problem.value?.id ?? String(route.params.id));
-    toast.success("已收藏");
+    if (isFavorited.value) {
+      await api.unfavorite(problemId);
+      isFavorited.value = false;
+      toast.success("已取消收藏");
+    } else {
+      await api.favorite(problemId);
+      isFavorited.value = true;
+      toast.success("已收藏");
+    }
   } catch (error) {
-    toast.error(error instanceof Error ? error.message : "收藏失败");
+    toast.error(error instanceof Error ? error.message : (isFavorited.value ? "取消收藏失败" : "收藏失败"));
+  } finally {
+    favoriteLoading.value = false;
   }
+}
+
+/** 为每道题保存一次“首次失败已询问”标记，避免连续提交反复打扰。 */
+function wrongBookPromptKey(problemId: string): string {
+  return "gzu-oj.wrong-book-prompted." + problemId;
+}
+
+function hasPromptedWrongBook(problemId: string): boolean {
+  try { return localStorage.getItem(wrongBookPromptKey(problemId)) === "1"; } catch { return false; }
+}
+
+function markWrongBookPrompted(problemId: string): void {
+  try { localStorage.setItem(wrongBookPromptKey(problemId), "1"); } catch { /* 本地存储不可用时不影响提交结果。 */ }
+}
+
+/** 仅在首次用户可归因的未通过正式提交完成后显示轻量内嵌提示。 */
+function maybePromptWrongBook(value: Submission): void {
+  if (value.executionMode !== "SUBMIT" || !wrongBookCandidateStatuses.has(value.status)) return;
+  if (wrongBookPrompt.value || wrongBookProblemIds.value.has(value.problemId) || hasPromptedWrongBook(value.problemId)) return;
+  markWrongBookPrompted(value.problemId);
+  wrongBookPromptMessage.value = "";
+  wrongBookPrompt.value = { submissionId: value.id, problemId: value.problemId };
+}
+
+/** 将提示中的失败提交加入错题本，反馈留在结果面板内而不是弹出消息。 */
+async function addSubmissionToWrongBook(): Promise<void> {
+  const prompt = wrongBookPrompt.value;
+  if (!prompt || wrongBookPromptLoading.value) return;
+  wrongBookPromptLoading.value = true;
+  wrongBookPromptMessage.value = "";
+  try {
+    await api.addWrongProblem(prompt.problemId, prompt.submissionId);
+    wrongBookProblemIds.value = new Set([...wrongBookProblemIds.value, prompt.problemId]);
+    wrongBookPrompt.value = null;
+    wrongBookPromptMessage.value = "已加入错题本";
+  } catch (error) {
+    wrongBookPromptMessage.value = error instanceof Error ? error.message : "加入错题本失败，请稍后重试";
+  } finally {
+    wrongBookPromptLoading.value = false;
+  }
+}
+
+/** 关闭内嵌提示；询问标记已保存，不会在下一次失败时再次打扰。 */
+function dismissWrongBookPrompt(): void {
+  wrongBookPrompt.value = null;
+  wrongBookPromptMessage.value = "";
 }
 
 /** 切换到当前公开版本，并同步样例、草稿和测试用例标签。 */
@@ -342,6 +444,8 @@ function switchToLatestVersion(): void {
   actionCoolingDown.value = false;
   running.value = false;
   submitting.value = false;
+  wrongBookPrompt.value = null;
+  wrongBookPromptMessage.value = "";
   saveVersionBookmark(latest.versionId);
   loadDraft();
 }
@@ -498,6 +602,7 @@ async function submit(): Promise<void> {
 function schedulePoll(current: Submission): void {
   notifyTerminalResult(current);
   if (terminalStatuses.has(current.status)) {
+    maybePromptWrongBook(current);
     if (current.executionMode === "SUBMIT") void loadSubmissionHistory();
     releaseActionLock(current.executionMode);
     return;
@@ -523,6 +628,12 @@ function schedulePoll(current: Submission): void {
 async function loadProblem(): Promise<void> {
   loading.value = true;
   loadingError.value = "";
+  // 路由复用时先清理上一题的运行态，避免收藏、版本提示和判题结果串题。
+  latestVersion.value = undefined;
+  resumedPreviousVersion.value = false;
+  isFavorited.value = false;
+  wrongBookPrompt.value = null;
+  wrongBookPromptMessage.value = "";
   try {
     if (typeof route.query.versionId === "string") {
       const locked = await api.problemVersion(route.query.versionId);
@@ -550,6 +661,8 @@ async function loadProblem(): Promise<void> {
     runInputs.value = problem.value.samples.length ? problem.value.samples.map((sample) => sample.input) : [""];
     activeCase.value = 0;
     loadDraft();
+    await loadFavoriteState(problem.value.id);
+    await loadWrongBookState();
   } catch (error) {
     loadingError.value = error instanceof Error ? error.message : "题目加载失败";
     toast.error(loadingError.value);
@@ -601,6 +714,11 @@ watchEffect(() => {
   dockContext.submitSubmission = submitSubmission.value;
   dockContext.running = running.value;
   dockContext.submitting = submitting.value;
+  dockContext.isFavorited = isFavorited.value;
+  dockContext.favoriteLoading = favoriteLoading.value;
+  dockContext.wrongBookPrompt = wrongBookPrompt.value;
+  dockContext.wrongBookPromptLoading = wrongBookPromptLoading.value;
+  dockContext.wrongBookPromptMessage = wrongBookPromptMessage.value;
   dockContext.submissionHistory = submissionHistory.value;
   dockContext.submissionHistoryLoading = submissionHistoryLoading.value;
   dockContext.submissionHistoryError = submissionHistoryError.value;
@@ -630,6 +748,11 @@ watch(language, (next, previous) => {
 watch(fontSize, (value) => localStorage.setItem("gzu-oj.font-size", String(value)));
 watch(() => [session.user?.id, problem.value?.versionId], () => {
   void loadSubmissionHistory();
+  void loadWrongBookState();
+  if (problem.value) void loadFavoriteState(problem.value.id);
+});
+watch(() => [String(route.params.id), typeof route.query.versionId === "string" ? route.query.versionId : ""], (next, previous) => {
+  if (previous && next.join("/") !== previous.join("/")) void loadProblem();
 });
 function syncTheme(event: Event): void {
   dark.value = Boolean((event as CustomEvent<{ dark: boolean }>).detail.dark);

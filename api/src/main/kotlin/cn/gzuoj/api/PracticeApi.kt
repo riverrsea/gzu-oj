@@ -118,6 +118,39 @@ class PracticeService(
         )
     }
 
+    /** 将一次未通过的正式提交显式加入错题本；重复加入只刷新历史最高分。 */
+    @Transactional
+    fun addWrongProblem(userId: UUID, problemId: UUID, submissionId: UUID) {
+        requirePublishedProblem(problemId)
+        val score = jdbc.query(
+            """
+            SELECT s.score
+            FROM submission s
+            JOIN problem_version pv ON pv.id = s.problem_version_id
+            WHERE s.id = ? AND s.user_id = ? AND pv.problem_id = ?
+              AND s.execution_mode = 'SUBMIT'
+              AND s.status IN ('PARTIAL', 'WA', 'CE', 'TLE', 'MLE', 'RE', 'OLE')
+            """.trimIndent(),
+            { result, _ -> result.getInt("score") },
+            submissionId,
+            userId,
+            problemId,
+        ).firstOrNull() ?: throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_WRONG_PROBLEM_SUBMISSION", "只能将本人未通过的正式提交加入错题本")
+        jdbc.update(
+            """
+            INSERT INTO wrong_problem(user_id, problem_id, best_score)
+            VALUES (?, ?, ?)
+            ON CONFLICT(user_id, problem_id) DO UPDATE SET
+                best_score = greatest(wrong_problem.best_score, EXCLUDED.best_score),
+                last_wrong_at = now(),
+                solved_at = NULL
+            """.trimIndent(),
+            userId,
+            problemId,
+            score,
+        )
+    }
+
     /** 提交当前发布版本的问题反馈。 */
     @Transactional
     fun feedback(userId: UUID, problemId: UUID, content: String): UUID {
@@ -159,6 +192,12 @@ data class CreateFeedbackRequest(
     val content: String,
 )
 
+/** 将一次正式提交加入错题本的请求。 */
+data class AddWrongProblemRequest(
+    /** 只能引用当前用户本人、同一题目的未通过正式提交。 */
+    val submissionId: UUID,
+)
+
 /** 收藏、错题本与反馈接口。 */
 @RestController
 @RequestMapping("/api/v1")
@@ -187,6 +226,14 @@ class PracticeController(
         @RequestParam(defaultValue = "false") unresolvedOnly: Boolean,
         @AuthenticationPrincipal principal: AppPrincipal,
     ): List<WrongProblemResponse> = service.wrongProblems(principal.userId, unresolvedOnly)
+
+    /** 显式将一次未通过提交加入错题本。 */
+    @PostMapping("/wrong-problems/{problemId}")
+    fun addWrongProblem(
+        @PathVariable problemId: UUID,
+        @Valid @RequestBody body: AddWrongProblemRequest,
+        @AuthenticationPrincipal principal: AppPrincipal,
+    ) = service.addWrongProblem(principal.userId, problemId, body.submissionId)
 
     /** 提交题目反馈。 */
     @PostMapping("/problems/{problemId}/feedback")

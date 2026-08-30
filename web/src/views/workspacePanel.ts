@@ -33,6 +33,16 @@ export interface WorkspacePanelContext {
   running: boolean;
   /** 是否正在提交全部测试点。 */
   submitting: boolean;
+  /** 当前题目是否已被收藏。 */
+  isFavorited: boolean;
+  /** 收藏请求是否正在处理中。 */
+  favoriteLoading: boolean;
+  /** 首次未通过正式提交后的轻量错题本提示。 */
+  wrongBookPrompt: { submissionId: string; problemId: string } | null;
+  /** 错题本提示操作是否正在处理中。 */
+  wrongBookPromptLoading: boolean;
+  /** 错题本提示操作的内联反馈。 */
+  wrongBookPromptMessage: string;
   /** 当前题目和版本的正式提交历史。 */
   submissionHistory: Submission[];
   /** 提交历史是否正在加载。 */
@@ -65,6 +75,10 @@ export interface WorkspacePanelContext {
   setActiveCase: (index: number) => void;
   /** 收藏当前题目。 */
   favorite: () => void;
+  /** 将失败提交加入错题本。 */
+  addToWrongBook: () => void;
+  /** 忽略本次错题本提示。 */
+  dismissWrongBookPrompt: () => void;
   /** 请求整个工作区进入全屏。 */
   fullscreen: () => void;
 }

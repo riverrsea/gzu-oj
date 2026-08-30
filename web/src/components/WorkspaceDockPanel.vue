@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Component } from "vue";
-import { Bookmark, CheckCircle2, ChevronRight, CircleAlert, CircleX, ClipboardList, Clock3, Info, LoaderCircle, Maximize2, MemoryStick, RefreshCw, RotateCcw, Settings2 } from "@lucide/vue";
+import { Bookmark, BookmarkCheck, CheckCircle2, ChevronRight, CircleAlert, CircleX, ClipboardList, Clock3, Info, LoaderCircle, Maximize2, MemoryStick, RefreshCw, RotateCcw, Settings2 } from "@lucide/vue";
 import type { WorkspacePanelContext, WorkspacePanelKind } from "../views/workspacePanel";
 import CodeEditor from "./CodeEditor.vue";
 import UiButton from "./ui/Button.vue";
@@ -96,7 +96,10 @@ function codeSaveStatusIcon(state: WorkspacePanelContext["codeSaveState"]): Comp
         <h1>{{ context.problem.title }}</h1>
         <p>{{ context.problem.school }} · {{ context.problem.year }} · 版本 {{ context.problem.versionNumber }}</p>
       </div>
-      <button class="icon-button" type="button" title="收藏题目" aria-label="收藏题目" @click="context.favorite"><Bookmark :size="18" /></button>
+      <button class="icon-button workspace-favorite-button" :class="{ 'is-favorited': context.isFavorited }" type="button" :title="context.isFavorited ? '取消收藏' : '收藏题目'" :aria-label="context.isFavorited ? '取消收藏' : '收藏题目'" :aria-pressed="context.isFavorited" :disabled="context.favoriteLoading" @click="context.favorite">
+        <BookmarkCheck v-if="context.isFavorited" :size="18" fill="currentColor" />
+        <Bookmark v-else :size="18" />
+      </button>
     </header>
     <div v-if="context.problem" class="problem-meta">
       <span v-for="tag in context.problem.tags" :key="tag" class="plain-tag">{{ tag }}</span>
@@ -248,7 +251,18 @@ function codeSaveStatusIcon(state: WorkspacePanelContext["codeSaveState"]): Comp
             <span>{{ item.timeMs }} ms</span>
           </div>
         </div>
-        <p v-else class="waiting-text">{{ context.terminalStatuses.has(context.submitSubmission.status) ? "没有可展示的测点结果" : "任务已进入持久化队列" }}</p>
+        <div v-if="context.wrongBookPrompt" class="wrong-book-prompt" role="status">
+          <div class="wrong-book-prompt-copy">
+            <strong>要把这道题加入错题本吗？</strong>
+            <span>只在首次提交未通过时提示，之后可在练习簿中查看。</span>
+          </div>
+          <div class="wrong-book-prompt-actions">
+            <UiButton size="sm" :loading="context.wrongBookPromptLoading" @click="context.addToWrongBook">加入错题本</UiButton>
+            <UiButton size="sm" variant="ghost" :disabled="context.wrongBookPromptLoading" @click="context.dismissWrongBookPrompt">暂不添加</UiButton>
+          </div>
+        </div>
+        <p v-if="context.wrongBookPromptMessage" class="wrong-book-prompt-message">{{ context.wrongBookPromptMessage }}</p>
+        <p v-if="!context.submitSubmission.testCases.length && !context.wrongBookPrompt && !context.wrongBookPromptMessage" class="waiting-text">{{ context.terminalStatuses.has(context.submitSubmission.status) ? "没有可展示的测点结果" : "任务已进入持久化队列" }}</p>
       </template>
       <UiEmptyState v-else description="提交后在此查看判题结果" />
     </div>

@@ -2103,7 +2103,8 @@ a { color: inherit; text-decoration: none; }
 .ui-button--size-icon { width: 38px; height: 38px; padding: 0; }
 
 /* 输入控件使用轻浅底色，聚焦时通过边框和外环共同提示当前字段。 */
-.app-shell--modern .ui-control {
+.app-shell--modern .ui-control,
+.training-create-dialog .ui-control {
   display: block;
   width: 100%;
   min-width: 0;
@@ -2119,17 +2120,23 @@ a { color: inherit; text-decoration: none; }
   box-shadow: inset 0 1px 1px rgb(15 23 42 / 4%);
   transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
 }
-.app-shell--modern .ui-control:hover:not(:disabled):not(:focus) { border-color: color-mix(in srgb, var(--accent) 34%, var(--input)); }
+.app-shell--modern .ui-control:hover:not(:disabled):not(:focus),
+.training-create-dialog .ui-control:hover:not(:disabled):not(:focus) { border-color: color-mix(in srgb, var(--accent) 34%, var(--input)); }
 .app-shell--modern .ui-control:focus,
-.app-shell--modern .ui-control:focus-visible {
+.app-shell--modern .ui-control:focus-visible,
+.training-create-dialog .ui-control:focus,
+.training-create-dialog .ui-control:focus-visible {
   border-color: var(--ring);
   background: var(--surface);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 16%, transparent);
 }
-.app-shell--modern .ui-control::placeholder { color: var(--muted); opacity: 0.74; }
-.app-shell--modern .ui-control:disabled { cursor: not-allowed; opacity: 0.52; }
+.app-shell--modern .ui-control::placeholder,
+.training-create-dialog .ui-control::placeholder { color: var(--muted); opacity: 0.74; }
+.app-shell--modern .ui-control:disabled,
+.training-create-dialog .ui-control:disabled { cursor: not-allowed; opacity: 0.52; }
 .app-shell--modern .ui-control--textarea { min-height: 80px; height: auto; padding-top: 9px; padding-bottom: 9px; resize: vertical; }
-.app-shell--modern .ui-control--select { padding-right: 30px; cursor: pointer; }
+.app-shell--modern .ui-control--select,
+.training-create-dialog .ui-control--select { padding-right: 30px; cursor: pointer; }
 
 /* 尚未封装为公共组件的表单控件也与新样式保持一致。 */
 .app-shell--modern input:not([type]):not(.ui-control),
@@ -2846,4 +2853,148 @@ a { color: inherit; text-decoration: none; }
   .training-attempt-status { grid-template-columns: 1fr auto; gap: 12px; }
   .training-attempt-status > .ui-button { grid-column: 1 / -1; justify-self: start; }
   .training-empty-panel, .training-start-panel { min-height: 300px; padding: 24px 16px; }
+}
+
+/* 创建训练赛和套卷共用可搜索的题目多选器，选择结果直接映射到 problemIds。 */
+.training-create-dialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(760px, 100%);
+  max-height: min(820px, calc(100dvh - 40px));
+  overflow: hidden;
+}
+.training-create-dialog .ui-dialog-content {
+  min-height: 0;
+  padding: 20px 22px 0;
+  overflow-y: auto;
+}
+.training-create-dialog .problem-form { gap: 16px; }
+.training-create-dialog .form-field { gap: 6px; }
+.training-create-dialog .form-field > label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+.training-create-dialog .ui-control {
+  height: 38px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+.training-create-dialog .ui-control--select {
+  background-color: var(--surface);
+}
+.training-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.training-form-grid--paper { grid-template-columns: minmax(0, 1fr) minmax(150px, 0.32fr); }
+.training-form-grid--paper .training-form-title { min-width: 0; }
+.problem-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(210px, 0.75fr);
+  min-height: 350px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+.problem-picker-catalog, .problem-picker-selection { display: grid; min-width: 0; min-height: 0; grid-template-rows: auto auto minmax(0, 1fr); }
+.problem-picker-selection { grid-template-rows: auto minmax(0, 1fr); border-left: 1px solid var(--border); background: var(--surface-subtle); }
+.problem-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 39px;
+  padding: 0 11px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-subtle);
+}
+.problem-picker-header > strong { color: var(--text); font-size: 11px; }
+.problem-picker-header > span { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 10px; }
+.problem-picker-header > span strong { color: var(--text); font-size: 11px; }
+.problem-picker-header em { min-width: 27px; padding: 2px 6px; border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 9px; font-style: normal; text-align: center; }
+.problem-picker-clear { flex: 0 0 auto; padding: 3px 5px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 11px; }
+.problem-picker-clear:hover { color: var(--danger); }
+.problem-picker-search { position: relative; display: flex; align-items: center; border-bottom: 1px solid var(--border); color: var(--muted); }
+.problem-picker-search > svg { position: absolute; left: 12px; z-index: 1; pointer-events: none; }
+.problem-picker-search input {
+  width: 100%;
+  height: 39px;
+  padding: 0 12px 0 36px;
+  border: 0;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+}
+.problem-picker-search:focus-within { box-shadow: inset 0 0 0 1px var(--ring); color: var(--accent); }
+.problem-picker-search input::placeholder { color: color-mix(in srgb, var(--muted) 78%, transparent); }
+.problem-picker-options { min-height: 0; padding: 4px; overflow-y: auto; scrollbar-width: thin; }
+.problem-picker-option {
+  position: relative;
+  display: grid;
+  grid-template-columns: 19px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 49px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 130ms ease, background-color 130ms ease;
+}
+.problem-picker-option:hover { background: var(--surface-subtle); }
+.problem-picker-option.selected { border-color: color-mix(in srgb, var(--accent) 25%, var(--border)); background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
+.problem-picker-option > input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.problem-picker-option:has(input:disabled) { cursor: not-allowed; opacity: 0.48; }
+.problem-picker-option:focus-within { outline: 2px solid var(--ring); outline-offset: -2px; }
+.problem-picker-check { display: grid; width: 18px; height: 18px; place-items: center; border: 1px solid var(--input); border-radius: 5px; background: var(--surface); color: var(--accent-contrast); }
+.problem-picker-option.selected .problem-picker-check { border-color: var(--accent); background: var(--accent); }
+.problem-picker-option-copy { display: grid; min-width: 0; gap: 4px; }
+.problem-picker-option-copy strong { overflow: hidden; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.problem-picker-option-copy small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.problem-picker-option-difficulty { min-width: 42px; padding: 3px 7px; border-radius: 999px; color: var(--muted); font-size: 10px; font-weight: 700; text-align: center; }
+.problem-picker-option-difficulty--easy { background: color-mix(in srgb, var(--success) 10%, var(--surface)); color: var(--success); }
+.problem-picker-option-difficulty--medium { background: color-mix(in srgb, var(--warning) 10%, var(--surface)); color: var(--warning); }
+.problem-picker-option-difficulty--hard { background: color-mix(in srgb, var(--danger) 10%, var(--surface)); color: var(--danger); }
+.problem-picker-empty { display: grid; min-height: 150px; place-items: center; align-content: center; gap: 8px; color: var(--muted); font-size: 11px; }
+.problem-picker-empty svg { color: var(--accent); }
+.problem-picker-selected { min-height: 0; padding: 5px; overflow-y: auto; scrollbar-width: thin; }
+.problem-picker-selected-row { display: grid; grid-template-columns: 23px minmax(0, 1fr) 27px; align-items: center; gap: 6px; min-height: 38px; padding: 3px 3px 3px 7px; border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent); }
+.problem-picker-selected-row:last-child { border-bottom: 0; }
+.problem-picker-selected-row > span { color: var(--muted); font: 9px ui-monospace, monospace; }
+.problem-picker-selected-row > strong { overflow: hidden; color: var(--text); font-size: 10px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.problem-picker-selected-row > button { display: grid; width: 26px; height: 26px; place-items: center; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
+.problem-picker-selected-row > button:hover { background: color-mix(in srgb, var(--danger) 8%, var(--surface)); color: var(--danger); }
+.problem-picker-selected-empty { display: grid; place-items: center; align-content: center; gap: 8px; padding: 18px; color: var(--muted); font-size: 10px; text-align: center; }
+.problem-picker-selected-empty svg { color: color-mix(in srgb, var(--muted) 60%, transparent); }
+.training-create-dialog .form-actions {
+  position: sticky;
+  z-index: 2;
+  bottom: 0;
+  min-height: 68px;
+  margin: 0 -22px;
+  padding: 13px 22px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: blur(12px);
+}
+.training-create-dialog .form-actions > div { display: flex; align-items: center; gap: 8px; }
+.training-create-dialog .form-actions .ui-button { min-width: 74px; border-radius: 7px; }
+.training-form-selection { color: var(--muted); font-size: 11px; }
+
+@media (max-width: 760px) {
+  .training-create-dialog { max-height: calc(100dvh - 20px); }
+  .training-create-dialog .ui-dialog-content { padding: 16px 14px 0; }
+  .training-form-grid, .training-form-grid--paper { grid-template-columns: 1fr; gap: 11px; }
+  .problem-picker { grid-template-columns: 1fr; grid-template-rows: minmax(280px, 1fr) auto; min-height: 0; }
+  .problem-picker-selection { max-height: 160px; border-top: 1px solid var(--border); border-left: 0; }
+  .problem-picker-options { max-height: 250px; }
+  .problem-picker-option { grid-template-columns: 19px minmax(0, 1fr); }
+  .problem-picker-option-difficulty { display: none; }
+  .training-create-dialog .form-actions { align-items: stretch; margin: 0 -14px; padding: 12px 14px; }
+  .training-create-dialog .form-actions > div { width: 100%; justify-content: flex-end; }
 }

@@ -8,6 +8,7 @@ const props = withDefaults(defineProps<{
   placeholder?: string;
   disabled?: boolean;
   readonly?: boolean;
+  required?: boolean;
   maxlength?: number | string;
   autocomplete?: string;
   class?: string;
@@ -21,5 +22,5 @@ const classes = computed(() => cn(
 </script>
 
 <template>
-  <input :value="modelValue" :type="type" :placeholder="placeholder" :disabled="disabled" :readonly="readonly" :maxlength="maxlength" :autocomplete="autocomplete" :class="classes" @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)" />
+  <input :value="modelValue" :type="type" :placeholder="placeholder" :disabled="disabled" :readonly="readonly" :required="required" :maxlength="maxlength" :autocomplete="autocomplete" :class="classes" @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)" />
 </template>

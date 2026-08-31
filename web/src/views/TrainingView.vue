@@ -13,6 +13,7 @@ import UiNumberField from "../components/ui/NumberField.vue";
 import UiSelect from "../components/ui/Select.vue";
 import UiTable from "../components/ui/Table.vue";
 import UiLabel from "../components/ui/Label.vue";
+import ProblemPicker from "../components/ProblemPicker.vue";
 
 /** 训练中心的当前标签。 */
 const tab = ref<"contest" | "paper">("contest");
@@ -316,18 +317,27 @@ onBeforeUnmount(() => window.clearInterval(ticker));
       </section>
     </div>
 
-    <UiDialog v-model="contestDialog" title="创建训练赛">
+    <UiDialog v-model="contestDialog" title="创建训练赛" class="training-create-dialog">
       <form class="problem-form" @submit.prevent="createContest">
-        <div class="form-field"><UiLabel>标题</UiLabel><UiInput v-model="contestForm.title" maxlength="120" /></div>
-        <div class="form-grid"><div class="form-field"><UiLabel>可见性</UiLabel><UiSelect v-model="contestForm.visibility" placeholder=""><option value="PUBLIC">公开</option><option value="PASSWORD">口令</option></UiSelect></div><div v-if="contestForm.visibility === 'PASSWORD'" class="form-field"><UiLabel>口令</UiLabel><UiInput v-model="contestForm.password" type="password" /></div><div class="form-field"><UiLabel>开始时间</UiLabel><UiInput v-model="contestForm.startsAt" type="datetime-local" /></div><div class="form-field"><UiLabel>时长（分钟）</UiLabel><UiNumberField v-model="contestForm.durationMinutes" :min="15" :max="300" /></div></div>
-        <div class="form-field"><UiLabel>题目（可多选）</UiLabel><select v-model="contestForm.problemIds" class="multi-select" multiple><option v-for="problem in problems" :key="problem.id" :value="problem.id">{{ problem.title }}</option></select></div>
-        <div class="form-actions"><UiButton variant="outline" type="button" @click="contestDialog = false">取消</UiButton><UiButton type="submit"><Trophy :size="16" />创建</UiButton></div>
+        <div class="form-field training-form-title"><UiLabel>比赛名称</UiLabel><UiInput v-model="contestForm.title" maxlength="120" placeholder="输入比赛名称" required /></div>
+        <div class="training-form-grid">
+          <div class="form-field"><UiLabel>可见性</UiLabel><UiSelect v-model="contestForm.visibility" placeholder=""><option value="PUBLIC">公开</option><option value="PASSWORD">口令</option></UiSelect></div>
+          <div v-if="contestForm.visibility === 'PASSWORD'" class="form-field"><UiLabel>比赛口令</UiLabel><UiInput v-model="contestForm.password" type="password" placeholder="8 到 100 位" required /></div>
+          <div class="form-field training-form-time"><UiLabel>开始时间</UiLabel><UiInput v-model="contestForm.startsAt" type="datetime-local" required /></div>
+          <div class="form-field"><UiLabel>时长（分钟）</UiLabel><UiNumberField v-model="contestForm.durationMinutes" :min="15" :max="300" required /></div>
+        </div>
+        <div class="form-field"><UiLabel>选择题目</UiLabel><ProblemPicker v-model="contestForm.problemIds" :problems="problems" /></div>
+        <div class="form-actions"><span class="training-form-selection">{{ contestForm.problemIds.length ? `已选择 ${contestForm.problemIds.length} 道题` : "至少选择一道题" }}</span><div><UiButton variant="outline" type="button" @click="contestDialog = false">取消</UiButton><UiButton type="submit" :disabled="!contestForm.problemIds.length"><Trophy :size="16" />创建</UiButton></div></div>
       </form>
     </UiDialog>
-    <UiDialog v-model="paperDialog" title="创建个人计时套卷">
+    <UiDialog v-model="paperDialog" title="创建个人计时套卷" class="training-create-dialog">
       <form class="problem-form" @submit.prevent="createPaper">
-        <div class="form-field"><UiLabel>标题</UiLabel><UiInput v-model="paperForm.title" maxlength="120" /></div><div class="form-field"><UiLabel>时长（分钟）</UiLabel><UiNumberField v-model="paperForm.durationMinutes" :min="15" :max="300" /></div><div class="form-field"><UiLabel>题目（可多选）</UiLabel><select v-model="paperForm.problemIds" class="multi-select" multiple><option v-for="problem in problems" :key="problem.id" :value="problem.id">{{ problem.title }}</option></select></div>
-        <div class="form-actions"><UiButton variant="outline" type="button" @click="paperDialog = false">取消</UiButton><UiButton type="submit"><FileText :size="16" />创建套卷</UiButton></div>
+        <div class="training-form-grid training-form-grid--paper">
+          <div class="form-field training-form-title"><UiLabel>套卷名称</UiLabel><UiInput v-model="paperForm.title" maxlength="120" placeholder="输入套卷名称" required /></div>
+          <div class="form-field"><UiLabel>时长（分钟）</UiLabel><UiNumberField v-model="paperForm.durationMinutes" :min="15" :max="300" required /></div>
+        </div>
+        <div class="form-field"><UiLabel>选择题目</UiLabel><ProblemPicker v-model="paperForm.problemIds" :problems="problems" /></div>
+        <div class="form-actions"><span class="training-form-selection">{{ paperForm.problemIds.length ? `已选择 ${paperForm.problemIds.length} 道题` : "至少选择一道题" }}</span><div><UiButton variant="outline" type="button" @click="paperDialog = false">取消</UiButton><UiButton type="submit" :disabled="!paperForm.problemIds.length"><FileText :size="16" />创建套卷</UiButton></div></div>
       </form>
     </UiDialog>
   </section>

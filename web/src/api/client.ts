@@ -176,6 +176,8 @@ export const api = {
   timedPapers: () => request<TimedPaper[]>("/api/v1/timed-papers"),
   createTimedPaper: (body: { title: string; durationMinutes: number; problemIds: string[] }) =>
     request<TimedPaper>("/api/v1/timed-papers", { method: "POST", body: JSON.stringify(body) }),
+  /** 查询当前用户已经开始过的套卷作答，用于恢复独立计时。 */
+  timedAttempts: () => request<TimedAttempt[]>("/api/v1/timed-papers/attempts"),
   startTimedPaper: (id: string) => request<TimedAttempt>("/api/v1/timed-papers/" + id + "/attempts", { method: "POST" }),
   timedAttempt: (id: string) => request<TimedAttempt>("/api/v1/timed-papers/attempts/" + id),
   shareTimedAttempt: (id: string) => request<{ token: string }>("/api/v1/timed-papers/attempts/" + id + "/share", { method: "POST" }),

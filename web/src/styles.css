@@ -2760,6 +2760,17 @@ a { color: inherit; text-decoration: none; }
 .training-browser-item-meta span:first-child { color: var(--text); font-weight: 700; }
 .training-browser-item-footer { justify-content: flex-start; padding-top: 2px; }
 .training-browser-item-footer > span:last-child { margin-left: auto; }
+/* 比赛和个人套卷共用时间流逝线，剩余比例依次切换为绿、黄、红。 */
+.training-time-compact {
+  --training-time-color: var(--success);
+  display: grid;
+  grid-template-columns: minmax(70px, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+}
+.training-time-compact small { color: var(--training-time-color); font: 700 9px ui-monospace, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.training-time-compact--warning { --training-time-color: var(--warning); }
+.training-time-compact--danger { --training-time-color: var(--danger); }
 .training-phase-dot { display: inline-block; flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .training-phase-dot--running { background: var(--success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 12%, transparent); }
 .training-phase-dot--upcoming { background: var(--warning); }
@@ -2788,8 +2799,30 @@ a { color: inherit; text-decoration: none; }
 .training-phase-label--paper svg { color: #8b5cf6; }
 .training-joined-badge { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 10px; border: 1px solid color-mix(in srgb, var(--success) 24%, var(--border)); border-radius: 999px; background: color-mix(in srgb, var(--success) 9%, var(--surface)); color: var(--success); font-size: 11px; font-weight: 750; white-space: nowrap; }
 .training-joined-badge--active { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 24%, var(--border)); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.training-joined-badge--finished { color: var(--muted); border-color: var(--border); background: var(--surface-subtle); }
 .training-detail-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; padding: 16px 0 20px; color: var(--muted); font-size: 11px; }
 .training-detail-meta span { display: inline-flex; align-items: center; gap: 6px; }
+.training-time-flow {
+  --training-time-color: var(--success);
+  display: grid;
+  gap: 9px;
+  margin-bottom: 22px;
+  padding: 14px 15px;
+  border: 1px solid color-mix(in srgb, var(--training-time-color) 24%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--training-time-color) 5%, var(--surface));
+  transition: border-color 220ms ease, background-color 220ms ease;
+}
+.training-time-flow--warning { --training-time-color: var(--warning); }
+.training-time-flow--danger { --training-time-color: var(--danger); }
+.training-time-flow header, .training-time-flow footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.training-time-flow header span { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 10px; font-weight: 700; }
+.training-time-flow header svg { color: var(--training-time-color); }
+.training-time-flow header strong { color: var(--training-time-color); font: 800 15px ui-monospace, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.training-time-flow footer { color: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums; }
+.training-time-track { display: block; width: 100%; height: 7px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--muted) 16%, var(--surface)); }
+.training-time-compact .training-time-track { height: 4px; }
+.training-time-track i { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--training-time-color); box-shadow: 0 0 8px color-mix(in srgb, var(--training-time-color) 45%, transparent); transition: width 1s linear, background-color 220ms ease; }
 .training-detail-section { display: grid; gap: 11px; margin-top: 4px; }
 .training-detail-section + .training-detail-section { margin-top: 25px; }
 .training-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -2816,9 +2849,7 @@ a { color: inherit; text-decoration: none; }
 .training-empty-icon { display: grid; width: 52px; height: 52px; place-items: center; margin-bottom: 3px; border-radius: 14px; background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); }
 .training-empty-icon--paper { background: color-mix(in srgb, #8b5cf6 10%, var(--surface)); color: #8b5cf6; }
 .training-attempt-status { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 20px; margin-bottom: 22px; padding: 15px 16px; border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--accent) 5%, var(--surface)); }
-.training-attempt-status > div:first-child { display: grid; gap: 5px; }
-.training-attempt-label { color: var(--muted); font-size: 10px; }
-.training-attempt-status > div:first-child > strong { color: var(--accent); font: 800 21px ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.training-time-flow--embedded { margin: 0; padding: 0; border: 0; background: transparent; }
 .training-attempt-score { display: grid; gap: 4px; text-align: right; }
 .training-attempt-score small { color: var(--muted); font-size: 10px; }
 .training-attempt-score strong { color: var(--text); font-size: 18px; font-variant-numeric: tabular-nums; }

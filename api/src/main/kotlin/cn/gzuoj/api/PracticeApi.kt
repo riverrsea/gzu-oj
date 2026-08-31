@@ -331,6 +331,14 @@ class TimedPaperService(
         userId,
     ).filterNotNull().map { getPaper(it, userId) }
 
+    /** 返回当前用户已经开始过的套卷作答，用于重新进入页面时恢复计时状态。 */
+    @Transactional
+    fun listAttempts(userId: UUID): List<TimedAttemptResponse> = jdbc.queryForList(
+        "SELECT id FROM timed_paper_attempt WHERE user_id = ? ORDER BY started_at DESC LIMIT 100",
+        UUID::class.java,
+        userId,
+    ).filterNotNull().map { getAttempt(it, userId) }
+
     /** 创建并锁定当前发布题目版本。 */
     @Transactional
     fun create(userId: UUID, request: CreateTimedPaperRequest): TimedPaperResponse {
@@ -564,6 +572,11 @@ class TimedPaperController(
         @Valid @RequestBody body: CreateTimedPaperRequest,
         @AuthenticationPrincipal principal: AppPrincipal,
     ): TimedPaperResponse = service.create(principal.userId, body)
+
+    /** 查询当前用户已经开始过的套卷作答。 */
+    @GetMapping("/attempts")
+    fun attempts(@AuthenticationPrincipal principal: AppPrincipal): List<TimedAttemptResponse> =
+        service.listAttempts(principal.userId)
 
     /** 首次进入并开始计时。 */
     @PostMapping("/{paperId}/attempts")

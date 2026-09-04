@@ -92,6 +92,18 @@ class PracticeService(
         userId,
     )
 
+    /** 返回用户曾经正式通过过的题目标识，跨题目版本合并。 */
+    fun solvedProblemIds(userId: UUID): List<UUID> = jdbc.query(
+        """
+        SELECT DISTINCT pv.problem_id
+        FROM submission s
+        JOIN problem_version pv ON pv.id = s.problem_version_id
+        WHERE s.user_id = ? AND s.execution_mode = 'SUBMIT' AND s.status = 'AC'
+        """.trimIndent(),
+        { result, _ -> result.getObject("problem_id", UUID::class.java) },
+        userId,
+    )
+
     /** 返回错题历史，可选择只查看尚未解决的题目。 */
     fun wrongProblems(userId: UUID, unresolvedOnly: Boolean): List<WrongProblemResponse> {
         val solvedFilter = if (unresolvedOnly) " AND w.solved_at IS NULL" else ""
@@ -115,6 +127,39 @@ class PracticeService(
                 )
             },
             userId,
+        )
+    }
+
+    /** 将一次未通过的正式提交显式加入错题本；重复加入只刷新历史最高分。 */
+    @Transactional
+    fun addWrongProblem(userId: UUID, problemId: UUID, submissionId: UUID) {
+        requirePublishedProblem(problemId)
+        val score = jdbc.query(
+            """
+            SELECT s.score
+            FROM submission s
+            JOIN problem_version pv ON pv.id = s.problem_version_id
+            WHERE s.id = ? AND s.user_id = ? AND pv.problem_id = ?
+              AND s.execution_mode = 'SUBMIT'
+              AND s.status IN ('PARTIAL', 'WA', 'CE', 'TLE', 'MLE', 'RE', 'OLE')
+            """.trimIndent(),
+            { result, _ -> result.getInt("score") },
+            submissionId,
+            userId,
+            problemId,
+        ).firstOrNull() ?: throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_WRONG_PROBLEM_SUBMISSION", "只能将本人未通过的正式提交加入错题本")
+        jdbc.update(
+            """
+            INSERT INTO wrong_problem(user_id, problem_id, best_score)
+            VALUES (?, ?, ?)
+            ON CONFLICT(user_id, problem_id) DO UPDATE SET
+                best_score = greatest(wrong_problem.best_score, EXCLUDED.best_score),
+                last_wrong_at = now(),
+                solved_at = NULL
+            """.trimIndent(),
+            userId,
+            problemId,
+            score,
         )
     }
 
@@ -159,6 +204,12 @@ data class CreateFeedbackRequest(
     val content: String,
 )
 
+/** 将一次正式提交加入错题本的请求。 */
+data class AddWrongProblemRequest(
+    /** 只能引用当前用户本人、同一题目的未通过正式提交。 */
+    val submissionId: UUID,
+)
+
 /** 收藏、错题本与反馈接口。 */
 @RestController
 @RequestMapping("/api/v1")
@@ -181,12 +232,25 @@ class PracticeController(
     fun favorites(@AuthenticationPrincipal principal: AppPrincipal): List<UserProblemSummary> =
         service.favorites(principal.userId)
 
+    /** 查询当前用户已经正式通过的题目 ID。 */
+    @GetMapping("/solved-problems")
+    fun solvedProblemIds(@AuthenticationPrincipal principal: AppPrincipal): List<UUID> =
+        service.solvedProblemIds(principal.userId)
+
     /** 查询错题本。 */
     @GetMapping("/wrong-problems")
     fun wrongProblems(
         @RequestParam(defaultValue = "false") unresolvedOnly: Boolean,
         @AuthenticationPrincipal principal: AppPrincipal,
     ): List<WrongProblemResponse> = service.wrongProblems(principal.userId, unresolvedOnly)
+
+    /** 显式将一次未通过提交加入错题本。 */
+    @PostMapping("/wrong-problems/{problemId}")
+    fun addWrongProblem(
+        @PathVariable problemId: UUID,
+        @Valid @RequestBody body: AddWrongProblemRequest,
+        @AuthenticationPrincipal principal: AppPrincipal,
+    ) = service.addWrongProblem(principal.userId, problemId, body.submissionId)
 
     /** 提交题目反馈。 */
     @PostMapping("/problems/{problemId}/feedback")
@@ -266,6 +330,14 @@ class TimedPaperService(
         UUID::class.java,
         userId,
     ).filterNotNull().map { getPaper(it, userId) }
+
+    /** 返回当前用户已经开始过的套卷作答，用于重新进入页面时恢复计时状态。 */
+    @Transactional
+    fun listAttempts(userId: UUID): List<TimedAttemptResponse> = jdbc.queryForList(
+        "SELECT id FROM timed_paper_attempt WHERE user_id = ? ORDER BY started_at DESC LIMIT 100",
+        UUID::class.java,
+        userId,
+    ).filterNotNull().map { getAttempt(it, userId) }
 
     /** 创建并锁定当前发布题目版本。 */
     @Transactional
@@ -501,6 +573,11 @@ class TimedPaperController(
         @AuthenticationPrincipal principal: AppPrincipal,
     ): TimedPaperResponse = service.create(principal.userId, body)
 
+    /** 查询当前用户已经开始过的套卷作答。 */
+    @GetMapping("/attempts")
+    fun attempts(@AuthenticationPrincipal principal: AppPrincipal): List<TimedAttemptResponse> =
+        service.listAttempts(principal.userId)
+
     /** 首次进入并开始计时。 */
     @PostMapping("/{paperId}/attempts")
     fun start(@PathVariable paperId: UUID, @AuthenticationPrincipal principal: AppPrincipal): TimedAttemptResponse =
@@ -592,7 +669,7 @@ data class ContestProblemResponse(
     val title: String,
 )
 
-/** 结束后公开的一行排名。 */
+/** 公开比赛开始后可见的一行排名。 */
 data class ContestRankResponse(
     /** 排名，从一开始。 */
     val rank: Int,
@@ -602,6 +679,34 @@ data class ContestRankResponse(
     val totalScore: Int,
     /** 达到最终总分的比赛用时秒数。 */
     val elapsedSeconds: Long,
+    /** 比赛期间每道题的最高分，键为稳定题目标识。 */
+    val problemScores: Map<UUID, Int>,
+)
+
+/** 训练赛列表中的轻量元数据，不包含题目、个人得分和排名。 */
+data class ContestSummaryResponse(
+    /** 比赛标识。 */
+    val id: UUID,
+    /** 比赛标题。 */
+    val title: String,
+    /** 可见性。 */
+    val visibility: ContestVisibility,
+    /** 创建者用户名。 */
+    val ownerUsername: String,
+    /** 创建时间。 */
+    val createdAt: Instant,
+    /** 开始时间。 */
+    val startsAt: Instant,
+    /** 结束时间。 */
+    val endsAt: Instant,
+    /** 当前阶段。 */
+    val phase: ContestPhase,
+    /** 人数上限。 */
+    val maxParticipants: Int,
+    /** 当前参与人数。 */
+    val participantCount: Int,
+    /** 当前用户是否已加入。 */
+    val joined: Boolean,
 )
 
 /** 用户可见的训练赛详情。 */
@@ -614,6 +719,8 @@ data class ContestResponse(
     val visibility: ContestVisibility,
     /** 创建者用户名。 */
     val ownerUsername: String,
+    /** 创建时间。 */
+    val createdAt: Instant,
     /** 开始时间。 */
     val startsAt: Instant,
     /** 结束时间。 */
@@ -630,7 +737,7 @@ data class ContestResponse(
     val problems: List<ContestProblemResponse>,
     /** 进行中只包含当前用户每题最高分。 */
     val myScores: Map<UUID, Int>?,
-    /** 仅结束后公开的排名。 */
+    /** 公开赛开始后可见的实时排名；比赛开始前为空。 */
     val ranking: List<ContestRankResponse>?,
 )
 
@@ -711,15 +818,42 @@ class ContestService(
         return detail(contestId, userId)
     }
 
-    /** 返回公开赛列表；口令赛只能通过标识访问。 */
-    fun publicContests(viewerId: UUID?): List<ContestResponse> = jdbc.queryForList(
+    /** 返回公开赛轻量列表；题目、得分和排名由详情接口按需返回。 */
+    fun publicContests(viewerId: UUID?): List<ContestSummaryResponse> = jdbc.queryForList(
         "SELECT id FROM contest WHERE visibility = 'PUBLIC' ORDER BY starts_at DESC LIMIT 100",
         UUID::class.java,
-    ).filterNotNull().map { detail(it, viewerId) }
+    ).filterNotNull().map { summary(it, viewerId) }
+
+    /** 组装比赛列表元数据，避免列表接口加载题目和排名明细。 */
+    private fun summary(contestId: UUID, viewerId: UUID?): ContestSummaryResponse {
+        val contest = loadContestRow(contestId, lock = false)
+        val now = Instant.now()
+        val phase = when {
+            now.isBefore(contest.startsAt) -> ContestPhase.UPCOMING
+            now.isBefore(contest.endsAt) -> ContestPhase.RUNNING
+            else -> ContestPhase.FINISHED
+        }
+        return ContestSummaryResponse(
+            id = contest.id,
+            title = contest.title,
+            visibility = contest.visibility,
+            ownerUsername = contest.ownerUsername,
+            createdAt = contest.createdAt,
+            startsAt = contest.startsAt,
+            endsAt = contest.endsAt,
+            phase = phase,
+            maxParticipants = contest.maxParticipants,
+            participantCount = participantCount(contestId),
+            joined = viewerId != null && isJoined(contestId, viewerId),
+        )
+    }
 
     /** 按比赛阶段控制本人得分和公开排名。 */
     fun detail(contestId: UUID, viewerId: UUID?): ContestResponse {
         val contest = loadContestRow(contestId, lock = false)
+        if (contest.visibility == ContestVisibility.PASSWORD && (viewerId == null || !isJoined(contestId, viewerId))) {
+            throw ApiException(HttpStatus.NOT_FOUND, "CONTEST_NOT_FOUND", "比赛不存在")
+        }
         val now = Instant.now()
         val phase = when {
             now.isBefore(contest.startsAt) -> ContestPhase.UPCOMING
@@ -733,6 +867,7 @@ class ContestService(
             title = contest.title,
             visibility = contest.visibility,
             ownerUsername = contest.ownerUsername,
+            createdAt = contest.createdAt,
             startsAt = contest.startsAt,
             endsAt = contest.endsAt,
             phase = phase,
@@ -742,12 +877,24 @@ class ContestService(
             problems = problems,
             myScores = viewerId?.takeIf { phase == ContestPhase.RUNNING && joined }
                 ?.let { loadUserScores(contestId, it) },
-            ranking = if (phase == ContestPhase.FINISHED) ranking(contest, problems) else null,
+            // 公开赛从开始后即可查看实时排名；口令赛仍只展示给已加入用户，避免泄露受限比赛信息。
+            ranking = if (contest.visibility == ContestVisibility.PUBLIC && phase != ContestPhase.UPCOMING) ranking(contest, problems.map { it.problemId }) else null,
         )
     }
 
-    /** 按共享 OI 算法计算结束后的公开用户名、总分和用时。 */
-    private fun ranking(contest: ContestRow, problems: List<ContestProblemResponse>): List<ContestRankResponse> {
+    /** 返回公开比赛的轻量排名数据，供进行中的排名页轮询。 */
+    fun rankingOnly(contestId: UUID): List<ContestRankResponse> {
+        val contest = loadContestRow(contestId, lock = false)
+        if (contest.visibility != ContestVisibility.PUBLIC) {
+            throw ApiException(HttpStatus.NOT_FOUND, "CONTEST_NOT_FOUND", "比赛不存在")
+        }
+        val now = Instant.now()
+        if (now.isBefore(contest.startsAt)) return emptyList()
+        return ranking(contest, loadProblemIds(contestId))
+    }
+
+    /** 按共享 OI 算法计算公开用户名、总分和最后一道得分题的用时。 */
+    private fun ranking(contest: ContestRow, problemIds: List<UUID>): List<ContestRankResponse> {
         val users = jdbc.query(
             """
             SELECT u.id, u.username FROM contest_participant cp
@@ -763,6 +910,7 @@ class ContestService(
             FROM submission s
             JOIN problem_version pv ON pv.id = s.problem_version_id
             JOIN contest c ON c.id = s.contest_id
+            JOIN contest_problem cp ON cp.contest_id = c.id AND cp.problem_version_id = s.problem_version_id
             WHERE s.contest_id = ? AND s.finished_at IS NOT NULL
               AND s.created_at >= c.starts_at
               AND s.created_at <= c.starts_at + make_interval(mins => c.duration_minutes)
@@ -778,14 +926,27 @@ class ContestService(
             contest.id,
         ).toMutableList()
         users.keys.forEach { userId ->
-            if (events.none { it.userId == userId.toString() }) {
-                events += ContestScoreEvent(userId.toString(), problems.first().problemId.toString(), 0, 0)
+            if (events.none { it.userId == userId.toString() } && problemIds.isNotEmpty()) {
+                events += ContestScoreEvent(userId.toString(), problemIds.first().toString(), 0, 0)
             }
         }
         return ContestRanking.calculate(events).mapIndexed { index, row ->
-            ContestRankResponse(index + 1, users.getValue(UUID.fromString(row.userId)), row.totalScore, row.reachedFinalScoreAtSeconds)
+            ContestRankResponse(
+                rank = index + 1,
+                username = users.getValue(UUID.fromString(row.userId)),
+                totalScore = row.totalScore,
+                elapsedSeconds = row.reachedFinalScoreAtSeconds,
+                problemScores = row.problemScores.mapKeys { UUID.fromString(it.key) },
+            )
         }
     }
+
+    /** 仅读取比赛绑定的题目标识，供轻量排名轮询使用。 */
+    private fun loadProblemIds(contestId: UUID): List<UUID> = jdbc.queryForList(
+        "SELECT pv.problem_id FROM contest_problem cp JOIN problem_version pv ON pv.id = cp.problem_version_id WHERE cp.contest_id = ? ORDER BY cp.ordinal",
+        UUID::class.java,
+        contestId,
+    ).filterNotNull()
 
     /** 读取当前用户在比赛期间的逐题最高分。 */
     private fun loadUserScores(contestId: UUID, userId: UUID): Map<UUID, Int> = jdbc.query(
@@ -868,7 +1029,7 @@ class ContestService(
         return jdbc.query(
             """
             SELECT c.id, c.title, c.visibility, c.password_hash, c.starts_at, c.duration_minutes,
-                   c.max_participants, u.username
+                   c.max_participants, c.created_at, u.username
             FROM contest c JOIN app_user u ON u.id = c.owner_id
             WHERE c.id = ?$lockClause
             """.trimIndent(),
@@ -883,6 +1044,7 @@ class ContestService(
                     startsAt,
                     startsAt.plus(Duration.ofMinutes(durationMinutes)),
                     result.getInt("max_participants"),
+                    result.getTimestamp("created_at").toInstant(),
                     result.getString("username"),
                 )
             },
@@ -921,6 +1083,8 @@ class ContestService(
         val endsAt: Instant,
         /** 人数上限。 */
         val maxParticipants: Int,
+        /** 创建时间。 */
+        val createdAt: Instant,
         /** 创建者用户名。 */
         val ownerUsername: String,
     )
@@ -935,7 +1099,7 @@ class ContestController(
 ) {
     /** 查询公开训练赛。 */
     @GetMapping
-    fun list(@AuthenticationPrincipal principal: AppPrincipal?): List<ContestResponse> =
+    fun list(@AuthenticationPrincipal principal: AppPrincipal?): List<ContestSummaryResponse> =
         service.publicContests(principal?.userId)
 
     /** 创建受限训练赛。 */
@@ -947,8 +1111,13 @@ class ContestController(
 
     /** 查询比赛详情。 */
     @GetMapping("/{contestId}")
-    fun detail(@PathVariable contestId: UUID, @AuthenticationPrincipal principal: AppPrincipal): ContestResponse =
-        service.detail(contestId, principal.userId)
+    fun detail(@PathVariable contestId: UUID, @AuthenticationPrincipal principal: AppPrincipal?): ContestResponse =
+        service.detail(contestId, principal?.userId)
+
+    /** 轮询公开比赛排名，不重复传输题目和比赛元数据。 */
+    @GetMapping("/{contestId}/ranking")
+    fun ranking(@PathVariable contestId: UUID): List<ContestRankResponse> =
+        service.rankingOnly(contestId)
 
     /** 加入公开或口令比赛。 */
     @PostMapping("/{contestId}/participants")

@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from "vue";
 import { CopyPlus, Edit3, ExternalLink, Plus, Search, Send } from "@lucide/vue";
 import { confirmAction, toast } from "../lib/notify";
+import { formatChinaDateTime } from "../lib/time";
 import { useRouter } from "vue-router";
 import { api } from "../api/client";
 import type { AdminProblemSummary, Difficulty, ProblemVersionStatus } from "../api/types";
@@ -50,7 +51,7 @@ function difficultyLabel(difficulty: string): string {
 
 /** 格式化管理员列表中的时间。 */
 function formatDate(value: string): string {
-  return new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+  return formatChinaDateTime(value, { dateStyle: "medium", timeStyle: "short" });
 }
 
 /** 加载管理员可见的题目版本列表。 */

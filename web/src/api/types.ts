@@ -69,6 +69,8 @@ export interface Submission {
   status: JudgeStatus;
   score: number;
   compileMessage: string | null;
+  /** 单条提交详情返回的源码；历史列表和状态推送为空。 */
+  sourceCode: string | null;
   createdAt: string;
   finishedAt: string | null;
   testCases: SubmissionCase[];
@@ -106,6 +108,22 @@ export interface ContestRank {
   username: string;
   totalScore: number;
   elapsedSeconds: number;
+  problemScores: Record<string, number>;
+}
+
+/** 训练赛列表接口返回的轻量元数据。 */
+export interface ContestSummary {
+  id: string;
+  title: string;
+  visibility: ContestVisibility;
+  ownerUsername: string;
+  createdAt: string;
+  startsAt: string;
+  endsAt: string;
+  phase: ContestPhase;
+  maxParticipants: number;
+  participantCount: number;
+  joined: boolean;
 }
 
 export interface Contest {
@@ -113,6 +131,7 @@ export interface Contest {
   title: string;
   visibility: ContestVisibility;
   ownerUsername: string;
+  createdAt: string;
   startsAt: string;
   endsAt: string;
   phase: ContestPhase;

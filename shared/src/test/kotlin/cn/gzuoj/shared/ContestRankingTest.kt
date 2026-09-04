@@ -18,4 +18,17 @@ class ContestRankingTest {
 
         assertEquals(listOf("fast", "slow"), ranking.map { it.userId })
     }
+
+    /** 完成用时取所有题目达到最终分数的最晚时刻，而不是题目排列中的最后一道。 */
+    @Test
+    fun `uses the latest completed problem time`() {
+        val ranking = ContestRanking.calculate(
+            listOf(
+                ContestScoreEvent("user", "a", 100, 80),
+                ContestScoreEvent("user", "b", 100, 20),
+            ),
+        )
+
+        assertEquals(80, ranking.single().reachedFinalScoreAtSeconds)
+    }
 }

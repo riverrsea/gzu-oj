@@ -8,6 +8,8 @@ build/
 .env
 .env.*
 !.env.example
+# 本机 SMTP 等临时覆盖配置可能包含凭据，不能提交。
+api/src/main/resources/application.properties
 artifacts/
 backups/
 web/node_modules/

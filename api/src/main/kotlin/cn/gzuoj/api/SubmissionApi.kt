@@ -59,6 +59,9 @@ data class CreateRunRequest(
     /** 用户可编辑公开输入，最多八组。 */
     @field:Size(min = 1, max = 8, message = "公开运行需要 1 到 8 组输入")
     val inputs: List<@Size(max = 262_144, message = "单组公开输入不能超过 256 KiB") String>,
+    /** 与公开输入按序对应的样例标准输出；由控制端传给判题 Worker。 */
+    @field:Size(min = 1, max = 8, message = "公开运行需要为每组输入提供样例输出")
+    val expectedOutputs: List<@Size(max = 262_144, message = "单组样例输出不能超过 256 KiB") String> = emptyList(),
 )
 
 /** 脱敏的逐点判题结果。 */
@@ -99,6 +102,8 @@ data class SubmissionResponse(
     val score: Int,
     /** 编译失败时的编译器信息。 */
     val compileMessage: String?,
+    /** 单条提交详情中的用户源码；历史列表和状态推送不返回源码。 */
+    val sourceCode: String? = null,
     /** 提交时间。 */
     val createdAt: Instant,
     /** 完成时间。 */
@@ -112,6 +117,8 @@ data class SubmissionResponse(
 class SubmissionService(
     /** JDBC 数据访问入口。 */
     private val jdbc: JdbcTemplate,
+    /** 应用级限制配置。 */
+    private val properties: AppProperties,
 ) {
     /**
      * 创建提交与队列任务。相同用户和幂等键只产生一份提交；
@@ -129,13 +136,8 @@ class SubmissionService(
             throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_SUBMISSION_CONTEXT", "比赛与个人计时上下文不能同时指定")
         }
 
-        jdbc.query(
-            "SELECT pg_advisory_xact_lock(hashtextextended(?, ?))",
-            { _, _ -> Unit },
-            idempotencyKey,
-            userId.mostSignificantBits,
-        )
         val requestHash = requestHash(request)
+        lockSubmissionActions(userId)
         val existing = jdbc.query(
             "SELECT request_hash, submission_id FROM idempotency_record WHERE user_id = ? AND idempotency_key = ?",
             { result, _ -> result.getString("request_hash") to result.getObject("submission_id", UUID::class.java) },
@@ -148,6 +150,9 @@ class SubmissionService(
             }
             return get(existing.second, userId, false)
         }
+
+        findEquivalentSubmission(userId, requestHash, JudgeExecutionMode.SUBMIT)?.let { return get(it, userId, false) }
+        enforceSubmissionCooldown(userId)
 
         val versionId = resolveSubmissionVersion(request, userId)
         validateContext(request, userId, versionId)
@@ -189,17 +194,21 @@ class SubmissionService(
     fun createRun(request: CreateRunRequest, idempotencyKey: String, userId: UUID): SubmissionResponse {
         validateIdempotencyKey(idempotencyKey)
         validateSourceSize(request.sourceCode)
+        if (request.inputs.size != request.expectedOutputs.size) {
+            throw ApiException(
+                HttpStatus.BAD_REQUEST,
+                "RUN_CASE_COUNT_MISMATCH",
+                "公开运行的输入和样例输出数量必须一致",
+            )
+        }
         val totalInputBytes = request.inputs.sumOf { it.toByteArray(Charsets.UTF_8).size }
         if (totalInputBytes > 1_048_576) {
             throw ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "RUN_INPUT_TOO_LARGE", "公开运行输入合计不能超过 1 MiB")
         }
-        val storedKey = "run:" + SecureValues.sha256(idempotencyKey)
-        jdbc.query(
-            "SELECT pg_advisory_xact_lock(hashtextextended(?, ?))",
-            { _, _ -> Unit },
-            storedKey,
-            userId.mostSignificantBits,
-        )
+        val totalExpectedOutputBytes = request.expectedOutputs.sumOf { it.toByteArray(Charsets.UTF_8).size }
+        if (totalExpectedOutputBytes > 1_048_576) {
+            throw ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "RUN_OUTPUT_TOO_LARGE", "公开运行样例输出合计不能超过 1 MiB")
+        }
         val requestHash = SecureValues.sha256(
             listOf(
                 request.problemId,
@@ -207,8 +216,11 @@ class SubmissionService(
                 request.language,
                 SecureValues.sha256(request.sourceCode),
                 request.inputs.joinToString("") { SecureValues.sha256(it) },
+                request.expectedOutputs.joinToString("") { SecureValues.sha256(it) },
             ).joinToString(""),
         )
+        val storedKey = "run:" + SecureValues.sha256(idempotencyKey)
+        lockSubmissionActions(userId)
         val existing = jdbc.query(
             "SELECT request_hash, submission_id FROM idempotency_record WHERE user_id = ? AND idempotency_key = ?",
             { result, _ -> result.getString("request_hash") to result.getObject("submission_id", UUID::class.java) },
@@ -221,6 +233,9 @@ class SubmissionService(
             }
             return get(existing.second, userId, false)
         }
+        findEquivalentSubmission(userId, requestHash, JudgeExecutionMode.RUN)?.let { return get(it, userId, false) }
+        enforceSubmissionCooldown(userId)
+
         val versionId = jdbc.query(
             "SELECT id FROM problem_version WHERE id = ? AND problem_id = ? AND status IN ('PUBLISHED', 'WITHDRAWN')",
             { result, _ -> result.getObject("id", UUID::class.java) },
@@ -245,11 +260,12 @@ class SubmissionService(
         )
         request.inputs.forEachIndexed { index, input ->
             jdbc.update(
-                "INSERT INTO submission_run_case(id, submission_id, ordinal, input_text) VALUES (?, ?, ?, ?)",
+                "INSERT INTO submission_run_case(id, submission_id, ordinal, input_text, expected_output_text) VALUES (?, ?, ?, ?, ?)",
                 UUID.randomUUID(),
                 submissionId,
                 index + 1,
                 input,
+                request.expectedOutputs[index],
             )
         }
         jdbc.update(
@@ -269,13 +285,13 @@ class SubmissionService(
     }
 
     /** 读取一份提交；管理员可读取任意提交，普通用户只能读取自己的提交。 */
-    fun get(submissionId: UUID, userId: UUID, admin: Boolean): SubmissionResponse {
+    fun get(submissionId: UUID, userId: UUID, admin: Boolean, includeSource: Boolean = false): SubmissionResponse {
         val sql = buildString {
             append(
                 """
                 SELECT s.id, p.id AS problem_id, s.problem_version_id, s.execution_mode,
                        s.language, s.status, s.score,
-                       s.compile_message, s.created_at, s.finished_at
+                       s.compile_message, s.created_at, s.finished_at${if (includeSource) ", s.source_code" else ""}
                 FROM submission s
                 JOIN problem_version pv ON pv.id = s.problem_version_id
                 JOIN problem p ON p.id = pv.problem_id
@@ -295,6 +311,7 @@ class SubmissionService(
                 status = JudgeStatus.valueOf(result.getString("status")),
                 score = result.getInt("score"),
                 compileMessage = result.getString("compile_message"),
+                sourceCode = if (includeSource) result.getString("source_code") else null,
                 createdAt = result.getTimestamp("created_at").toInstant(),
                 finishedAt = result.getTimestamp("finished_at")?.toInstant(),
                 testCases = emptyList(),
@@ -468,6 +485,93 @@ class SubmissionService(
         }
     }
 
+    /**
+     * 将同一用户的运行和正式提交串行化。
+     *
+     * 事务级 advisory lock 不依赖应用进程内存，因此多实例 API、多个标签页和脚本并发请求
+     * 也会在数据库中按用户排队，锁会在当前事务提交或回滚时自动释放。
+     */
+    private fun lockSubmissionActions(userId: UUID) {
+        jdbc.query(
+            "SELECT pg_advisory_xact_lock(hashtextextended(?, ?))",
+            { _, _ -> Unit },
+            "submission-action:$userId",
+            userId.mostSignificantBits,
+        )
+    }
+
+    /** 查找同一用户在冷却窗口内或仍在判题中的完全相同请求。 */
+    private fun findEquivalentSubmission(
+        userId: UUID,
+        requestHash: String,
+        executionMode: JudgeExecutionMode,
+    ): UUID? {
+        val cooldownMs = properties.submissionCooldownMs.coerceAtLeast(0)
+        return jdbc.query(
+            """
+            SELECT s.id
+            FROM submission s
+            JOIN idempotency_record ir ON ir.submission_id = s.id AND ir.user_id = s.user_id
+            WHERE s.user_id = ? AND s.execution_mode = ? AND ir.request_hash = ?
+              AND (
+                    s.status IN ('QUEUED', 'COMPILING', 'JUDGING')
+                    OR s.created_at >= clock_timestamp() - (CAST(? AS double precision) * interval '1 millisecond')
+              )
+            ORDER BY s.created_at DESC, s.id DESC
+            LIMIT 1
+            """.trimIndent(),
+            { result, _ -> result.getObject("id", UUID::class.java) },
+            userId,
+            executionMode.name,
+            requestHash,
+            cooldownMs,
+        ).firstOrNull()
+    }
+
+    /** 阻止同一用户在判题进行中或冷却窗口内创建另一份运行或提交任务。 */
+    private fun enforceSubmissionCooldown(userId: UUID) {
+        val cooldownMs = properties.submissionCooldownMs.coerceAtLeast(0)
+        val activeId = jdbc.query(
+            """
+            SELECT id
+            FROM submission
+            WHERE user_id = ? AND status IN ('QUEUED', 'COMPILING', 'JUDGING')
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """.trimIndent(),
+            { result, _ -> result.getObject("id", UUID::class.java) },
+            userId,
+        ).firstOrNull()
+        if (activeId != null) {
+            throw ApiException(
+                HttpStatus.TOO_MANY_REQUESTS,
+                "SUBMISSION_IN_PROGRESS",
+                "已有运行或提交正在判题，请等待当前任务结束",
+            )
+        }
+        if (cooldownMs == 0L) return
+        val recentId = jdbc.query(
+            """
+            SELECT id
+            FROM submission
+            WHERE user_id = ?
+              AND created_at >= clock_timestamp() - (CAST(? AS double precision) * interval '1 millisecond')
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """.trimIndent(),
+            { result, _ -> result.getObject("id", UUID::class.java) },
+            userId,
+            cooldownMs,
+        ).firstOrNull()
+        if (recentId != null) {
+            throw ApiException(
+                HttpStatus.TOO_MANY_REQUESTS,
+                "SUBMISSION_COOLDOWN",
+                "运行或提交过于频繁，请稍后再试",
+            )
+        }
+    }
+
     /** 按 UTF-8 字节数校验源码上限。 */
     private fun validateSourceSize(sourceCode: String) {
         if (sourceCode.toByteArray(Charsets.UTF_8).size > 131_072) {
@@ -588,7 +692,7 @@ class SubmissionController(
     fun get(
         @PathVariable submissionId: UUID,
         @AuthenticationPrincipal principal: AppPrincipal,
-    ): SubmissionResponse = service.get(submissionId, principal.userId, principal.role == "ADMIN")
+    ): SubmissionResponse = service.get(submissionId, principal.userId, principal.role == "ADMIN", includeSource = true)
 
     /** 订阅一份提交的实时状态。 */
     @GetMapping("/{submissionId}/events", produces = ["text/event-stream"])

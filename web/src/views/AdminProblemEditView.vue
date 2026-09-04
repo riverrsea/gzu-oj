@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ArrowLeft, Bot, Plus, RefreshCw, Save, Send, Trash2, XCircle } from "@lucide/vue";
 import { confirmAction, toast } from "../lib/notify";
+import { formatChinaDateTime } from "../lib/time";
 import { api } from "../api/client";
 import type { AdminProblemVersionDetail, AiMajorState, AiRun, AiStepResponse, Difficulty } from "../api/types";
 import ProblemStatementEditor from "../components/ProblemStatementEditor.vue";
@@ -346,7 +347,7 @@ onUnmounted(() => {
       <div class="ai-flow-timeline" aria-label="AI 录题状态时间线">
         <article v-for="stage in majorStages" :key="stage" :class="['ai-flow-step', 'ai-flow-step--' + stageClass(stage)]">
           <span class="ai-flow-dot" aria-hidden="true" />
-          <div><strong>{{ majorLabels[stage] }}</strong><small v-if="stage === currentMajor && aiRun && aiRun.majorState !== aiRun.state">{{ minorLabels[aiRun.state] ?? aiRun.state }}</small><time v-if="latestHistory(stage)">{{ new Date(latestHistory(stage)!.createdAt).toLocaleString() }}</time></div>
+          <div><strong>{{ majorLabels[stage] }}</strong><small v-if="stage === currentMajor && aiRun && aiRun.majorState !== aiRun.state">{{ minorLabels[aiRun.state] ?? aiRun.state }}</small><time v-if="latestHistory(stage)">{{ formatChinaDateTime(latestHistory(stage)!.createdAt, { dateStyle: "medium", timeStyle: "short" }) }}</time></div>
         </article>
       </div>
       <UiAlert v-if="aiRun && ['NEEDS_REVIEW', 'FAILED', 'CANCELED'].includes(aiRun.state)" :variant="aiRun.state === 'NEEDS_REVIEW' ? 'warning' : 'error'" :title="aiRun.failureReason || majorLabels[aiRun.majorState]" />
@@ -393,7 +394,7 @@ onUnmounted(() => {
         <details v-for="(step, index) in aiSteps" :key="step.id" class="ai-response-item" :open="index === aiSteps.length - 1">
           <summary>
             <span><strong>{{ roleLabels[step.role] ?? step.role }}</strong><small>{{ minorLabels[step.state] ?? step.state }}</small></span>
-            <time v-if="step.finishedAt">{{ new Date(step.finishedAt).toLocaleString() }}</time>
+            <time v-if="step.finishedAt">{{ formatChinaDateTime(step.finishedAt, { dateStyle: "medium", timeStyle: "short" }) }}</time>
           </summary>
           <div class="ai-response-content">
             <p v-if="step.response?.summary" class="ai-response-summary">{{ step.response.summary }}</p>
@@ -420,7 +421,6 @@ onUnmounted(() => {
       <section class="form-section">
         <h2>题目元数据</h2>
         <div class="form-grid form-grid--three">
-          <div class="form-field"><UiLabel>外部题目标识</UiLabel><UiInput :model-value="detail?.externalKey || '手工题目'" disabled /></div>
           <div class="form-field"><UiLabel>学校</UiLabel><UiInput v-model="form.school" maxlength="200" :disabled="aiLocked" /></div>
           <div class="form-field"><UiLabel>年份</UiLabel><UiNumberField v-model="form.year" :min="1900" :max="2200" :disabled="aiLocked" /></div>
         </div>

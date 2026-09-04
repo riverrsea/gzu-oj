@@ -1,4 +1,6 @@
 spring:
+  banner:
+    location: classpath:banner.txt
   application:
     name: gzu-oj-api
   datasource:
@@ -95,6 +97,8 @@ gzu-oj:
     max-participants: 5
     max-active-owned: 3
     minimum-create-interval-minutes: 10
+  # 服务端防抖不能只依赖浏览器按钮；同一用户的运行/提交在窗口内只允许一次。
+  submission-cooldown-ms: ${GZU_OJ_SUBMISSION_COOLDOWN_MS:5000}
   ai:
     enabled: ${GZU_OJ_AI_ENABLED:false}
     # 与 Spring AI 的 model.chat 共用取值，只允许 openai、deepseek 和 none。

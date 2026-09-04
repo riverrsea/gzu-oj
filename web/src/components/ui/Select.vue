@@ -9,7 +9,7 @@ const props = withDefaults(defineProps<{
   class?: string;
 }>(), { modelValue: "", placeholder: "请选择" });
 const emit = defineEmits<{ "update:modelValue": [value: string] }>();
-const classes = computed(() => cn("h-10 w-full rounded-md border border-line bg-paper px-3 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:cursor-not-allowed disabled:opacity-50", props.class));
+const classes = computed(() => cn("ui-control ui-control--select", props.class));
 </script>
 
 <template>

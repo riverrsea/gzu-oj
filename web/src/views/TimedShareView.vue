@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import { Clock3 } from "@lucide/vue";
 import { toast } from "../lib/notify";
+import { formatChinaDateTime } from "../lib/time";
 import { useRoute } from "vue-router";
 import { api } from "../api/client";
 import type { TimedAttempt } from "../api/types";
@@ -34,7 +35,7 @@ onMounted(load);
     <div v-if="loading" class="loading-overlay"><span class="loading-spinner" aria-label="加载中" /></div>
     <template v-if="attempt">
       <div class="page-heading"><div><h1>{{ attempt.paper.title }}</h1><p>个人计时套卷只读结果</p></div><strong class="share-score">{{ attempt.totalScore }} 分</strong></div>
-      <div class="share-meta"><span><Clock3 :size="16" />{{ attempt.paper.durationMinutes }} 分钟</span><span>{{ attempt.finished ? '已结束' : '进行中' }}</span><span>{{ new Date(attempt.startedAt).toLocaleString() }}</span></div>
+      <div class="share-meta"><span><Clock3 :size="16" />{{ attempt.paper.durationMinutes }} 分钟</span><span>{{ attempt.finished ? '已结束' : '进行中' }}</span><span>{{ formatChinaDateTime(attempt.startedAt, { dateStyle: 'medium', timeStyle: 'short' }) }}</span></div>
       <UiTable>
         <thead><tr><th>#</th><th>题目</th><th>最高分</th></tr></thead>
         <tbody><tr v-for="problem in attempt.paper.problems" :key="problem.versionId"><td>{{ problem.ordinal }}</td><td>{{ problem.title }}</td><td>{{ attempt.scores[problem.problemId] ?? 0 }}</td></tr></tbody>

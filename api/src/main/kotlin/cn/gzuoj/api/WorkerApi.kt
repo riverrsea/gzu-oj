@@ -400,13 +400,14 @@ class PostgresJudgeQueue(
     private fun loadCases(claimed: ClaimRow, attemptId: UUID, leaseToken: String): List<JudgeCaseLease> {
         if (claimed.executionMode == JudgeExecutionMode.RUN) {
             return jdbc.query(
-                "SELECT id, ordinal, input_text FROM submission_run_case WHERE submission_id = ? ORDER BY ordinal",
+                "SELECT id, ordinal, input_text, expected_output_text FROM submission_run_case WHERE submission_id = ? ORDER BY ordinal",
                 { result, _ ->
                     JudgeCaseLease(
                         caseId = result.getObject("id", UUID::class.java),
                         ordinal = result.getInt("ordinal"),
                         score = 0,
                         inlineInput = result.getString("input_text"),
+                        inlineExpectedOutput = result.getString("expected_output_text"),
                     )
                 },
                 claimed.submissionId,
@@ -596,31 +597,16 @@ class PostgresJudgeQueue(
         }
     }
 
-    /** 按最终得分维护错题本，保留首次错误记录。 */
+    /** 正式提交满分时仅更新已有错题记录；未通过提交由用户在前端确认后显式加入。 */
     private fun updateWrongBook(submissionId: UUID, score: Int) {
-        if (score == 100) {
-            jdbc.update(
-                """
-                UPDATE wrong_problem wp SET best_score = 100, solved_at = coalesce(wp.solved_at, now())
-                FROM submission s
-                JOIN problem_version pv ON pv.id = s.problem_version_id
-                WHERE s.id = ? AND wp.user_id = s.user_id AND wp.problem_id = pv.problem_id
-                """.trimIndent(),
-                submissionId,
-            )
-            return
-        }
+        if (score != 100) return
         jdbc.update(
             """
-            INSERT INTO wrong_problem(user_id, problem_id, best_score)
-            SELECT s.user_id, pv.problem_id, ?
-            FROM submission s JOIN problem_version pv ON pv.id = s.problem_version_id WHERE s.id = ?
-            ON CONFLICT(user_id, problem_id) DO UPDATE SET
-                best_score = greatest(wrong_problem.best_score, EXCLUDED.best_score),
-                last_wrong_at = now(),
-                solved_at = NULL
+            UPDATE wrong_problem wp SET best_score = 100, solved_at = coalesce(wp.solved_at, now())
+            FROM submission s
+            JOIN problem_version pv ON pv.id = s.problem_version_id
+            WHERE s.id = ? AND wp.user_id = s.user_id AND wp.problem_id = pv.problem_id
             """.trimIndent(),
-            score,
             submissionId,
         )
     }

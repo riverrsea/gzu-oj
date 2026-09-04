@@ -37,22 +37,18 @@ object ContestRanking {
                     .thenBy { it.userId },
             )
 
-    /** 汇总单个用户的最终分数和首次达到该分数的时刻。 */
+    /** 汇总单个用户的最终分数和完成最后一道得分题的时刻。 */
     private fun toRow(userId: String, events: List<ContestScoreEvent>): ContestRankRow {
         val finalScores = events
             .groupBy { it.problemId }
             .mapValues { (_, problemEvents) -> problemEvents.maxOf { it.score } }
         val total = finalScores.values.sum()
-        val runningBest = mutableMapOf<String, Int>()
-        var reachedAt = 0L
-
-        for (event in events.sortedBy { it.elapsedSeconds }) {
-            runningBest[event.problemId] = maxOf(runningBest[event.problemId] ?: 0, event.score)
-            if (runningBest.values.sum() == total) {
-                reachedAt = event.elapsedSeconds
-                break
-            }
-        }
+        // 用每道题达到最终最高分的最早时间取最大值，避免把题目顺序误当作完成顺序。
+        val reachedAt = finalScores.maxOfOrNull { (problemId, score) ->
+            events.asSequence()
+                .filter { it.problemId == problemId && it.score == score }
+                .minOf { it.elapsedSeconds }
+        } ?: 0L
 
         return ContestRankRow(
             userId = userId,

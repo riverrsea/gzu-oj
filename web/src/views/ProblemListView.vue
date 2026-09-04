@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import { Building2, CalendarDays, Circle, Search, SearchX } from "@lucide/vue";
+import { computed, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
+import { Bookmark, BookmarkCheck, Building2, CalendarDays, CheckCircle2, Circle, Search, SearchX } from "@lucide/vue";
 import { toast } from "../lib/notify";
 import { api } from "../api/client";
 import type { Difficulty, ProblemSummary } from "../api/types";
 import UiInput from "../components/ui/Input.vue";
+import { session } from "../stores/session";
+
+const router = useRouter();
 
 /** 题库请求是否仍在加载，用于控制骨架屏。 */
 const loading = ref(false);
@@ -27,6 +31,12 @@ const difficultyOptions: Array<{ value: Difficulty | ""; label: string }> = [
   { value: "MEDIUM", label: "中等" },
   { value: "HARD", label: "困难" },
 ];
+/** 当前用户已经收藏的题目标识。收藏属于题目而不是题目版本。 */
+const favoriteIds = ref<Set<string>>(new Set());
+/** 正在切换收藏的题目，避免连续点击产生重复请求。 */
+const favoriteBusyIds = ref<Set<string>>(new Set());
+/** 当前用户已经正式通过的题目标识，跨版本合并。 */
+const solvedIds = ref<Set<string>>(new Set());
 
 /** 按标题、学校、年份和难度筛选已加载的公开题目，不改变后端题库接口。 */
 const visibleProblems = computed(() => {
@@ -47,6 +57,7 @@ async function load(): Promise<void> {
   loading.value = true;
   try {
     problems.value = await api.problems({});
+    await Promise.all([loadFavorites(), loadSolvedProblems()]);
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "题库加载失败");
   } finally {
@@ -54,7 +65,75 @@ async function load(): Promise<void> {
   }
 }
 
-onMounted(load);
+/** 读取已解决题目标识；未登录时保持空集合。 */
+async function loadSolvedProblems(): Promise<void> {
+  if (!session.user) {
+    solvedIds.value = new Set();
+    return;
+  }
+  try {
+    solvedIds.value = new Set(await api.solvedProblemIds());
+  } catch {
+    solvedIds.value = new Set();
+  }
+}
+
+/** 读取收藏列表；未登录时保持空集合，不请求受保护接口。 */
+async function loadFavorites(): Promise<void> {
+  if (!session.user) {
+    favoriteIds.value = new Set();
+    return;
+  }
+  try {
+    favoriteIds.value = new Set((await api.favorites()).map((item) => item.problemId));
+  } catch {
+    favoriteIds.value = new Set();
+  }
+}
+
+/** 返回题目当前收藏状态。 */
+function isFavorite(problem: ProblemSummary): boolean {
+  return favoriteIds.value.has(problem.id);
+}
+
+/** 返回题目是否曾经有正式通过记录。 */
+function isSolved(problem: ProblemSummary): boolean {
+  return solvedIds.value.has(problem.id);
+}
+
+/** 切换题库中的收藏状态。 */
+async function toggleFavorite(problem: ProblemSummary): Promise<void> {
+  if (!session.user) {
+    await router.push({ path: "/login", query: { redirect: router.currentRoute.value.fullPath } });
+    return;
+  }
+  if (favoriteBusyIds.value.has(problem.id)) return;
+  favoriteBusyIds.value = new Set([...favoriteBusyIds.value, problem.id]);
+  const next = !isFavorite(problem);
+  try {
+    if (next) await api.favorite(problem.id);
+    else await api.unfavorite(problem.id);
+    const updated = new Set(favoriteIds.value);
+    if (next) updated.add(problem.id);
+    else updated.delete(problem.id);
+    favoriteIds.value = updated;
+    toast.success(next ? "已收藏" : "已取消收藏");
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : (next ? "收藏失败" : "取消收藏失败"));
+  } finally {
+    const updated = new Set(favoriteBusyIds.value);
+    updated.delete(problem.id);
+    favoriteBusyIds.value = updated;
+  }
+}
+
+onMounted(() => {
+  void load();
+});
+watch(() => session.user?.id, () => {
+  void loadFavorites();
+  void loadSolvedProblems();
+});
 </script>
 
 <template>
@@ -105,10 +184,11 @@ onMounted(load);
         class="problem-catalog-row"
         role="link"
         tabindex="0"
-        @click="$router.push('/problems/' + row.id)"
-        @keydown.enter="$router.push('/problems/' + row.id)"
+        @click="router.push('/problems/' + row.id)"
+        @keydown.enter="router.push('/problems/' + row.id)"
       >
-        <Circle class="problem-catalog-status" :size="20" aria-hidden="true" />
+        <CheckCircle2 v-if="isSolved(row)" class="problem-catalog-status problem-catalog-status--solved" :size="20" aria-label="已解决" />
+        <Circle v-else class="problem-catalog-status" :size="20" aria-hidden="true" />
         <div class="problem-catalog-main">
           <strong>{{ row.title }}</strong>
           <div v-if="row.tags.length" class="problem-catalog-tags">
@@ -123,6 +203,19 @@ onMounted(load);
         <span :class="['problem-catalog-difficulty', 'problem-catalog-difficulty--' + row.difficulty.toLowerCase()]">
           <i aria-hidden="true" />{{ difficultyText[row.difficulty] }}
         </span>
+        <button
+          type="button"
+          class="problem-catalog-favorite"
+          :class="{ 'is-favorited': isFavorite(row) }"
+          :aria-label="isFavorite(row) ? '取消收藏' : '收藏题目'"
+          :aria-pressed="isFavorite(row)"
+          :title="isFavorite(row) ? '取消收藏' : '收藏题目'"
+          :disabled="favoriteBusyIds.has(row.id)"
+          @click.stop="toggleFavorite(row)"
+        >
+          <BookmarkCheck v-if="isFavorite(row)" :size="17" fill="currentColor" aria-hidden="true" />
+          <Bookmark v-else :size="17" aria-hidden="true" />
+        </button>
       </article>
     </div>
     <div v-else class="problem-catalog-empty">

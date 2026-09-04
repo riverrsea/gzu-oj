@@ -82,17 +82,27 @@ async function mockApi(page: Page): Promise<void> {
     }]);
     if (path === "/api/v1/timed-papers") return json([{ id: "44444444-4444-4444-8444-444444444444", title: "模拟套卷", durationMinutes: 90, problems: [{ ordinal: 1, problemId: problem.id, versionId: problem.versionId, title: problem.title }] }]);
     if (path === "/api/v1/runs" && request.method() === "POST") {
-      const body = request.postDataJSON() as { problemId?: string; problemVersionId?: string };
+      const body = request.postDataJSON() as { problemId?: string; problemVersionId?: string; expectedOutputs?: string[] };
       if (body.problemId !== problem.id || body.problemVersionId !== problem.versionId) {
         return json({ code: "INVALID_PROBLEM_VERSION", message: "运行请求未锁定工作区版本" }, 400);
+      }
+      if (body.expectedOutputs?.[0] !== "3\n") {
+        return json({ code: "MISSING_EXPECTED_OUTPUT", message: "运行请求未携带样例输出" }, 400);
       }
       return json({
         id: "55555555-5555-4555-8555-555555555555", problemId: problem.id, problemVersionId: problem.versionId, executionMode: "RUN", language: "CPP17", status: "QUEUED", score: 0, compileMessage: null, createdAt: "2026-08-05T09:00:00Z", finishedAt: null, testCases: [],
       });
     }
+    if (path === "/api/v1/submissions" && request.method() === "POST") return json({
+      id: "66666666-6666-4666-8666-666666666666", problemId: problem.id, problemVersionId: problem.versionId, executionMode: "SUBMIT", language: "CPP17", status: "QUEUED", score: 0, compileMessage: null, createdAt: "2026-08-05T09:01:00Z", finishedAt: null, testCases: [],
+    });
     if (path === "/api/v1/submissions/55555555-5555-4555-8555-555555555555") return json({
       id: "55555555-5555-4555-8555-555555555555", problemId: problem.id, problemVersionId: problem.versionId, executionMode: "RUN", language: "CPP17", status: "AC", score: 0, compileMessage: null, createdAt: "2026-08-05T09:00:00Z", finishedAt: "2026-08-05T09:00:01Z",
       testCases: [{ ordinal: 1, status: "AC", score: 0, timeMs: 1, memoryKiB: 1024, message: null, input: "1 2\n", actualOutput: "3\n" }],
+    });
+    if (path === "/api/v1/submissions/66666666-6666-4666-8666-666666666666") return json({
+      id: "66666666-6666-4666-8666-666666666666", problemId: problem.id, problemVersionId: problem.versionId, executionMode: "SUBMIT", language: "CPP17", status: "WA", score: 40, compileMessage: null, createdAt: "2026-08-05T09:01:00Z", finishedAt: "2026-08-05T09:01:01Z",
+      testCases: [{ ordinal: 1, status: "AC", score: 40, timeMs: 1, memoryKiB: 1024, message: "判题完成", input: null, actualOutput: null }],
     });
     return json({ code: "UNMOCKED", message: "未配置的浏览器测试请求", timestamp: "2026-08-05T09:00:00Z" }, 404);
   });
@@ -214,8 +224,12 @@ test("桌面端题库和做题工作区可操作", async ({ page }, testInfo) =>
   await page.getByText("A + B").first().click();
   await expect(page.getByRole("heading", { name: "A + B" })).toBeVisible();
   await page.getByRole("button", { name: "运行" }).click();
-  await expect(page.getByText("AC").first()).toBeVisible({ timeout: 5_000 });
-  await expect(page.getByText("实际输出")).toBeVisible();
+  await expect(page.getByText("通过").first()).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByText("预期结果")).toBeVisible();
+  await expect(page.locator(".workspace-topbar-center")).not.toContainText("AC");
+  await expect(page.locator(".workspace-topbar-center")).not.toContainText("WA");
+  await page.getByRole("button", { name: "提交", exact: true }).click();
+  await expect(page.getByText("提交结果：WA，40 分")).toBeVisible({ timeout: 5_000 });
   await page.screenshot({ path: testInfo.outputPath("workspace-desktop.png"), fullPage: true });
 });
 
@@ -227,8 +241,8 @@ test("移动端工作区可切换且没有水平溢出", async ({ page }, testIn
   await expect(page.getByRole("button", { name: "代码" })).toBeVisible();
   await page.getByRole("button", { name: "代码" }).click();
   await expect(page.getByTitle("编辑器设置")).toBeVisible();
-  await page.getByRole("button", { name: "结果" }).click();
-  await expect(page.getByText("测试与结果")).toBeVisible();
+  await page.getByRole("tab", { name: "测试结果" }).click();
+  await expect(page.getByText("运行或提交后在此查看结果")).toBeVisible();
   const dimensions = await page.evaluate(() => ({ width: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth }));
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.width + 1);
   await page.screenshot({ path: testInfo.outputPath("workspace-mobile.png"), fullPage: true });

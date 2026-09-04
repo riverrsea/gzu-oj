@@ -27,6 +27,8 @@ data class AppProperties(
     val worker: WorkerProperties = WorkerProperties(),
     /** 公开训练赛限制。 */
     val contest: ContestProperties = ContestProperties(),
+    /** 同一用户运行或提交之间的服务端冷却时间，单位毫秒。设为 0 可关闭短窗口限制。 */
+    val submissionCooldownMs: Long = 1_000,
     /** AI 供应商、模型和费用门禁。 */
     val ai: AiProperties = AiProperties(),
 )

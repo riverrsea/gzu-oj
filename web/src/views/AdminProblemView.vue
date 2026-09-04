@@ -106,7 +106,7 @@ onMounted(() => void loadBaseVersion());
       <section class="form-section">
         <h2>题目元数据</h2>
         <div class="form-grid form-grid--three">
-          <div class="form-field"><UiLabel>外部题目标识</UiLabel><UiInput v-model="form.externalKey" maxlength="128" placeholder="noobdream:1006（手工题可留空）" :disabled="creatingNextVersion" /></div>
+          <div class="form-field"><UiLabel>外部题目标识（可选）</UiLabel><UiInput v-model="form.externalKey" maxlength="128" placeholder="外部题号或来源标识" :disabled="creatingNextVersion" /></div>
           <div class="form-field"><UiLabel>学校</UiLabel><UiInput v-model="form.school" maxlength="200" /></div>
           <div class="form-field"><UiLabel>年份</UiLabel><UiNumberField v-model="form.year" :min="1900" :max="2200" /></div>
         </div>

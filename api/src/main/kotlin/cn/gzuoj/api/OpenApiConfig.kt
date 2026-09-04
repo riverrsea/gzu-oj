@@ -12,7 +12,7 @@ class OpenApiConfig {
     @Bean
     fun gzuOjOpenApi(): OpenAPI = OpenAPI().info(
         Info()
-            .title("研试 OJ API")
+            .title("GZU_OJ API")
             .description("题库、提交、训练赛、管理员导入和异地判题 Worker 接口")
             .version("v1"),
     )

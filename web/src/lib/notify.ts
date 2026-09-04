@@ -13,14 +13,22 @@ export interface ToastItem {
 /** 当前页面待展示的轻提示列表。 */
 export const toasts = ref<ToastItem[]>([]);
 let nextToastId = 1;
+const toastTimers = new Map<number, number>();
+
+/** 从待展示列表中移除提示，并清理其自动关闭计时器。 */
+export function removeToast(id: number): void {
+  const timer = toastTimers.get(id);
+  if (timer !== undefined) window.clearTimeout(timer);
+  toastTimers.delete(id);
+  toasts.value = toasts.value.filter((item) => item.id !== id);
+}
 
 /** 使用项目内置 Toast 替代第三方消息组件。 */
 function pushToast(kind: ToastKind, message: string): void {
   const id = nextToastId++;
   toasts.value = [...toasts.value, { id, kind, message }];
-  window.setTimeout(() => {
-    toasts.value = toasts.value.filter((item) => item.id !== id);
-  }, 3600);
+  const timer = window.setTimeout(() => removeToast(id), 3600);
+  toastTimers.set(id, timer);
 }
 
 export const toast = {

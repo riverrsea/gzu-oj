@@ -4,6 +4,8 @@ import type {
   AdminProblemPage,
   AdminProblemVersionDetail,
   Contest,
+  ContestRank,
+  ContestSummary,
   ContestVisibility,
   CreatedProblemVersion,
   CreatedWorker,
@@ -48,7 +50,7 @@ async function ensureCsrf(): Promise<string> {
 }
 
 /** 发起 API 请求；CSRF 令牌失效时只对变更请求自动刷新并重试一次。 */
-async function request<T>(path: string, init: RequestInit = {}, retryAfterCsrf = true): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}, retryAfterCsrf = true, timeoutMs?: number): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
   const method = (init.method ?? "GET").toUpperCase();
@@ -56,7 +58,20 @@ async function request<T>(path: string, init: RequestInit = {}, retryAfterCsrf =
   if (changesState) {
     headers.set("X-XSRF-TOKEN", await ensureCsrf());
   }
-  const response = await fetch(path, { ...init, headers, credentials: "same-origin" });
+  // 仅为显式要求超时的短请求创建控制器，避免中断 ZIP 导入等长耗时请求。
+  const controller = timeoutMs ? new AbortController() : undefined;
+  const timeoutId = timeoutMs ? window.setTimeout(() => controller?.abort(), timeoutMs) : undefined;
+  let response: Response;
+  try {
+    response = await fetch(path, { ...init, headers, credentials: "same-origin", signal: controller?.signal ?? init.signal });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError(0, "REQUEST_TIMEOUT", "控制端响应超时，请确认 API 服务已经启动");
+    }
+    throw new ApiError(0, "NETWORK_ERROR", "无法连接控制端，请检查 API 地址和服务状态");
+  } finally {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+  }
   if (!response.ok) {
     const error = (await response.json().catch(() => null)) as ApiErrorBody | null;
     // Spring Security 的注销处理器会清除 CSRF Cookie；缓存令牌会导致下一次登录 403。
@@ -122,28 +137,41 @@ export const api = {
     return request<AdminProblemPage>("/api/v1/admin/problems?" + query.toString());
   },
   adminProblemVersion: (versionId: string) => request<AdminProblemVersionDetail>("/api/v1/admin/problems/versions/" + versionId),
-  problem: (id: string) => request<ProblemDetail>("/api/v1/problems/" + id),
-  problemVersion: (id: string) => request<ProblemDetail>("/api/v1/problems/versions/" + id),
+  problem: (id: string) => request<ProblemDetail>("/api/v1/problems/" + id, {}, true, 15_000),
+  problemVersion: (id: string) => request<ProblemDetail>("/api/v1/problems/versions/" + id, {}, true, 15_000),
   submit: (body: { problemId: string; problemVersionId: string; language: JudgeLanguage; sourceCode: string; contestId?: string; timedPaperAttemptId?: string }) =>
     request<Submission>("/api/v1/submissions", {
       method: "POST",
       headers: { "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify(body),
     }),
-  run: (body: { problemId: string; problemVersionId: string; language: JudgeLanguage; sourceCode: string; inputs: string[] }) =>
+  run: (body: { problemId: string; problemVersionId: string; language: JudgeLanguage; sourceCode: string; inputs: string[]; expectedOutputs: string[] }) =>
     request<Submission>("/api/v1/runs", {
       method: "POST",
       headers: { "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify(body),
     }),
   submission: (id: string) => request<Submission>("/api/v1/submissions/" + id),
-  submissions: () => request<Submission[]>("/api/v1/submissions?limit=50"),
+  /** 分页读取当前用户的正式提交历史；before 使用上一页最早提交时间作为游标。 */
+  submissions: (params: { limit?: number; before?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (params.limit !== undefined) query.set("limit", String(params.limit));
+    if (params.before) query.set("before", params.before);
+    return request<Submission[]>("/api/v1/submissions?" + query.toString());
+  },
   favorite: (problemId: string) => request<void>("/api/v1/favorites/" + problemId, { method: "POST" }),
   unfavorite: (problemId: string) => request<void>("/api/v1/favorites/" + problemId, { method: "DELETE" }),
   favorites: () => request<UserProblemSummary[]>("/api/v1/favorites"),
+  /** 查询当前用户曾经正式通过的题目 ID，跨题目版本合并。 */
+  solvedProblemIds: () => request<string[]>("/api/v1/solved-problems"),
   wrongProblems: () => request<WrongProblem[]>("/api/v1/wrong-problems"),
-  contests: () => request<Contest[]>("/api/v1/contests"),
+  addWrongProblem: (problemId: string, submissionId: string) => request<void>("/api/v1/wrong-problems/" + problemId, {
+    method: "POST",
+    body: JSON.stringify({ submissionId }),
+  }),
+  contests: () => request<ContestSummary[]>("/api/v1/contests"),
   contest: (id: string) => request<Contest>("/api/v1/contests/" + id),
+  contestRanking: (id: string) => request<ContestRank[]>("/api/v1/contests/" + id + "/ranking"),
   createContest: (body: { title: string; visibility: ContestVisibility; password?: string; startsAt: string; durationMinutes: number; problemIds: string[] }) =>
     request<Contest>("/api/v1/contests", { method: "POST", body: JSON.stringify(body) }),
   joinContest: (id: string, password?: string) =>
@@ -151,6 +179,8 @@ export const api = {
   timedPapers: () => request<TimedPaper[]>("/api/v1/timed-papers"),
   createTimedPaper: (body: { title: string; durationMinutes: number; problemIds: string[] }) =>
     request<TimedPaper>("/api/v1/timed-papers", { method: "POST", body: JSON.stringify(body) }),
+  /** 查询当前用户已经开始过的套卷作答，用于恢复独立计时。 */
+  timedAttempts: () => request<TimedAttempt[]>("/api/v1/timed-papers/attempts"),
   startTimedPaper: (id: string) => request<TimedAttempt>("/api/v1/timed-papers/" + id + "/attempts", { method: "POST" }),
   timedAttempt: (id: string) => request<TimedAttempt>("/api/v1/timed-papers/attempts/" + id),
   shareTimedAttempt: (id: string) => request<{ token: string }>("/api/v1/timed-papers/attempts/" + id + "/share", { method: "POST" }),

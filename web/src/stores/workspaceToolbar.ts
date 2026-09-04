@@ -18,6 +18,18 @@ export interface WorkspaceToolbarState {
   run?: () => void | Promise<void>;
   /** 提交全部测试点的回调。 */
   submit?: () => void | Promise<void>;
+  /** 打开或关闭做题页题目列表抽屉。 */
+  toggleProblemList?: () => void;
+  /** 题目列表抽屉是否已经展开。 */
+  problemListOpen: boolean;
+  /** 切换到上一道题。 */
+  previousProblem?: () => void | Promise<void>;
+  /** 切换到下一道题。 */
+  nextProblem?: () => void | Promise<void>;
+  /** 是否存在上一道题。 */
+  canPreviousProblem: boolean;
+  /** 是否存在下一道题。 */
+  canNextProblem: boolean;
 }
 
 /** 应用壳层与做题页共享的顶端栏状态。 */
@@ -27,6 +39,9 @@ export const workspaceToolbar = reactive<WorkspaceToolbarState>({
   running: false,
   submitting: false,
   coolingDown: false,
+  problemListOpen: false,
+  canPreviousProblem: false,
+  canNextProblem: false,
 });
 
 /** 做题页卸载时清理顶端栏回调，避免旧页面继续响应点击。 */
@@ -39,4 +54,10 @@ export function resetWorkspaceToolbar(): void {
   workspaceToolbar.back = undefined;
   workspaceToolbar.run = undefined;
   workspaceToolbar.submit = undefined;
+  workspaceToolbar.toggleProblemList = undefined;
+  workspaceToolbar.problemListOpen = false;
+  workspaceToolbar.previousProblem = undefined;
+  workspaceToolbar.nextProblem = undefined;
+  workspaceToolbar.canPreviousProblem = false;
+  workspaceToolbar.canNextProblem = false;
 }

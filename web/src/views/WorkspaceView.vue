@@ -8,16 +8,28 @@ import type { DockviewApi, DockviewReadyEvent, VueComponent } from "dockview-vue
 import "dockview-vue/dist/styles/dockview.css";
 import { toast } from "../lib/notify";
 import { api, ApiError } from "../api/client";
-import type { JudgeLanguage, JudgeStatus, ProblemDetail, Submission } from "../api/types";
+import type { JudgeLanguage, JudgeStatus, ProblemDetail, ProblemSummary, Submission } from "../api/types";
 import { session } from "../stores/session";
 import { resetWorkspaceToolbar, workspaceToolbar } from "../stores/workspaceToolbar";
 import WorkspaceDockPanel from "../components/WorkspaceDockPanel.vue";
 import WorkspaceDockPanelAdapter from "../components/WorkspaceDockPanelAdapter.vue";
 import type { CodeSaveState, WorkspacePanelContext, WorkspacePanelKind } from "./workspacePanel";
 import UiButton from "../components/ui/Button.vue";
+import { CheckCircle2, Circle, X } from "@lucide/vue";
 
 /** 移动端的六个工作区标签。桌面端由 Dockview 管理同名面板。 */
 type MobileTab = WorkspacePanelKind;
+
+/** 做题页侧栏中的可导航题目；版本号用于保持题面不可变。 */
+interface WorkspaceProblemItem {
+  problemId: string;
+  versionId: string;
+  title: string;
+  school?: string;
+  year?: number;
+  difficulty?: string;
+  ordinal?: number;
+}
 
 const route = useRoute();
 const router = useRouter();
@@ -54,6 +66,16 @@ const wrongBookProblemIds = ref<Set<string>>(new Set());
 const wrongBookPrompt = ref<{ submissionId: string; problemId: string } | null>(null);
 const wrongBookPromptLoading = ref(false);
 const wrongBookPromptMessage = ref("");
+/** 当前做题上下文中的题目序列。 */
+const navigationItems = ref<WorkspaceProblemItem[]>([]);
+/** 题目列表抽屉是否展开。 */
+const problemListOpen = ref(false);
+/** 题目序列加载状态。 */
+const navigationLoading = ref(false);
+/** 当前用户已解决的题目标识，用于侧栏状态标记。 */
+const solvedProblemIds = ref<Set<string>>(new Set());
+/** 当前题目序列的名称。 */
+const navigationTitle = ref("题库");
 const pollTimers: Record<"RUN" | "SUBMIT", number | undefined> = { RUN: undefined, SUBMIT: undefined };
 const dockLayoutStorageKey = "gzu-oj.workspace-dock-layout.v1";
 type DockLayoutSnapshot = ReturnType<DockviewApi["toJSON"]>;
@@ -65,6 +87,20 @@ const dockPanelKinds: Record<string, WorkspacePanelKind> = {
   submit: "submit",
   history: "history",
 };
+
+/** 当前题目在侧栏序列中的位置。 */
+const navigationIndex = computed(() => navigationItems.value.findIndex((item) => item.problemId === problem.value?.id && item.versionId === problem.value?.versionId));
+/** 是否存在上一道题。 */
+const canPreviousProblem = computed(() => navigationIndex.value > 0);
+/** 是否存在下一道题。 */
+const canNextProblem = computed(() => navigationIndex.value >= 0 && navigationIndex.value < navigationItems.value.length - 1);
+/** 判题请求进行中时禁止切题，避免结果写入已经离开的工作区。 */
+const navigationLocked = computed(() => loading.value || running.value || submitting.value);
+
+/** 将难度枚举转换为题目侧栏中的简短文案。 */
+function difficultyText(value?: string): string {
+  return { EASY: "简单", MEDIUM: "中等", HARD: "困难" }[value ?? ""] ?? "";
+}
 let dockLayoutSubscription: { dispose: () => void } | undefined;
 let dockLayoutSaveTimer: number | undefined;
 let actionCooldownTimer: number | undefined;
@@ -248,6 +284,90 @@ function bookmarkedVersionId(): string | null {
   }
 }
 
+/** 把题目摘要转换为侧栏使用的导航项。 */
+function toNavigationItem(problemItem: ProblemSummary, ordinal?: number): WorkspaceProblemItem {
+  return {
+    problemId: problemItem.id,
+    versionId: problemItem.versionId,
+    title: problemItem.title,
+    school: problemItem.school,
+    year: problemItem.year,
+    difficulty: problemItem.difficulty,
+    ordinal,
+  };
+}
+
+/** 加载当前做题上下文中的题目序列。训练赛和套卷使用后端锁定版本。 */
+async function loadNavigation(): Promise<void> {
+  navigationLoading.value = true;
+  try {
+    const contestId = typeof route.query.contestId === "string" ? route.query.contestId : undefined;
+    const attemptId = typeof route.query.timedPaperAttemptId === "string" ? route.query.timedPaperAttemptId : undefined;
+    if (contestId) {
+      const contest = await api.contest(contestId);
+      navigationTitle.value = contest.title;
+      navigationItems.value = contest.problems.map((item) => ({
+        problemId: item.problemId,
+        versionId: item.versionId,
+        title: item.title,
+        ordinal: item.ordinal,
+      }));
+    } else if (attemptId) {
+      const attempt = await api.timedAttempt(attemptId);
+      navigationTitle.value = attempt.paper.title;
+      navigationItems.value = attempt.paper.problems.map((item) => ({
+        problemId: item.problemId,
+        versionId: item.versionId,
+        title: item.title,
+        ordinal: item.ordinal,
+      }));
+    } else {
+      const catalog = await api.problems({});
+      navigationTitle.value = "题库";
+      navigationItems.value = catalog.map((item) => toNavigationItem(item));
+    }
+    // 历史版本可能不在当前公开题库中，仍保留当前题目作为可定位项。
+    if (problem.value && !navigationItems.value.some((item) => item.problemId === problem.value?.id && item.versionId === problem.value?.versionId)) {
+      navigationItems.value.unshift(toNavigationItem(problem.value));
+    }
+  } catch (error) {
+    navigationItems.value = problem.value ? [toNavigationItem(problem.value)] : [];
+    console.warn("题目侧栏加载失败", error);
+  } finally {
+    navigationLoading.value = false;
+  }
+}
+
+/** 关闭题目侧栏。 */
+function closeProblemList(): void {
+  problemListOpen.value = false;
+}
+
+/** 在顶栏打开或关闭题目侧栏。 */
+function toggleProblemList(): void {
+  problemListOpen.value = !problemListOpen.value;
+}
+
+/** 进入侧栏选中的题目，并沿用比赛或套卷的上下文参数。 */
+function openNavigationProblem(item: WorkspaceProblemItem): void {
+  if (navigationLocked.value) return;
+  saveCodeDraftNow(code.value, language.value, { notifyFailure: false });
+  problemListOpen.value = false;
+  const query = { ...route.query, versionId: item.versionId };
+  void router.push({ path: "/problems/" + item.problemId, query });
+}
+
+/** 切换到相邻题目；边界题目保持禁用，避免产生无效路由。 */
+function moveToProblem(delta: -1 | 1): void {
+  const target = navigationItems.value[navigationIndex.value + delta];
+  if (target) openNavigationProblem(target);
+}
+
+/** 处理题目侧栏的 Escape 关闭操作。 */
+function handleProblemListKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape" && problemListOpen.value) closeProblemList();
+}
+
 /** 清理尚未执行的源码自动保存任务。 */
 function clearCodeSaveTimer(): void {
   if (codeSaveTimer !== undefined) window.clearTimeout(codeSaveTimer);
@@ -359,11 +479,13 @@ async function loadFavoriteState(problemId: string): Promise<void> {
 async function loadSolvedState(problemId: string): Promise<void> {
   if (!session.user) {
     isSolved.value = false;
+    solvedProblemIds.value = new Set();
     return;
   }
   try {
     const solvedIds = await api.solvedProblemIds();
-    if (problem.value?.id === problemId) isSolved.value = solvedIds.includes(problemId);
+    solvedProblemIds.value = new Set(solvedIds);
+    if (problem.value?.id === problemId) isSolved.value = solvedProblemIds.value.has(problemId);
   } catch {
     isSolved.value = false;
   }
@@ -682,6 +804,7 @@ async function loadProblem(): Promise<void> {
     await loadFavoriteState(problem.value.id);
     await loadSolvedState(problem.value.id);
     await loadWrongBookState();
+    await loadNavigation();
   } catch (error) {
     loadingError.value = error instanceof Error ? error.message : "题目加载失败";
     toast.error(loadingError.value);
@@ -751,6 +874,12 @@ watchEffect(() => {
   workspaceToolbar.run = runSamples;
   workspaceToolbar.submit = submit;
   workspaceToolbar.back = () => { void router.push("/problems"); };
+  workspaceToolbar.toggleProblemList = toggleProblemList;
+  workspaceToolbar.problemListOpen = problemListOpen.value;
+  workspaceToolbar.previousProblem = () => moveToProblem(-1);
+  workspaceToolbar.nextProblem = () => moveToProblem(1);
+  workspaceToolbar.canPreviousProblem = canPreviousProblem.value && !navigationLocked.value;
+  workspaceToolbar.canNextProblem = canNextProblem.value && !navigationLocked.value;
 });
 
 watch(code, (value) => {
@@ -785,6 +914,7 @@ onMounted(() => {
   window.addEventListener("gzu-oj-theme-change", syncTheme);
   window.addEventListener("keydown", handleCodeSaveShortcut, true);
   window.addEventListener("beforeunload", handleCodeBeforeUnload);
+  window.addEventListener("keydown", handleProblemListKeydown);
   void loadProblem();
 });
 onBeforeUnmount(() => {
@@ -798,6 +928,7 @@ onBeforeUnmount(() => {
   window.removeEventListener("gzu-oj-theme-change", syncTheme);
   window.removeEventListener("keydown", handleCodeSaveShortcut, true);
   window.removeEventListener("beforeunload", handleCodeBeforeUnload);
+  window.removeEventListener("keydown", handleProblemListKeydown);
   resetWorkspaceToolbar();
 });
 </script>
@@ -846,5 +977,34 @@ onBeforeUnmount(() => {
       </div>
       <WorkspaceDockPanel :kind="mobileTab" :context="dockContext" />
     </div>
+
+    <Transition name="workspace-problem-drawer-fade">
+      <div v-if="problemListOpen" class="workspace-problem-drawer-layer" @click.self="closeProblemList">
+        <aside class="workspace-problem-drawer" aria-label="题目列表" aria-modal="true" role="dialog">
+          <header class="workspace-problem-drawer-header">
+            <div>
+              <strong>{{ navigationTitle }}</strong>
+              <span>{{ navigationIndex >= 0 ? `${navigationIndex + 1} / ${navigationItems.length}` : `${navigationItems.length} 道题` }}</span>
+            </div>
+            <button class="icon-button" type="button" title="关闭题目列表" aria-label="关闭题目列表" @click="closeProblemList"><X :size="18" /></button>
+          </header>
+          <div v-if="navigationLoading" class="workspace-problem-drawer-state" role="status">正在加载题目…</div>
+          <div v-else-if="navigationItems.length" class="workspace-problem-drawer-list">
+            <button v-for="(item, index) in navigationItems" :key="item.problemId + ':' + item.versionId" type="button" class="workspace-problem-drawer-item" :class="{ active: index === navigationIndex }" :disabled="navigationLocked" @click="openNavigationProblem(item)">
+              <span class="workspace-problem-drawer-status" :class="{ solved: solvedProblemIds.has(item.problemId) }">
+                <CheckCircle2 v-if="solvedProblemIds.has(item.problemId)" :size="16" aria-label="已解决" />
+                <Circle v-else :size="16" aria-hidden="true" />
+              </span>
+              <span class="workspace-problem-drawer-copy">
+                <strong><small v-if="item.ordinal !== undefined">{{ item.ordinal }}.</small>{{ item.title }}</strong>
+                <span>{{ [item.school, item.year, difficultyText(item.difficulty)].filter(Boolean).join(" · ") || "题目" }}</span>
+              </span>
+              <span class="workspace-problem-drawer-index">{{ index + 1 }}</span>
+            </button>
+          </div>
+          <div v-else class="workspace-problem-drawer-state">暂无可导航题目</div>
+        </aside>
+      </div>
+    </Transition>
   </section>
 </template>

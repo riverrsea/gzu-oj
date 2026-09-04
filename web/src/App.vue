@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ArrowLeft, BookOpen, ChevronDown, ClipboardList, Heart, LogIn, LogOut, Moon, Monitor, Play, Send, Settings, Sun, Trophy, UserPlus } from "@lucide/vue";
+import { ArrowLeft, BookOpen, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Heart, List, LogIn, LogOut, Moon, Monitor, Play, Send, Settings, Sun, Trophy, UserPlus } from "@lucide/vue";
 import { api } from "./api/client";
 import { loadSession, session, setSession } from "./stores/session";
 import { workspaceToolbar } from "./stores/workspaceToolbar";
@@ -80,6 +80,7 @@ watch(() => route.fullPath, () => {
     <header class="topbar topbar--codex" :class="{ 'topbar--scrolled': topbarScrolled, 'topbar--menu-open': mobileNavOpen }">
       <div class="topbar-inner" :class="{ 'topbar-inner--workspace': isWorkspace }">
         <button v-if="isWorkspace && workspaceToolbar.active" class="workspace-back-button" type="button" title="返回题库" aria-label="返回题库" @click="workspaceToolbar.back?.()"><ArrowLeft :size="17" /></button>
+        <button v-if="isWorkspace && workspaceToolbar.active" class="workspace-problem-list-button" :class="{ active: workspaceToolbar.problemListOpen }" type="button" title="题目列表" aria-label="题目列表" :aria-expanded="workspaceToolbar.problemListOpen" @click="workspaceToolbar.toggleProblemList?.()"><List :size="17" /></button>
         <RouterLink class="brand topbar-brand" to="/problems" aria-label="GZU_OJ 题库">
           <span>GZU_OJ</span>
         </RouterLink>
@@ -91,8 +92,10 @@ watch(() => route.fullPath, () => {
           <RouterLink v-if="session.user?.role === 'ADMIN'" to="/admin"><Settings :size="16" />管理</RouterLink>
         </nav>
         <div v-if="isWorkspace && workspaceToolbar.active" class="workspace-topbar-center" aria-label="做题操作">
+          <button class="workspace-problem-nav-button" type="button" title="上一题" aria-label="上一题" :disabled="!workspaceToolbar.canPreviousProblem" @click="workspaceToolbar.previousProblem?.()"><ChevronLeft :size="17" /></button>
           <UiButton variant="outline" size="sm" class="workspace-run-button" :loading="workspaceToolbar.running" :disabled="!workspaceToolbar.ready || workspaceToolbar.submitting || workspaceToolbar.coolingDown" @click="workspaceToolbar.run?.()"><Play :size="14" fill="currentColor" aria-hidden="true" />运行</UiButton>
           <UiButton variant="default" size="sm" class="workspace-submit-button" :loading="workspaceToolbar.submitting" :disabled="!workspaceToolbar.ready || workspaceToolbar.running || workspaceToolbar.coolingDown" @click="workspaceToolbar.submit?.()"><Send :size="14" aria-hidden="true" />提交</UiButton>
+          <button class="workspace-problem-nav-button" type="button" title="下一题" aria-label="下一题" :disabled="!workspaceToolbar.canNextProblem" @click="workspaceToolbar.nextProblem?.()"><ChevronRight :size="17" /></button>
         </div>
         <div class="topbar-actions">
           <div class="topbar-theme-toggle" role="radiogroup" aria-label="主题">

@@ -691,12 +691,14 @@ a { color: inherit; text-decoration: none; }
 }
 /* 进入做题页时，顶栏左右内容从中央向两端展开，保持与 Dock 面板一致的节奏。 */
 .topbar-inner--workspace > .workspace-back-button,
+.topbar-inner--workspace > .workspace-problem-list-button,
 .topbar-inner--workspace > .topbar-brand,
 .topbar-inner--workspace > .topbar-nav {
   animation: workspace-topbar-left 520ms cubic-bezier(.12, .82, .18, 1) both;
   will-change: transform, opacity;
 }
 .topbar-inner--workspace > .workspace-back-button { animation-delay: 0ms; }
+.topbar-inner--workspace > .workspace-problem-list-button { animation-delay: 25ms; }
 .topbar-inner--workspace > .topbar-brand { animation-delay: 45ms; }
 .topbar-inner--workspace > .topbar-nav { animation-delay: 90ms; }
 .topbar-inner--workspace > .workspace-topbar-center {
@@ -1127,6 +1129,7 @@ a { color: inherit; text-decoration: none; }
   .loading-dots i,
   .workspace-dock-group-enter,
   .topbar-inner--workspace > .workspace-back-button,
+  .topbar-inner--workspace > .workspace-problem-list-button,
   .topbar-inner--workspace > .topbar-brand,
   .topbar-inner--workspace > .topbar-nav,
   .topbar-inner--workspace > .workspace-topbar-center,
@@ -1965,6 +1968,97 @@ a { color: inherit; text-decoration: none; }
 .workspace-command-title span, .workspace-limit { color: var(--muted); font-size: 11px; }
 .workspace-back-button { display: grid; flex: 0 0 auto; width: 30px; height: 30px; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
 .workspace-back-button:hover { background: var(--surface-subtle); color: var(--text); }
+.workspace-problem-list-button,
+.workspace-problem-nav-button {
+  display: grid;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease, opacity 150ms ease;
+}
+.workspace-problem-list-button:hover,
+.workspace-problem-list-button.active,
+.workspace-problem-nav-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 25%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 72%, var(--surface));
+  color: var(--accent);
+}
+.workspace-problem-nav-button:disabled { cursor: not-allowed; opacity: .35; }
+
+/* 题目列表从右侧滑入，保持与工作区卡片相同的边框和主题色。 */
+.workspace-problem-drawer-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: color-mix(in srgb, #0b1020 22%, transparent);
+}
+.workspace-problem-drawer {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(390px, calc(100vw - 28px));
+  height: 100%;
+  margin-left: auto;
+  overflow: hidden;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: -14px 0 40px color-mix(in srgb, #0b1020 16%, transparent);
+}
+.workspace-problem-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 70px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.workspace-problem-drawer-header > div { display: grid; gap: 4px; min-width: 0; }
+.workspace-problem-drawer-header strong { overflow: hidden; color: var(--text); font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-problem-drawer-header span { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.workspace-problem-drawer-list { min-height: 0; padding: 10px; overflow: auto; }
+.workspace-problem-drawer-item {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 60px;
+  padding: 10px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 150ms ease, background-color 150ms ease, transform 150ms ease;
+}
+.workspace-problem-drawer-item:hover:not(:disabled),
+.workspace-problem-drawer-item:focus-visible { border-color: color-mix(in srgb, var(--accent) 32%, var(--border)); background: color-mix(in srgb, var(--accent-soft) 58%, var(--surface)); outline: none; transform: translateX(-2px); }
+.workspace-problem-drawer-item.active { border-color: color-mix(in srgb, var(--accent) 42%, var(--border)); background: color-mix(in srgb, var(--accent-soft) 76%, var(--surface)); }
+.workspace-problem-drawer-item:disabled { cursor: wait; opacity: .65; }
+.workspace-problem-drawer-status { display: grid; place-items: center; color: var(--muted); }
+.workspace-problem-drawer-status.solved { color: var(--success); }
+.workspace-problem-drawer-copy { display: grid; min-width: 0; gap: 4px; }
+.workspace-problem-drawer-copy strong { overflow: hidden; font-size: 13px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-problem-drawer-copy strong small { margin-right: 5px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.workspace-problem-drawer-copy > span { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-problem-drawer-index { color: var(--muted); font: 11px ui-monospace, monospace; text-align: right; }
+.workspace-problem-drawer-state { display: grid; place-items: center; min-height: 180px; color: var(--muted); font-size: 12px; }
+.workspace-problem-drawer-fade-enter-active { animation: workspace-drawer-backdrop-in 180ms ease both; }
+.workspace-problem-drawer-fade-leave-active { animation: workspace-drawer-backdrop-out 180ms ease both; }
+.workspace-problem-drawer-fade-enter-active .workspace-problem-drawer { animation: workspace-drawer-slide-in 280ms cubic-bezier(.12, .82, .18, 1) both; }
+.workspace-problem-drawer-fade-leave-active .workspace-problem-drawer { animation: workspace-drawer-slide-out 180ms cubic-bezier(.55, .08, .68, .53) both; }
+@keyframes workspace-drawer-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes workspace-drawer-backdrop-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes workspace-drawer-slide-in { from { opacity: .5; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
+@keyframes workspace-drawer-slide-out { from { opacity: 1; transform: translateX(0); } to { opacity: .5; transform: translateX(100%); } }
 
 .version-notice { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 34px; padding: 7px 14px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--accent-soft) 54%, var(--surface)); color: var(--muted); font-size: 12px; }
 .version-notice button { padding: 0; border: 0; background: transparent; color: var(--accent); cursor: pointer; font-size: 12px; font-weight: 650; }
@@ -2062,6 +2156,8 @@ a { color: inherit; text-decoration: none; }
   .dock-panel--result { grid-template-rows: 44px minmax(0, 1fr); }
   .run-output-columns { grid-template-columns: 1fr; }
   .run-output-columns > div + div { border-top: 1px solid var(--border); border-left: 0; }
+  .workspace-problem-drawer { width: min(360px, calc(100vw - 12px)); }
+  .workspace-problem-drawer-header { min-height: 62px; padding: 0 14px; }
 }
 
 /* 公共按钮采用紧凑的工作台样式，所有交互状态保持稳定尺寸。 */

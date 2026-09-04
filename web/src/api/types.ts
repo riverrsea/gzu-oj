@@ -108,6 +108,7 @@ export interface ContestRank {
   username: string;
   totalScore: number;
   elapsedSeconds: number;
+  problemScores: Record<string, number>;
 }
 
 export interface Contest {
@@ -115,6 +116,7 @@ export interface Contest {
   title: string;
   visibility: ContestVisibility;
   ownerUsername: string;
+  createdAt: string;
   startsAt: string;
   endsAt: string;
   phase: ContestPhase;

@@ -43,10 +43,14 @@ const papers = ref<TimedPaper[]>([]);
 const problems = ref<ProblemSummary[]>([]);
 /** 当前展开的比赛。 */
 const selectedContest = ref<Contest>();
+/** 当前是否打开训练赛详情遮罩。 */
+const contestDetailOpen = ref(false);
 /** 按套卷标识保存的既有作答，页面重进后由服务端恢复。 */
 const attemptsByPaperId = ref<Record<string, TimedAttempt>>({});
 /** 当前展开的个人计时套卷。 */
 const selectedPaper = ref<TimedPaper>();
+/** 当前是否打开个人套卷详情遮罩。 */
+const paperDetailOpen = ref(false);
 /** 新建比赛对话框状态。 */
 const contestDialog = ref(false);
 /** 新建套卷对话框状态。 */
@@ -243,10 +247,14 @@ async function load(): Promise<void> {
     papers.value = loadedPapers;
     problems.value = loadedProblems;
     attemptsByPaperId.value = Object.fromEntries(loadedAttempts.map((attempt) => [attempt.paper.id, attempt]));
-    if (selectedContest.value && !contests.value.some((contest) => contest.id === selectedContest.value?.id)) selectedContest.value = undefined;
-    if (selectedPaper.value && !papers.value.some((paper) => paper.id === selectedPaper.value?.id)) selectedPaper.value = undefined;
-    if (!selectedContest.value && contests.value.length) selectedContest.value = contests.value[0];
-    if (!selectedPaper.value) selectedPaper.value = loadedAttempts[0]?.paper ?? papers.value[0];
+    if (selectedContest.value && !contests.value.some((contest) => contest.id === selectedContest.value?.id)) {
+      selectedContest.value = undefined;
+      contestDetailOpen.value = false;
+    }
+    if (selectedPaper.value && !papers.value.some((paper) => paper.id === selectedPaper.value?.id)) {
+      selectedPaper.value = undefined;
+      paperDetailOpen.value = false;
+    }
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "训练中心加载失败");
   } finally {
@@ -257,7 +265,13 @@ async function load(): Promise<void> {
 /** 先切换当前比赛，再异步刷新详情，避免点击后右侧出现空白等待。 */
 function selectContest(contest: Contest): void {
   selectedContest.value = contest;
+  contestDetailOpen.value = true;
   void inspect(contest);
+}
+
+/** 关闭训练赛详情遮罩。 */
+function closeContestDetail(): void {
+  contestDetailOpen.value = false;
 }
 
 /** 创建公开或口令训练赛。 */
@@ -273,6 +287,7 @@ async function createContest(): Promise<void> {
     });
     contests.value.unshift(created);
     selectedContest.value = created;
+    contestDetailOpen.value = true;
     contestDialog.value = false;
     toast.success("训练赛已创建");
   } catch (error) {
@@ -294,6 +309,7 @@ async function join(contest: Contest): Promise<void> {
     const joined = await api.joinContest(contest.id, password);
     replaceContest(joined);
     selectedContest.value = joined;
+    contestDetailOpen.value = true;
     toast.success("已加入训练赛");
   } catch (error) {
     if (error === "cancel" || error === "close") return;
@@ -330,6 +346,7 @@ async function createPaper(): Promise<void> {
     const created = await api.createTimedPaper(paperForm);
     papers.value.unshift(created);
     selectedPaper.value = created;
+    paperDetailOpen.value = true;
     paperDialog.value = false;
     toast.success("计时套卷已创建");
   } catch (error) {
@@ -340,6 +357,7 @@ async function createPaper(): Promise<void> {
 /** 首次进入套卷并启动独立计时。 */
 async function startPaper(paper: TimedPaper): Promise<void> {
   selectedPaper.value = paper;
+  paperDetailOpen.value = true;
   try {
     const attempt = await api.startTimedPaper(paper.id);
     attemptsByPaperId.value = {...attemptsByPaperId.value, [paper.id]: attempt};
@@ -352,6 +370,12 @@ async function startPaper(paper: TimedPaper): Promise<void> {
 /** 只展开套卷详情，不触发计时。 */
 function inspectPaper(paper: TimedPaper): void {
   selectedPaper.value = paper;
+  paperDetailOpen.value = true;
+}
+
+/** 关闭个人套卷详情遮罩。 */
+function closePaperDetail(): void {
+  paperDetailOpen.value = false;
 }
 
 /** 打开套卷锁定版本的做题工作区。 */
@@ -432,7 +456,8 @@ onBeforeUnmount(() => window.clearInterval(ticker));
         个人计时<span>{{ papers.length }}</span></button>
     </nav>
 
-    <div v-if="tab === 'contest'" class="training-workbench training-workbench--contest">
+    <div v-if="tab === 'contest'" class="training-workbench training-workbench--contest" :class="{ 'training-workbench--detail-open': contestDetailOpen }">
+      <div v-if="contestDetailOpen" class="training-detail-backdrop" @click="closeContestDetail" />
       <aside class="training-browser" aria-label="训练赛列表">
         <header class="training-browser-header">
           <div><strong>公开训练赛</strong></div>
@@ -475,7 +500,7 @@ onBeforeUnmount(() => window.clearInterval(ticker));
         </UiEmptyState>
       </aside>
 
-      <section class="training-inspector" aria-live="polite">
+      <section class="training-inspector" aria-live="polite" role="dialog" aria-modal="true">
         <template v-if="selectedContest">
           <header class="training-inspector-header">
             <div><span class="training-phase-label"
@@ -487,6 +512,7 @@ onBeforeUnmount(() => window.clearInterval(ticker));
               <h2>{{ selectedContest.title }}</h2>
               <p>由 {{ selectedContest.ownerUsername }} 创建 · {{ visibilityText(selectedContest.visibility) }}</p>
             </div>
+            <button class="icon-button training-detail-close" type="button" aria-label="关闭详情" @click="closeContestDetail">×</button>
             <UiButton v-if="!selectedContest.joined && liveContestPhase(selectedContest) !== 'FINISHED'" size="sm"
                       @click="join(selectedContest)">
               <Trophy :size="15"/>
@@ -560,7 +586,8 @@ onBeforeUnmount(() => window.clearInterval(ticker));
       </section>
     </div>
 
-    <div v-else class="training-workbench training-workbench--paper">
+    <div v-else class="training-workbench training-workbench--paper" :class="{ 'training-workbench--detail-open': paperDetailOpen }">
+      <div v-if="paperDetailOpen" class="training-detail-backdrop" @click="closePaperDetail" />
       <aside class="training-browser" aria-label="个人计时套卷列表">
         <header class="training-browser-header">
           <div><strong>个人计时套卷</strong><span>独立计时，随时继续</span></div>
@@ -603,12 +630,13 @@ onBeforeUnmount(() => window.clearInterval(ticker));
         </UiEmptyState>
       </aside>
 
-      <section class="training-inspector" aria-live="polite">
+      <section class="training-inspector" aria-live="polite" role="dialog" aria-modal="true">
         <template v-if="selectedPaper">
           <header class="training-inspector-header">
             <div><span class="training-phase-label training-phase-label--paper"><Clock3 :size="14"/>个人计时</span>
               <h2>{{ selectedPaper.title }}</h2>
               <p>{{ selectedPaper.problems.length }} 道题 · 首次进入后开始独立计时</p></div>
+            <button class="icon-button training-detail-close" type="button" aria-label="关闭详情" @click="closePaperDetail">×</button>
             <UiButton v-if="!hasPaperAttempt(selectedPaper)" size="sm" @click="startPaper(selectedPaper)">
               <Clock3 :size="15"/>
               开始作答

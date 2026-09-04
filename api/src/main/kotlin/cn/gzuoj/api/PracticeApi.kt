@@ -679,6 +679,8 @@ data class ContestRankResponse(
     val totalScore: Int,
     /** 达到最终总分的比赛用时秒数。 */
     val elapsedSeconds: Long,
+    /** 比赛期间每道题的最高分，键为稳定题目标识。 */
+    val problemScores: Map<UUID, Int>,
 )
 
 /** 用户可见的训练赛详情。 */
@@ -691,6 +693,8 @@ data class ContestResponse(
     val visibility: ContestVisibility,
     /** 创建者用户名。 */
     val ownerUsername: String,
+    /** 创建时间。 */
+    val createdAt: Instant,
     /** 开始时间。 */
     val startsAt: Instant,
     /** 结束时间。 */
@@ -797,6 +801,9 @@ class ContestService(
     /** 按比赛阶段控制本人得分和公开排名。 */
     fun detail(contestId: UUID, viewerId: UUID?): ContestResponse {
         val contest = loadContestRow(contestId, lock = false)
+        if (contest.visibility == ContestVisibility.PASSWORD && (viewerId == null || !isJoined(contestId, viewerId))) {
+            throw ApiException(HttpStatus.NOT_FOUND, "CONTEST_NOT_FOUND", "比赛不存在")
+        }
         val now = Instant.now()
         val phase = when {
             now.isBefore(contest.startsAt) -> ContestPhase.UPCOMING
@@ -810,6 +817,7 @@ class ContestService(
             title = contest.title,
             visibility = contest.visibility,
             ownerUsername = contest.ownerUsername,
+            createdAt = contest.createdAt,
             startsAt = contest.startsAt,
             endsAt = contest.endsAt,
             phase = phase,
@@ -819,7 +827,8 @@ class ContestService(
             problems = problems,
             myScores = viewerId?.takeIf { phase == ContestPhase.RUNNING && joined }
                 ?.let { loadUserScores(contestId, it) },
-            ranking = if (phase == ContestPhase.FINISHED) ranking(contest, problems) else null,
+            // 公开赛从开始后即可查看实时排名；口令赛仍只展示给已加入用户，避免泄露受限比赛信息。
+            ranking = if (contest.visibility == ContestVisibility.PUBLIC && phase != ContestPhase.UPCOMING) ranking(contest, problems) else null,
         )
     }
 
@@ -860,7 +869,13 @@ class ContestService(
             }
         }
         return ContestRanking.calculate(events).mapIndexed { index, row ->
-            ContestRankResponse(index + 1, users.getValue(UUID.fromString(row.userId)), row.totalScore, row.reachedFinalScoreAtSeconds)
+            ContestRankResponse(
+                rank = index + 1,
+                username = users.getValue(UUID.fromString(row.userId)),
+                totalScore = row.totalScore,
+                elapsedSeconds = row.reachedFinalScoreAtSeconds,
+                problemScores = row.problemScores.mapKeys { UUID.fromString(it.key) },
+            )
         }
     }
 
@@ -945,7 +960,7 @@ class ContestService(
         return jdbc.query(
             """
             SELECT c.id, c.title, c.visibility, c.password_hash, c.starts_at, c.duration_minutes,
-                   c.max_participants, u.username
+                   c.max_participants, c.created_at, u.username
             FROM contest c JOIN app_user u ON u.id = c.owner_id
             WHERE c.id = ?$lockClause
             """.trimIndent(),
@@ -960,6 +975,7 @@ class ContestService(
                     startsAt,
                     startsAt.plus(Duration.ofMinutes(durationMinutes)),
                     result.getInt("max_participants"),
+                    result.getTimestamp("created_at").toInstant(),
                     result.getString("username"),
                 )
             },
@@ -998,6 +1014,8 @@ class ContestService(
         val endsAt: Instant,
         /** 人数上限。 */
         val maxParticipants: Int,
+        /** 创建时间。 */
+        val createdAt: Instant,
         /** 创建者用户名。 */
         val ownerUsername: String,
     )
@@ -1024,8 +1042,8 @@ class ContestController(
 
     /** 查询比赛详情。 */
     @GetMapping("/{contestId}")
-    fun detail(@PathVariable contestId: UUID, @AuthenticationPrincipal principal: AppPrincipal): ContestResponse =
-        service.detail(contestId, principal.userId)
+    fun detail(@PathVariable contestId: UUID, @AuthenticationPrincipal principal: AppPrincipal?): ContestResponse =
+        service.detail(contestId, principal?.userId)
 
     /** 加入公开或口令比赛。 */
     @PostMapping("/{contestId}/participants")

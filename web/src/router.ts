@@ -14,6 +14,7 @@ const router = createRouter({
     { path: "/submissions/:id", component: () => import("./views/SubmissionDetailView.vue") },
     { path: "/practice", component: () => import("./views/PracticeView.vue") },
     { path: "/training", component: () => import("./views/TrainingView.vue") },
+    { path: "/rankings", component: () => import("./views/RankingsView.vue"), meta: { public: true } },
     { path: "/shares/timed-papers/:token", component: () => import("./views/TimedShareView.vue"), meta: { public: true } },
     {
       path: "/admin",

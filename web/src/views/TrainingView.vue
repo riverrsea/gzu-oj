@@ -11,6 +11,7 @@ import {
   Link2,
   ListChecks,
   LockKeyhole,
+  Medal,
   Plus,
   RefreshCw,
   Trophy,
@@ -20,14 +21,13 @@ import {promptAction, toast} from "../lib/notify";
 import {APP_TIME_ZONE, chinaDateTimeInputToIso, toChinaDateTimeInputValue} from "../lib/time";
 import {useRouter} from "vue-router";
 import {api} from "../api/client";
-import type {Contest, ContestVisibility, ProblemSummary, TimedAttempt, TimedPaper} from "../api/types";
+import type {Contest, ContestSummary, ContestVisibility, ProblemSummary, TimedAttempt, TimedPaper} from "../api/types";
 import UiButton from "../components/ui/Button.vue";
 import UiDialog from "../components/ui/Dialog.vue";
 import UiEmptyState from "../components/ui/EmptyState.vue";
 import UiInput from "../components/ui/Input.vue";
 import UiNumberField from "../components/ui/NumberField.vue";
 import UiSelect from "../components/ui/Select.vue";
-import UiTable from "../components/ui/Table.vue";
 import UiLabel from "../components/ui/Label.vue";
 import ProblemPicker from "../components/ProblemPicker.vue";
 
@@ -36,7 +36,7 @@ const tab = ref<"contest" | "paper">("contest");
 /** 页面加载状态。 */
 const loading = ref(false);
 /** 当前公开比赛列表。 */
-const contests = ref<Contest[]>([]);
+const contests = ref<ContestSummary[]>([]);
 /** 当前用户的个人套卷。 */
 const papers = ref<TimedPaper[]>([]);
 /** 可供组题的发布题目。 */
@@ -74,20 +74,11 @@ const contestForm = reactive({
 /** 新建套卷表单。 */
 const paperForm = reactive({title: "", durationMinutes: 120, problemIds: [] as string[]});
 
-/** 训练中心顶部概览统计。 */
-const runningContestCount = computed(() => contests.value.filter((contest) => liveContestPhase(contest) === "RUNNING").length);
-const upcomingContestCount = computed(() => contests.value.filter((contest) => liveContestPhase(contest) === "UPCOMING").length);
-const paperProblemCount = computed(() => papers.value.reduce((total, paper) => total + paper.problems.length, 0));
 /** 当前选中套卷对应的既有作答。 */
 const selectedAttempt = computed(() => {
   if (!selectedPaper.value) return undefined;
   return attemptsByPaperId.value[selectedPaper.value.id];
 });
-/** 顶部概览优先展示当前套卷，其次展示仍在进行的作答。 */
-const summaryAttempt = computed(() => selectedAttempt.value
-    ?? Object.values(attemptsByPaperId.value).find((attempt) => !attemptFinished(attempt))
-    ?? Object.values(attemptsByPaperId.value)[0]);
-
 /** 格式化分钟与秒倒计时。 */
 function formatDuration(seconds: number): string {
   const safeSeconds = Math.max(0, Math.floor(seconds));
@@ -101,7 +92,7 @@ function formatDuration(seconds: number): string {
 }
 
 /** 依据当前时间计算实时比赛阶段，避免页面停留时阶段冻结。 */
-function liveContestPhase(contest: Contest): Contest["phase"] {
+function liveContestPhase(contest: Pick<Contest, "startsAt" | "endsAt">): Contest["phase"] {
   if (now.value < new Date(contest.startsAt).getTime()) return "UPCOMING";
   if (now.value < new Date(contest.endsAt).getTime()) return "RUNNING";
   return "FINISHED";
@@ -126,12 +117,12 @@ function progressWidth(ratio: number): string {
 }
 
 /** 返回比赛的总时长秒数。 */
-function contestTotalSeconds(contest: Contest): number {
+function contestTotalSeconds(contest: Pick<Contest, "startsAt" | "endsAt">): number {
   return Math.max(0, (new Date(contest.endsAt).getTime() - new Date(contest.startsAt).getTime()) / 1000);
 }
 
 /** 返回比赛当前剩余比例；未开始时保持完整，结束后归零。 */
-function contestRemainingRatio(contest: Contest): number {
+function contestRemainingRatio(contest: Pick<Contest, "startsAt" | "endsAt">): number {
   const phase = liveContestPhase(contest);
   if (phase === "UPCOMING") return 1;
   if (phase === "FINISHED") return 0;
@@ -139,20 +130,11 @@ function contestRemainingRatio(contest: Contest): number {
 }
 
 /** 返回比赛倒计时主文案。 */
-function contestCountdown(contest: Contest): string {
+function contestCountdown(contest: Pick<Contest, "startsAt" | "endsAt">): string {
   const phase = liveContestPhase(contest);
   if (phase === "UPCOMING") return "距开始 " + formatDuration((new Date(contest.startsAt).getTime() - now.value) / 1000);
   if (phase === "RUNNING") return "剩余 " + formatDuration((new Date(contest.endsAt).getTime() - now.value) / 1000);
   return "已结束";
-}
-
-/** 返回比赛时间流逝说明。 */
-function contestElapsed(contest: Contest): string {
-  const total = contestTotalSeconds(contest);
-  const phase = liveContestPhase(contest);
-  if (phase === "UPCOMING") return "比赛时长 " + formatDuration(total);
-  const elapsed = phase === "FINISHED" ? total : (now.value - new Date(contest.startsAt).getTime()) / 1000;
-  return "已用 " + formatDuration(elapsed) + " / " + formatDuration(total);
 }
 
 /** 返回套卷已有作答。 */
@@ -186,12 +168,6 @@ function attemptFinished(attempt: TimedAttempt): boolean {
 /** 返回套卷作答当前剩余比例。 */
 function attemptRemainingRatio(attempt: TimedAttempt): number {
   return boundedRatio(attemptRemainingSeconds(attempt), attempt.paper.durationMinutes * 60);
-}
-
-/** 返回套卷已经使用的时长。 */
-function attemptElapsed(attempt: TimedAttempt): string {
-  const total = attempt.paper.durationMinutes * 60;
-  return "已用 " + formatDuration(total - attemptRemainingSeconds(attempt)) + " / " + formatDuration(total);
 }
 
 /** 将比赛阶段映射为用户可读的中文。 */
@@ -263,8 +239,8 @@ async function load(): Promise<void> {
 }
 
 /** 先切换当前比赛，再异步刷新详情，避免点击后右侧出现空白等待。 */
-function selectContest(contest: Contest): void {
-  selectedContest.value = contest;
+function selectContest(contest: ContestSummary): void {
+  selectedContest.value = undefined;
   contestDetailOpen.value = true;
   void inspect(contest);
 }
@@ -285,7 +261,7 @@ async function createContest(): Promise<void> {
       durationMinutes: contestForm.durationMinutes,
       problemIds: contestForm.problemIds,
     });
-    contests.value.unshift(created);
+    contests.value.unshift(toContestSummary(created));
     selectedContest.value = created;
     contestDetailOpen.value = true;
     contestDialog.value = false;
@@ -318,7 +294,7 @@ async function join(contest: Contest): Promise<void> {
 }
 
 /** 刷新并展开比赛详情。 */
-async function inspect(contest: Contest): Promise<void> {
+async function inspect(contest: ContestSummary): Promise<void> {
   try {
     const detail = await api.contest(contest.id);
     replaceContest(detail);
@@ -331,13 +307,36 @@ async function inspect(contest: Contest): Promise<void> {
 /** 用最新比赛对象替换列表中的旧对象。 */
 function replaceContest(contest: Contest): void {
   const index = contests.value.findIndex((item) => item.id === contest.id);
-  if (index >= 0) contests.value[index] = contest;
-  else contests.value.unshift(contest);
+  const summary = toContestSummary(contest);
+  if (index >= 0) contests.value[index] = summary;
+  else contests.value.unshift(summary);
+}
+
+/** 将详情对象压缩为列表使用的比赛元数据，避免列表状态携带题目和排名。 */
+function toContestSummary(contest: Contest): ContestSummary {
+  return {
+    id: contest.id,
+    title: contest.title,
+    visibility: contest.visibility,
+    ownerUsername: contest.ownerUsername,
+    createdAt: contest.createdAt,
+    startsAt: contest.startsAt,
+    endsAt: contest.endsAt,
+    phase: contest.phase,
+    maxParticipants: contest.maxParticipants,
+    participantCount: contest.participantCount,
+    joined: contest.joined,
+  };
 }
 
 /** 打开比赛锁定版本的做题工作区。 */
 function openContestProblem(contest: Contest, problemId: string, versionId: string): void {
   void router.push({path: "/problems/" + problemId, query: {versionId, contestId: contest.id}});
+}
+
+/** 从比赛详情进入该场比赛的独立排名页面。 */
+function openContestRanking(contest: Contest): void {
+  void router.push({path: "/rankings", query: {contestId: contest.id}});
 }
 
 /** 创建个人计时套卷模板。 */
@@ -426,38 +425,23 @@ onBeforeUnmount(() => window.clearInterval(ticker));
       </div>
     </header>
 
-    <div class="training-metrics" aria-label="训练概览">
-      <div class="training-metric"><span class="training-metric-icon training-metric-icon--contest"><Trophy :size="17"/></span><span><strong>{{
-          contests.length
-        }}</strong><small>训练赛</small></span><em>{{ runningContestCount }} 进行中</em></div>
-      <div class="training-metric"><span class="training-metric-icon training-metric-icon--upcoming"><CalendarDays
-          :size="17"/></span><span><strong>{{
-          upcomingContestCount
-        }}</strong><small>即将开始</small></span><em>等待开赛</em></div>
-      <div class="training-metric"><span class="training-metric-icon training-metric-icon--paper"><FileText :size="17"/></span><span><strong>{{
-          papers.length
-        }}</strong><small>个人套卷</small></span><em>{{ paperProblemCount }} 道题</em></div>
-      <div class="training-metric"><span class="training-metric-icon training-metric-icon--timer"><Gauge
-          :size="17"/></span><span><strong>{{
-          summaryAttempt ? summaryAttempt.totalScore : 0
-        }}</strong><small>当前得分</small></span><em>{{
-          summaryAttempt && !attemptFinished(summaryAttempt) ? "计时中" : summaryAttempt ? "已结束" : "未开始"
-        }}</em></div>
-    </div>
-
     <nav class="training-tabs" role="tablist" aria-label="训练类型">
       <button type="button" role="tab" :aria-selected="tab === 'contest'" :class="{ active: tab === 'contest' }"
-              @click="tab = 'contest'">
+              @click="tab = 'contest'; paperDetailOpen = false">
         <Trophy :size="16"/>
         训练赛<span>{{ contests.length }}</span></button>
       <button type="button" role="tab" :aria-selected="tab === 'paper'" :class="{ active: tab === 'paper' }"
-              @click="tab = 'paper'">
+              @click="tab = 'paper'; contestDetailOpen = false">
         <Clock3 :size="16"/>
         个人计时<span>{{ papers.length }}</span></button>
     </nav>
 
-    <div v-if="tab === 'contest'" class="training-workbench training-workbench--contest" :class="{ 'training-workbench--detail-open': contestDetailOpen }">
-      <div v-if="contestDetailOpen" class="training-detail-backdrop" @click="closeContestDetail" />
+    <div v-show="tab === 'contest'" class="training-workbench training-tab-panel training-workbench--contest" :class="{ 'training-workbench--detail-open': contestDetailOpen }">
+      <Teleport to="body">
+        <Transition name="training-backdrop">
+          <div v-if="contestDetailOpen" class="training-detail-backdrop" @click="closeContestDetail" />
+        </Transition>
+      </Teleport>
       <aside class="training-browser" aria-label="训练赛列表">
         <header class="training-browser-header">
           <div><strong>公开训练赛</strong></div>
@@ -500,7 +484,9 @@ onBeforeUnmount(() => window.clearInterval(ticker));
         </UiEmptyState>
       </aside>
 
-      <section class="training-inspector" aria-live="polite" role="dialog" aria-modal="true">
+      <Teleport to="body">
+        <Transition name="training-drawer">
+          <section v-if="contestDetailOpen && selectedContest" class="training-inspector training-detail-drawer" aria-live="polite" role="dialog" aria-modal="true">
         <template v-if="selectedContest">
           <header class="training-inspector-header">
             <div><span class="training-phase-label"
@@ -513,32 +499,26 @@ onBeforeUnmount(() => window.clearInterval(ticker));
               <p>由 {{ selectedContest.ownerUsername }} 创建 · {{ visibilityText(selectedContest.visibility) }}</p>
             </div>
             <button class="icon-button training-detail-close" type="button" aria-label="关闭详情" @click="closeContestDetail">×</button>
-            <UiButton v-if="!selectedContest.joined && liveContestPhase(selectedContest) !== 'FINISHED'" size="sm"
-                      @click="join(selectedContest)">
-              <Trophy :size="15"/>
-              加入比赛
-            </UiButton>
-            <span v-else-if="selectedContest.joined" class="training-joined-badge"><Check :size="14"/>已加入</span>
+            <div class="training-inspector-actions">
+              <UiButton variant="outline" size="sm" @click="openContestRanking(selectedContest)">
+                <Medal :size="15"/>查看排名
+              </UiButton>
+              <UiButton v-if="!selectedContest.joined && liveContestPhase(selectedContest) !== 'FINISHED'" size="sm"
+                        @click="join(selectedContest)">
+                <Trophy :size="15"/>
+                加入比赛
+              </UiButton>
+              <span v-else-if="selectedContest.joined" class="training-joined-badge"><Check :size="14"/>已加入</span>
+            </div>
           </header>
           <div class="training-detail-meta"><span><CalendarDays :size="15"/>{{
               formatDateTime(selectedContest.startsAt)
             }} - {{ formatDateTime(selectedContest.endsAt) }}</span><span><Users
               :size="15"/>{{ selectedContest.participantCount }}/{{ selectedContest.maxParticipants }} 人</span><span><ListChecks
               :size="15"/>{{ selectedContest.problems.length }} 道题</span></div>
-          <section class="training-time-flow"
-                   :class="'training-time-flow--' + timeTone(contestRemainingRatio(selectedContest))">
-            <header><span><Clock3 :size="15"/>比赛计时</span><strong>{{ contestCountdown(selectedContest) }}</strong>
-            </header>
-            <div class="training-time-track" role="progressbar" aria-label="比赛剩余时间" aria-valuemin="0"
-                 aria-valuemax="100" :aria-valuenow="Math.round(contestRemainingRatio(selectedContest) * 100)"><i
-                :style="{ width: progressWidth(contestRemainingRatio(selectedContest)) }"/></div>
-            <footer><span>{{
-                contestElapsed(selectedContest)
-              }}</span><span>{{ Math.round(contestRemainingRatio(selectedContest) * 100) }}% 剩余</span></footer>
-          </section>
           <section class="training-detail-section">
             <header class="training-section-heading">
-              <div><h3>题目</h3><span>比赛期间锁定版本</span></div>
+              <div><h3>题目</h3></div>
               <span class="training-section-count">{{ selectedContest.problems.length }} 题</span></header>
             <div class="training-problem-list">
               <button v-for="problem in selectedContest.problems" :key="problem.versionId" type="button"
@@ -547,7 +527,7 @@ onBeforeUnmount(() => window.clearInterval(ticker));
                   class="training-problem-ordinal">{{ formatOrdinal(problem.ordinal) }}</span><span
                   class="training-problem-copy"><strong>{{
                   problem.title
-                }}</strong><small>版本已锁定</small></span><span
+                }}</strong></span><span
                   class="training-problem-score">{{ selectedContest.myScores?.[problem.problemId] ?? 0 }} 分</span>
                 <ExternalLink :size="15" aria-hidden="true"/>
               </button>
@@ -557,37 +537,20 @@ onBeforeUnmount(() => window.clearInterval(ticker));
               比赛开始后可以进入题目</p>
             <p v-else-if="liveContestPhase(selectedContest) === 'FINISHED'" class="training-detail-hint">
               比赛已经结束</p></section>
-          <section v-if="selectedContest.ranking?.length" class="training-detail-section training-ranking">
-            <header class="training-section-heading">
-              <div><h3>实时排名</h3></div>
-              <span class="training-section-count">{{ selectedContest.ranking.length }} 人</span></header>
-            <UiTable>
-              <thead>
-              <tr>
-                <th>#</th>
-                <th>用户</th>
-                <th>总分</th>
-                <th>用时</th>
-              </tr>
-              </thead>
-              <tbody>
-              <tr v-for="row in selectedContest.ranking" :key="row.username">
-                <td>{{ row.rank }}</td>
-                <td>{{ row.username }}</td>
-                <td class="training-ranking-score">{{ row.totalScore }}</td>
-                <td>{{ formatDuration(row.elapsedSeconds) }}</td>
-              </tr>
-              </tbody>
-            </UiTable>
-          </section>
         </template>
         <div v-else class="training-empty-panel"><span class="training-empty-icon"><Trophy :size="26"/></span><strong>选择一场训练赛</strong>
           <p>查看比赛题目、参赛人数和排名</p></div>
-      </section>
+          </section>
+        </Transition>
+      </Teleport>
     </div>
 
-    <div v-else class="training-workbench training-workbench--paper" :class="{ 'training-workbench--detail-open': paperDetailOpen }">
-      <div v-if="paperDetailOpen" class="training-detail-backdrop" @click="closePaperDetail" />
+    <div v-show="tab === 'paper'" class="training-workbench training-tab-panel training-workbench--paper" :class="{ 'training-workbench--detail-open': paperDetailOpen }">
+      <Teleport to="body">
+        <Transition name="training-backdrop">
+          <div v-if="paperDetailOpen" class="training-detail-backdrop" @click="closePaperDetail" />
+        </Transition>
+      </Teleport>
       <aside class="training-browser" aria-label="个人计时套卷列表">
         <header class="training-browser-header">
           <div><strong>个人计时套卷</strong><span>独立计时，随时继续</span></div>
@@ -630,7 +593,9 @@ onBeforeUnmount(() => window.clearInterval(ticker));
         </UiEmptyState>
       </aside>
 
-      <section class="training-inspector" aria-live="polite" role="dialog" aria-modal="true">
+      <Teleport to="body">
+        <Transition name="training-drawer">
+          <section v-if="paperDetailOpen && selectedPaper" class="training-inspector training-detail-drawer" aria-live="polite" role="dialog" aria-modal="true">
         <template v-if="selectedPaper">
           <header class="training-inspector-header">
             <div><span class="training-phase-label training-phase-label--paper"><Clock3 :size="14"/>个人计时</span>
@@ -652,20 +617,6 @@ onBeforeUnmount(() => window.clearInterval(ticker));
               v-if="selectedAttempt"><Gauge :size="15"/>当前 {{ selectedAttempt.totalScore }} 分</span></div>
           <template v-if="selectedAttempt">
             <section class="training-attempt-status">
-              <div class="training-time-flow training-time-flow--embedded"
-                   :class="'training-time-flow--' + timeTone(attemptRemainingRatio(selectedAttempt))">
-                <header><span><Clock3 :size="15"/>{{
-                    attemptFinished(selectedAttempt) ? '作答已结束' : '独立计时中'
-                  }}</span><strong>{{
-                    attemptFinished(selectedAttempt) ? '已完成' : '剩余 ' + formatDuration(attemptRemainingSeconds(selectedAttempt))
-                  }}</strong></header>
-                <div class="training-time-track" role="progressbar" aria-label="套卷剩余时间" aria-valuemin="0"
-                     aria-valuemax="100" :aria-valuenow="Math.round(attemptRemainingRatio(selectedAttempt) * 100)"><i
-                    :style="{ width: progressWidth(attemptRemainingRatio(selectedAttempt)) }"/></div>
-                <footer><span>{{
-                    attemptElapsed(selectedAttempt)
-                  }}</span><span>{{ Math.round(attemptRemainingRatio(selectedAttempt) * 100) }}% 剩余</span></footer>
-              </div>
               <div class="training-attempt-score"><small>当前得分</small><strong>{{ selectedAttempt.totalScore }}<em>/100</em></strong>
               </div>
               <UiButton variant="outline" size="sm" @click="shareAttempt">
@@ -686,7 +637,7 @@ onBeforeUnmount(() => window.clearInterval(ticker));
                     class="training-problem-ordinal">{{ formatOrdinal(problem.ordinal) }}</span><span
                     class="training-problem-copy"><strong>{{
                     problem.title
-                  }}</strong><small>锁定版本 · {{
+                  }}</strong><small>{{
                     selectedAttempt.scores[problem.problemId] ?? 0
                   }} 分</small></span><span
                     class="training-problem-score">{{ selectedAttempt.scores[problem.problemId] ?? 0 }} 分</span>
@@ -707,7 +658,9 @@ onBeforeUnmount(() => window.clearInterval(ticker));
         <div v-else class="training-empty-panel"><span class="training-empty-icon training-empty-icon--paper"><FileText
             :size="26"/></span><strong>选择一套计时套卷</strong>
           <p>从左侧查看套卷内容，开始一段独立练习。</p></div>
-      </section>
+          </section>
+        </Transition>
+      </Teleport>
     </div>
 
     <UiDialog v-model="contestDialog" title="创建训练赛" class="training-create-dialog">

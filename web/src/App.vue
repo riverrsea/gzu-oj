@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ArrowLeft, BookOpen, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Heart, List, LogIn, LogOut, Medal, Moon, Monitor, Play, Send, Settings, Sun, Trophy, UserPlus } from "@lucide/vue";
+import { ArrowLeft, BookOpen, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Heart, List, LogIn, LogOut, Moon, Monitor, Play, Send, Settings, Sun, Trophy, UserPlus } from "@lucide/vue";
 import { api } from "./api/client";
 import { loadSession, session, setSession } from "./stores/session";
 import { workspaceToolbar } from "./stores/workspaceToolbar";
@@ -89,7 +89,6 @@ watch(() => route.fullPath, () => {
           <RouterLink v-if="session.user" to="/practice"><Heart :size="16" />练习簿</RouterLink>
           <RouterLink v-if="session.user" to="/submissions"><ClipboardList :size="16" />提交</RouterLink>
           <RouterLink v-if="session.user" to="/training"><Trophy :size="16" />训练</RouterLink>
-          <RouterLink to="/rankings"><Medal :size="16" />排名</RouterLink>
           <RouterLink v-if="session.user?.role === 'ADMIN'" to="/admin"><Settings :size="16" />管理</RouterLink>
         </nav>
         <div v-if="isWorkspace && workspaceToolbar.active" class="workspace-topbar-center" aria-label="做题操作">
@@ -132,7 +131,6 @@ watch(() => route.fullPath, () => {
         <RouterLink v-if="session.user" to="/practice"><Heart :size="16" />练习簿</RouterLink>
         <RouterLink v-if="session.user" to="/submissions"><ClipboardList :size="16" />提交</RouterLink>
         <RouterLink v-if="session.user" to="/training"><Trophy :size="16" />训练</RouterLink>
-        <RouterLink to="/rankings"><Medal :size="16" />排名</RouterLink>
         <RouterLink v-if="session.user?.role === 'ADMIN'" to="/admin"><Settings :size="16" />管理</RouterLink>
         <RouterLink v-if="!session.user && !isAuth" to="/login"><LogIn :size="16" />登录</RouterLink>
         <RouterLink v-if="!session.user && !isAuth" to="/register"><UserPlus :size="16" />注册</RouterLink>

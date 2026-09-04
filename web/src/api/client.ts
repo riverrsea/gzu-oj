@@ -4,6 +4,8 @@ import type {
   AdminProblemPage,
   AdminProblemVersionDetail,
   Contest,
+  ContestRank,
+  ContestSummary,
   ContestVisibility,
   CreatedProblemVersion,
   CreatedWorker,
@@ -167,8 +169,9 @@ export const api = {
     method: "POST",
     body: JSON.stringify({ submissionId }),
   }),
-  contests: () => request<Contest[]>("/api/v1/contests"),
+  contests: () => request<ContestSummary[]>("/api/v1/contests"),
   contest: (id: string) => request<Contest>("/api/v1/contests/" + id),
+  contestRanking: (id: string) => request<ContestRank[]>("/api/v1/contests/" + id + "/ranking"),
   createContest: (body: { title: string; visibility: ContestVisibility; password?: string; startsAt: string; durationMinutes: number; problemIds: string[] }) =>
     request<Contest>("/api/v1/contests", { method: "POST", body: JSON.stringify(body) }),
   joinContest: (id: string, password?: string) =>

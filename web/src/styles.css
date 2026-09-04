@@ -2953,25 +2953,38 @@ a { color: inherit; text-decoration: none; }
 
 /* 训练页采用单栏列表，详情通过遮罩卡片打开，避免列表与详情同时占用横向空间。 */
 .training-workbench { display: block; min-height: 0; overflow: visible; }
+.training-tab-panel { animation: training-tab-content-in 220ms ease both; }
 .training-workbench .training-browser { width: 100%; border-right: 0; }
 .training-workbench .training-browser-list { max-height: none; }
 .training-workbench .training-inspector { display: none; }
-.training-workbench--detail-open .training-inspector { position: fixed; z-index: 92; top: 50%; left: 50%; display: block; width: min(760px, calc(100vw - 32px)); max-height: min(820px, calc(100vh - 48px)); padding: 24px; overflow: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-elevated); transform: translate(-50%, -50%); animation: training-detail-modal-in 240ms cubic-bezier(.12, .82, .18, 1) both; }
-.training-detail-backdrop { position: fixed; z-index: 90; inset: 0; background: color-mix(in srgb, #0b1020 32%, transparent); animation: training-detail-backdrop-in 180ms ease both; }
+.training-detail-drawer { position: fixed; z-index: 92; top: 0; right: 0; bottom: 0; left: auto; display: block !important; width: min(560px, calc(100vw - 26px)); height: 100dvh; max-height: none; padding: 30px; overflow: auto; border: 1px solid var(--border); border-top: 0; border-right: 0; border-bottom: 0; border-radius: 14px 0 0 14px; background: var(--surface); box-shadow: -18px 0 44px color-mix(in srgb, #0b1020 22%, transparent); transform: translateX(0); }
+.training-detail-backdrop { position: fixed; z-index: 90; inset: 0; background: color-mix(in srgb, #0b1020 32%, transparent); }
 .training-detail-close { position: absolute; top: 14px; right: 14px; }
 .training-inspector .training-inspector-header { padding-right: 42px; }
-@keyframes training-detail-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes training-detail-modal-in { from { opacity: 0; transform: translate(-50%, calc(-50% + 18px)) scale(.97); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+.training-inspector-actions { display: flex !important; align-items: center; justify-content: flex-end; gap: 8px; }
+/* 详情抽屉和遮罩使用 Vue Transition，关闭时也保留离场动画。 */
+.training-backdrop-enter-active, .training-backdrop-leave-active,
+.ranking-backdrop-enter-active, .ranking-backdrop-leave-active { transition: opacity 180ms ease; }
+.training-backdrop-enter-from, .training-backdrop-leave-to,
+.ranking-backdrop-enter-from, .ranking-backdrop-leave-to { opacity: 0; }
+.training-drawer-enter-active, .training-drawer-leave-active,
+.ranking-sidebar-enter-active, .ranking-sidebar-leave-active { transition: opacity 280ms cubic-bezier(.12, .82, .18, 1), transform 280ms cubic-bezier(.12, .82, .18, 1); }
+.training-drawer-enter-from, .training-drawer-leave-to,
+.ranking-sidebar-enter-from, .ranking-sidebar-leave-to { opacity: 0; transform: translateX(100%); }
+@keyframes training-tab-content-in { from { opacity: 0; } to { opacity: 1; } }
 
-/* 排名页采用经典 OJ 的纵向卡片布局：比赛列表在上，当前榜单在下。 */
+/* 排名页通过比赛标识直接呈现一场比赛的经典 OJ 榜单。 */
 .rankings-page { display: grid; gap: 18px; }
+.ranking-page-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ranking-page-toolbar-actions { display: inline-flex; align-items: center; gap: 8px; }
+.ranking-page-toolbar .is-active { border-color: color-mix(in srgb, var(--accent) 44%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); }
 .rankings-heading { margin-bottom: 0; }
 .rankings-heading p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
 .ranking-contest-card, .ranking-detail-card { overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-panel); }
 .ranking-card-heading, .ranking-detail-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 58px; padding: 0 18px; border-bottom: 1px solid var(--border); }
 .ranking-card-heading > div { display: inline-flex; align-items: center; gap: 8px; }
 .ranking-card-heading svg { color: var(--accent); }
-.ranking-card-heading h2, .ranking-detail-heading h2 { margin: 0; color: var(--text); font-size: 16px; }
+.ranking-card-heading h2, .ranking-detail-heading h1, .ranking-detail-heading h2 { margin: 0; color: var(--text); font-size: 16px; }
 .ranking-card-heading > span { color: var(--muted); font-size: 11px; }
 .ranking-contest-list { display: grid; }
 .ranking-contest-item { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto minmax(150px, .42fr); align-items: center; gap: 13px; min-height: 78px; padding: 11px 18px; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent); background: var(--surface); color: var(--text); cursor: pointer; text-align: left; transition: background-color 150ms ease, box-shadow 150ms ease; }
@@ -2999,8 +3012,14 @@ a { color: inherit; text-decoration: none; }
 .ranking-contest-skeleton b { width: 100%; justify-self: end; }
 .ranking-empty { min-height: 260px; }
 .ranking-detail-heading { min-height: 72px; }
+.ranking-detail-card--single { min-height: 0; }
+.ranking-detail-loading { min-height: 260px; }
 .ranking-detail-heading > div { display: grid; gap: 6px; min-width: 0; }
+.ranking-detail-heading small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .ranking-kicker { display: inline-flex; align-items: center; gap: 6px; color: var(--success); font-size: 11px; font-weight: 750; }
+.ranking-kicker--upcoming { color: var(--warning); }
+.ranking-kicker--running { color: var(--success); }
+.ranking-kicker--finished { color: var(--muted); }
 .ranking-kicker svg { color: currentColor; }
 .ranking-participants { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .ranking-time-flow { display: grid; gap: 9px; margin: 18px; padding: 13px 14px; border: 1px solid color-mix(in srgb, var(--ranking-time-color) 24%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--ranking-time-color) 5%, var(--surface)); transition: border-color 220ms ease, background-color 220ms ease; }
@@ -3010,6 +3029,12 @@ a { color: inherit; text-decoration: none; }
 .ranking-time-flow-header strong { color: var(--ranking-time-color); font: 800 14px ui-monospace, monospace; white-space: nowrap; }
 .ranking-time-track--large { height: 7px; }
 .ranking-time-flow-footer { color: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums; }
+.ranking-progress { display: grid; gap: 9px; margin: 0 18px 20px; padding: 0 0 2px; }
+.ranking-progress .ranking-time-flow-header, .ranking-progress .ranking-time-flow-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ranking-progress .ranking-time-flow-header span { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 10px; font-weight: 700; }
+.ranking-progress .ranking-time-flow-header span svg { color: var(--ranking-time-color); }
+.ranking-progress .ranking-time-flow-header strong { color: var(--ranking-time-color); font: 800 14px ui-monospace, monospace; white-space: nowrap; }
+.ranking-progress .ranking-time-flow-footer { color: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums; }
 .ranking-private-state { display: grid; place-items: center; align-content: center; gap: 8px; min-height: 180px; padding: 24px; color: var(--muted); text-align: center; }
 .ranking-private-state svg { color: var(--ranking-time-color, var(--accent)); }
 .ranking-private-state strong { color: var(--text); font-size: 14px; }
@@ -3035,6 +3060,33 @@ a { color: inherit; text-decoration: none; }
 .ranking-table-score strong { font-size: 15px; }
 .ranking-table-score small { margin-left: 3px; color: var(--muted); font-size: 10px; }
 .ranking-table-time { width: 160px; color: var(--muted) !important; font: 12px ui-monospace, monospace; text-align: right !important; }
+.ranking-detail-layout { display: grid; gap: 18px; }
+.ranking-detail-layout > * { width: 100%; min-width: 0; }
+.ranking-contest-meta { min-width: 0; }
+.ranking-content-grid { display: block; min-width: 0; }
+.ranking-board { display: grid; gap: 10px; min-width: 0; }
+.ranking-problems-sidebar { position: fixed; z-index: 92; top: 0; right: 0; bottom: 0; width: min(300px, calc(100vw - 24px)); overflow: auto; border: 1px solid var(--border); border-top: 0; border-right: 0; border-bottom: 0; border-radius: 12px 0 0 12px; background: var(--surface); box-shadow: -18px 0 44px color-mix(in srgb, #0b1020 22%, transparent); }
+.ranking-sidebar-backdrop { position: fixed; z-index: 90; inset: 0; background: color-mix(in srgb, #0b1020 32%, transparent); }
+.ranking-sidebar-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 58px; padding: 0 16px; border-bottom: 1px solid var(--border); }
+.ranking-sidebar-heading span { display: inline-flex; align-items: center; gap: 7px; color: var(--text); font-size: 13px; font-weight: 750; }
+.ranking-sidebar-heading span svg { color: var(--accent); }
+.ranking-sidebar-heading small { color: var(--muted); font-size: 10px; }
+.ranking-problem-meta-list { display: grid; gap: 8px; padding: 14px; }
+.ranking-problem-meta-item { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-subtle); }
+.ranking-problem-letter { display: inline-grid; width: 25px; height: 25px; place-items: center; border-radius: 6px; background: color-mix(in srgb, var(--accent) 12%, var(--surface)); color: var(--accent); font: 700 11px ui-monospace, monospace; }
+.ranking-problem-meta-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ranking-user-list { display: grid; gap: 10px; padding: 14px; }
+.ranking-user-card { border: 1px solid var(--border); border-radius: 9px; background: var(--surface); box-shadow: 0 4px 14px color-mix(in srgb, var(--text) 5%, transparent); transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease; }
+.ranking-user-card:hover { border-color: color-mix(in srgb, var(--accent) 36%, var(--border)); box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 9%, transparent); transform: translateY(-1px); }
+.ranking-user-card-header { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; min-height: 54px; padding: 0 14px; border-bottom: 1px solid var(--border); }
+.ranking-user-score { display: inline-flex; align-items: baseline; gap: 3px; color: var(--accent); }
+.ranking-user-score b { font-size: 16px; }
+.ranking-user-score small { color: var(--muted); font-size: 10px; }
+.ranking-user-time { min-width: 76px; color: var(--muted); font: 11px ui-monospace, monospace; text-align: right; }
+.ranking-user-problems { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; padding: 11px 14px 13px; }
+.ranking-user-problem { display: grid; grid-template-columns: 20px 28px; align-items: center; gap: 7px; min-width: 0; }
+.ranking-user-problem-label { color: var(--muted); font: 700 11px ui-monospace, monospace; }
+.ranking-user-problem small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 
 @media (max-width: 760px) {
   .rankings-heading { align-items: flex-start; }
@@ -3042,13 +3094,19 @@ a { color: inherit; text-decoration: none; }
   .ranking-contest-time { grid-column: 2 / -1; }
   .ranking-contest-time small { text-align: left; }
   .ranking-card-heading, .ranking-detail-heading { padding: 0 14px; }
-  .ranking-time-flow { margin: 14px; }
+  .ranking-progress { margin: 0 14px 16px; }
   .ranking-table th, .ranking-table td { padding: 0 12px; }
   .ranking-table-rank { width: 70px; }
   .ranking-table-user { min-width: 120px; }
   .ranking-table-problem { width: 54px; min-width: 54px; }
   .ranking-table-score { width: 90px; }
   .ranking-table-time { width: 110px; }
+  .ranking-user-card-header { grid-template-columns: 27px minmax(0, 1fr) auto; gap: 8px; padding: 0 12px; }
+  .ranking-user-time { grid-column: 2 / -1; grid-row: 2; padding-bottom: 10px; text-align: left; }
+  .ranking-user-card-header { min-height: 62px; }
+  .ranking-user-problems { grid-template-columns: 1fr; padding: 10px 12px 12px; }
+  .ranking-content-grid { display: block; }
+  .ranking-problems-sidebar { width: min(360px, calc(100vw - 12px)); }
 }
 
 @media (max-width: 980px) {
@@ -3070,7 +3128,7 @@ a { color: inherit; text-decoration: none; }
   .training-browser { border-right: 0; border-bottom: 1px solid var(--border); }
   .training-browser-list { max-height: none; }
   .training-inspector { min-height: 420px; padding: 18px 15px 24px; overflow: visible; }
-  .training-workbench--detail-open .training-inspector { top: 50%; width: calc(100vw - 20px); max-height: calc(100vh - 28px); padding: 18px 15px 24px; }
+  .training-detail-drawer { top: 0; right: 0; bottom: 0; width: min(430px, calc(100vw - 12px)); height: 100dvh; max-height: none; padding: 22px 18px 28px; border-radius: 12px 0 0 12px; }
   .training-inspector-header { align-items: flex-start; flex-direction: column; gap: 13px; }
   .training-inspector-header h2 { font-size: 20px; white-space: normal; }
   .training-inspector-header > .ui-button, .training-inspector-header > .training-joined-badge { align-self: flex-start; }

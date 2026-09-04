@@ -118,6 +118,11 @@ const renderedStatement = computed(() => {
   if (!problem.value) return "";
   return DOMPurify.sanitize(marked.parse(problem.value.statementMarkdown, { async: false }) as string);
 });
+
+/** 比赛和个人套卷使用独立的锁定题目序列，不直接复用题库的全局已解决状态。 */
+function isScopedPracticeContext(): boolean {
+  return typeof route.query.contestId === "string" || typeof route.query.timedPaperAttemptId === "string";
+}
 const activeLimit = computed(() => problem.value?.languageLimits.find((item) => item.language === language.value));
 const dockTheme = computed(() => dark.value ? themeDark : themeLight);
 /** Dockview 必须通过组件表解析字符串形式的面板组件名。 */
@@ -482,6 +487,31 @@ async function loadSolvedState(problemId: string): Promise<void> {
     solvedProblemIds.value = new Set();
     return;
   }
+  if (isScopedPracticeContext()) {
+    const contestId = typeof route.query.contestId === "string" ? route.query.contestId : undefined;
+    const attemptId = typeof route.query.timedPaperAttemptId === "string" ? route.query.timedPaperAttemptId : undefined;
+    isSolved.value = false;
+    solvedProblemIds.value = new Set();
+    try {
+      const scores = contestId
+        ? (await api.contest(contestId)).myScores ?? {}
+        : attemptId
+          ? (await api.timedAttempt(attemptId)).scores
+          : {};
+      // 请求期间可能已经切换题目或离开比赛，旧响应不能覆盖新工作区状态。
+      const sameContext = (typeof route.query.contestId === "string" ? route.query.contestId : undefined) === contestId
+        && (typeof route.query.timedPaperAttemptId === "string" ? route.query.timedPaperAttemptId : undefined) === attemptId;
+      if (!sameContext || problem.value?.id !== problemId) return;
+      const scopedSolvedIds = new Set(Object.entries(scores).filter(([, score]) => score === 100).map(([id]) => id));
+      solvedProblemIds.value = scopedSolvedIds;
+      isSolved.value = scopedSolvedIds.has(problemId);
+    } catch {
+      // 比赛或套卷得分读取失败不阻塞做题，只隐藏上下文解决状态。
+      isSolved.value = false;
+      solvedProblemIds.value = new Set();
+    }
+    return;
+  }
   try {
     const solvedIds = await api.solvedProblemIds();
     solvedProblemIds.value = new Set(solvedIds);
@@ -739,7 +769,15 @@ async function submit(): Promise<void> {
 /** 轮询持久化判题队列，并在终态触发一次结果提醒。 */
 function schedulePoll(current: Submission): void {
   notifyTerminalResult(current);
-  if (current.executionMode === "SUBMIT" && current.status === "AC") isSolved.value = true;
+  if (current.executionMode === "SUBMIT" && current.status === "AC") {
+    if (isScopedPracticeContext()) {
+      const currentProblemId = problem.value?.id;
+      if (currentProblemId) solvedProblemIds.value = new Set(solvedProblemIds.value).add(currentProblemId);
+      isSolved.value = true;
+    } else {
+      isSolved.value = true;
+    }
+  }
   if (terminalStatuses.has(current.status)) {
     maybePromptWrongBook(current);
     if (current.executionMode === "SUBMIT") void loadSubmissionHistory();
@@ -771,6 +809,7 @@ async function loadProblem(): Promise<void> {
   latestVersion.value = undefined;
   resumedPreviousVersion.value = false;
   isSolved.value = false;
+  solvedProblemIds.value = new Set();
   isFavorited.value = false;
   wrongBookPrompt.value = null;
   wrongBookPromptMessage.value = "";
@@ -903,7 +942,12 @@ watch(() => [session.user?.id, problem.value?.versionId], () => {
     void loadSolvedState(problem.value.id);
   }
 });
-watch(() => [String(route.params.id), typeof route.query.versionId === "string" ? route.query.versionId : ""], (next, previous) => {
+watch(() => [
+  String(route.params.id),
+  typeof route.query.versionId === "string" ? route.query.versionId : "",
+  typeof route.query.contestId === "string" ? route.query.contestId : "",
+  typeof route.query.timedPaperAttemptId === "string" ? route.query.timedPaperAttemptId : "",
+], (next, previous) => {
   if (previous && next.join("/") !== previous.join("/")) void loadProblem();
 });
 function syncTheme(event: Event): void {

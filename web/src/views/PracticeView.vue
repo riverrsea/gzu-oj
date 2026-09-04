@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import { Bookmark, BookmarkCheck, CheckCircle2, CircleAlert, RefreshCw, RotateCcw } from "@lucide/vue";
 import { useRouter } from "vue-router";
 import { toast } from "../lib/notify";
+import { formatChinaDateTime } from "../lib/time";
 import { api } from "../api/client";
 import type { Difficulty, UserProblemSummary, WrongProblem } from "../api/types";
 import UiButton from "../components/ui/Button.vue";
@@ -44,7 +45,7 @@ function openProblem(problem: UserProblemSummary): void {
 }
 
 function formatDate(value: string): string {
-  return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+  return formatChinaDateTime(value, { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
 /** 在练习簿内直接取消收藏，并同步收藏列表。 */

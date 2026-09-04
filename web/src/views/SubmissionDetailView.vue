@@ -5,6 +5,7 @@ import { ArrowLeft, CheckCircle2, CircleAlert, CircleX, Clock3, Code2, LoaderCir
 import { useRoute, useRouter } from "vue-router";
 import { api } from "../api/client";
 import { toast } from "../lib/notify";
+import { formatChinaDateTime } from "../lib/time";
 import type { JudgeLanguage, JudgeStatus, ProblemDetail, Submission } from "../api/types";
 import UiButton from "../components/ui/Button.vue";
 import UiEmptyState from "../components/ui/EmptyState.vue";
@@ -56,13 +57,13 @@ function languageLabel(language: JudgeLanguage): string {
 
 /** 格式化时间并保留到分钟，便于定位一次提交。 */
 function formatDate(value: string): string {
-  return new Intl.DateTimeFormat("zh-CN", {
+  return formatChinaDateTime(value, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(value));
+  });
 }
 
 /** 聚合脱敏测点中的最大内存占用。 */

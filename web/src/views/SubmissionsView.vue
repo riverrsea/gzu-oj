@@ -4,6 +4,7 @@ import type { Component } from "vue";
 import { CheckCircle2, ChevronRight, CircleAlert, CircleX, Clock3, LoaderCircle, RefreshCw, X } from "@lucide/vue";
 import { useRoute, useRouter } from "vue-router";
 import { toast } from "../lib/notify";
+import { formatChinaDateTime } from "../lib/time";
 import { api } from "../api/client";
 import type { JudgeLanguage, JudgeStatus, ProblemSummary, Submission } from "../api/types";
 import UiButton from "../components/ui/Button.vue";
@@ -93,13 +94,13 @@ function languageLabel(language: JudgeLanguage): string {
 
 /** 格式化提交时间，保证桌面和移动端都能完整显示。 */
 function formatDate(value: string): string {
-  return new Intl.DateTimeFormat("zh-CN", {
+  return formatChinaDateTime(value, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(value));
+  });
 }
 
 /** 优先显示题目标题；历史版本已经下线时回退到稳定题目标识。 */

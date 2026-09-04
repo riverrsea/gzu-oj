@@ -6,6 +6,7 @@ import CodeEditor from "./CodeEditor.vue";
 import UiButton from "./ui/Button.vue";
 import UiNumberField from "./ui/NumberField.vue";
 import UiEmptyState from "./ui/EmptyState.vue";
+import { formatChinaDateTime } from "../lib/time";
 
 const props = defineProps<{
   /** 当前停靠面板类型。 */
@@ -53,7 +54,7 @@ function relativeSubmissionTime(value: string): string {
   if (hours < 24) return hours + " 小时前";
   const days = Math.floor(hours / 24);
   if (days < 7) return days + " 天前";
-  return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
+  return formatChinaDateTime(value, { year: "numeric", month: "2-digit", day: "2-digit" });
 }
 
 /** 聚合正式提交的总执行时间；判题未完成时返回空值。 */

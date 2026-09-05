@@ -28,12 +28,8 @@ const hasMore = ref(true);
 
 /** 从做题页带入的稳定题目筛选，只影响当前列表，不改变后端查询契约。 */
 const problemFilter = computed(() => typeof route.query.problemId === "string" ? route.query.problemId : "");
-/** 从做题页带入的不可变版本筛选，避免不同版本的提交混在一起。 */
-const versionFilter = computed(() => typeof route.query.versionId === "string" ? route.query.versionId : "");
-
 const baseVisibleSubmissions = computed(() => submissions.value.filter((row) =>
-  (!problemFilter.value || row.problemId === problemFilter.value)
-  && (!versionFilter.value || row.problemVersionId === versionFilter.value),
+  !problemFilter.value || row.problemId === problemFilter.value,
 ));
 const visibleSubmissions = computed(() => baseVisibleSubmissions.value.filter((row) => {
   if (activeFilter.value === "ALL") return true;
@@ -43,11 +39,11 @@ const visibleSubmissions = computed(() => baseVisibleSubmissions.value.filter((r
 }));
 
 const filterOptions = computed(() => [
-  { key: "ALL" as const, label: "全部", count: baseVisibleSubmissions.value.length },
-  { key: "AC" as const, label: "通过", count: baseVisibleSubmissions.value.filter((row) => row.status === "AC").length },
-  { key: "FAILED" as const, label: "未通过", count: baseVisibleSubmissions.value.filter((row) => row.status !== "AC" && !isPendingStatus(row.status)).length },
-  { key: "PENDING" as const, label: "判题中", count: baseVisibleSubmissions.value.filter((row) => isPendingStatus(row.status)).length },
-] satisfies Array<{ key: SubmissionFilter; label: string; count: number }>);
+  { key: "ALL" as const, label: "全部" },
+  { key: "AC" as const, label: "通过" },
+  { key: "FAILED" as const, label: "未通过" },
+  { key: "PENDING" as const, label: "判题中" },
+] satisfies Array<{ key: SubmissionFilter; label: string }>);
 
 /** 将判题状态转换为提交历史中的简短文案。 */
 function statusLabel(status: JudgeStatus): string {
@@ -171,12 +167,12 @@ function clearProblemFilter(): void {
   void router.replace({ path: "/submissions" });
 }
 
-/** 历史记录点击后进入提交详情页，不跳回做题编辑器。 */
+/** 历史记录点击后进入提交详情页。 */
 function openSubmission(row: Submission): void {
-  void router.push({ path: "/submissions/" + row.id, query: route.query });
+  void router.push("/submissions/" + row.id);
 }
 
-watch(() => [route.query.problemId, route.query.versionId], () => {
+watch(() => route.query.problemId, () => {
   void load();
 });
 
@@ -190,7 +186,7 @@ onMounted(() => {
     <div class="page-heading">
       <div>
         <h1>提交历史</h1>
-        <p v-if="problemFilter">{{ versionFilter ? "当前版本" : "当前题目" }}：{{ problemCatalog[problemFilter]?.title ?? problemFilter.slice(0, 8) }}</p>
+        <p v-if="problemFilter">当前题目：{{ problemCatalog[problemFilter]?.title ?? problemFilter.slice(0, 8) }}</p>
       </div>
       <div class="heading-actions">
         <UiButton variant="outline" size="sm" :loading="loading" @click="load"><RefreshCw :size="15" />刷新</UiButton>
@@ -201,15 +197,14 @@ onMounted(() => {
       <div class="submission-history-toolbar">
         <div class="submission-filter-tabs" role="tablist" aria-label="提交状态筛选">
           <button v-for="option in filterOptions" :key="option.key" type="button" role="tab" :aria-selected="activeFilter === option.key" :class="{ active: activeFilter === option.key }" @click="activeFilter = option.key">
-            {{ option.label }} <span>{{ option.count }}</span>
+            {{ option.label }}
           </button>
         </div>
-        <div class="submission-toolbar-meta">
-          <span v-if="problemFilter || versionFilter" class="submission-filter-chip">
-            <Clock3 :size="13" />{{ versionFilter ? "当前版本" : "当前题目" }}
+        <div v-if="problemFilter" class="submission-toolbar-meta">
+          <span class="submission-filter-chip">
+            <Clock3 :size="13" />当前题目
             <button type="button" aria-label="清除题目筛选" title="清除题目筛选" @click="clearProblemFilter"><X :size="13" /></button>
           </span>
-          <span>{{ visibleSubmissions.length }} 条提交</span>
         </div>
       </div>
 
@@ -232,7 +227,7 @@ onMounted(() => {
           <ChevronRight class="submission-row-chevron" :size="17" aria-hidden="true" />
         </button>
       </div>
-      <UiEmptyState v-else :description="versionFilter ? '当前版本还没有符合条件的提交' : problemFilter ? '当前题目还没有符合条件的提交' : '还没有提交记录'" class="submission-history-empty" />
+      <UiEmptyState v-else :description="problemFilter ? '当前题目还没有符合条件的提交' : '还没有提交记录'" class="submission-history-empty" />
 
       <div v-if="hasMore && !loading" class="submission-history-pagination">
         <UiButton variant="outline" size="sm" :loading="loadingMore" @click="loadMore">加载更早记录</UiButton>

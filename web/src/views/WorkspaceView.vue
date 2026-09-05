@@ -757,13 +757,9 @@ async function loadSubmissionHistory(): Promise<void> {
   }
 }
 
-/** 从工作区打开提交详情，并保留当前题目版本作为返回列表筛选条件。 */
+/** 从工作区打开提交详情，返回按钮通过浏览器历史回到当前做题页。 */
 function openSubmissionDetail(submissionId: string): void {
-  const current = problem.value;
-  void router.push({
-    path: "/submissions/" + submissionId,
-    query: current ? { problemId: current.id, versionId: current.versionId } : undefined,
-  });
+  void router.push("/submissions/" + submissionId);
 }
 
 /** 移动端切换工作区标签；提交历史直接在当前工作区展示。 */

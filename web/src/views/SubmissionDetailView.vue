@@ -75,9 +75,9 @@ const totalTimeMs = computed(() => submission.value?.testCases.reduce((sum, item
 /** 统计已经通过的测点数量；详情页只呈现汇总，避免结果卡片过长。 */
 const passedTestCount = computed(() => submission.value?.testCases.filter((item) => item.status === "AC").length ?? 0);
 
-/** 返回提交历史列表；详情页不会把用户带回做题编辑器。 */
-function backToHistory(): void {
-  void router.push({ path: "/submissions", query: route.query });
+/** 返回浏览器历史中的上一页。 */
+function backToPreviousPage(): void {
+  router.back();
 }
 
 /** 加载提交详情和对应版本标题。 */
@@ -127,9 +127,9 @@ watch(() => route.params.id, () => {
     </div>
     <template v-else-if="submission">
       <header class="submission-detail-header">
-        <button type="button" class="submission-detail-back" title="返回提交历史" aria-label="返回提交历史" @click="backToHistory">
+        <button type="button" class="submission-detail-back" title="返回上一页" aria-label="返回上一页" @click="backToPreviousPage">
           <ArrowLeft :size="17" />
-          <span>提交历史</span>
+          <span>返回</span>
         </button>
         <div class="submission-detail-heading">
           <h1>{{ problem?.title ?? "题目 " + submission.problemId.slice(0, 8) }}</h1>

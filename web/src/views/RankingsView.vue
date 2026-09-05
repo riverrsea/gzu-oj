@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
-import {ArrowLeft, CheckCircle2, Clock3, List, Medal, RefreshCw, Trophy, Users, X} from "@lucide/vue";
+import {ArrowLeft, Award, CheckCircle2, Clock3, List, Medal, RefreshCw, Trophy, Users, X} from "@lucide/vue";
 import {useRoute, useRouter} from "vue-router";
 import {api} from "../api/client";
 import type {Contest, ContestRank, ContestSummary} from "../api/types";
@@ -37,10 +37,34 @@ const contestId = computed(() => {
 const ranking = computed<ContestRank[]>(() => contest.value?.ranking ?? []);
 /** 比赛题目按锁定顺序对应 A、B、C 列。 */
 const problems = computed(() => contest.value?.problems ?? []);
+/** 领奖台从一名参赛者开始展示，并按照银、金、铜的视觉位置排列已有名次。 */
+const podiumEntries = computed(() => {
+  if (ranking.value.length === 1) {
+    return [{row: ranking.value[0], tone: "gold", icon: Trophy}];
+  }
+  if (ranking.value.length === 2) {
+    return [
+      {row: ranking.value[1], tone: "silver", icon: Medal},
+      {row: ranking.value[0], tone: "gold", icon: Trophy},
+    ];
+  }
+  return [
+    {row: ranking.value[1], tone: "silver", icon: Medal},
+    {row: ranking.value[0], tone: "gold", icon: Trophy},
+    {row: ranking.value[2], tone: "bronze", icon: Award},
+  ];
+});
+/** 紧凑榜单固定从第四名开始，前三名统一交由领奖台展示。 */
+const remainingRanking = computed(() => ranking.value.slice(3));
 
 /** 读取排名行中某道题的最高分，缺少提交时按零分处理。 */
 function problemScore(row: ContestRank, problemId: string): number {
   return row.problemScores?.[problemId] ?? 0;
+}
+
+/** 统计满分通过的题目数，部分得分不计入通过数量。 */
+function solvedCount(row: ContestRank): number {
+  return problems.value.filter((problem) => problemScore(row, problem.problemId) === 100).length;
 }
 
 /** 格式化比赛用时。 */
@@ -210,8 +234,17 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <div v-if="loading && !contest" class="ranking-detail-card ranking-detail-loading" aria-label="正在加载比赛排名">
-        <div v-for="index in 3" :key="index" class="ranking-contest-skeleton"><i/><span/><b/></div>
+      <div v-if="loading && !contest" class="ranking-detail-layout ranking-detail-loading" aria-label="正在加载比赛排名">
+        <section class="ranking-detail-card ranking-meta-skeleton">
+          <div><i/><span/><b/></div>
+          <em/>
+        </section>
+        <div class="ranking-podium ranking-podium--loading" aria-hidden="true">
+          <article v-for="index in 3" :key="index" class="ranking-podium-card"><i/><span/><b/><em/></article>
+        </div>
+        <section class="ranking-list-card ranking-list-card--loading" aria-hidden="true">
+          <div v-for="index in 4" :key="index" class="ranking-list-skeleton"><i/><span/><b/></div>
+        </section>
       </div>
 
       <UiEmptyState v-else-if="errorMessage && !contest" :description="errorMessage" class="ranking-empty">
@@ -220,50 +253,66 @@ onBeforeUnmount(() => {
       </UiEmptyState>
 
       <div v-else-if="contest" class="ranking-detail-layout">
-        <section class="ranking-detail-card ranking-detail-card--single ranking-contest-meta">
-        <header class="ranking-detail-heading">
-          <div>
-            <span class="ranking-kicker" :class="`ranking-kicker--${phaseOf(contest).toLowerCase()}`">
-              <CheckCircle2 v-if="phaseOf(contest) === 'FINISHED'" :size="14"/><Clock3 v-else :size="14"/>{{ phaseLabel(contest) }}
-            </span>
-            <h1>{{ contest.title }}</h1>
-            <small>由 {{ contest.ownerUsername }} 创建 · {{ formatDateTime(contest.createdAt) }}</small>
+        <section class="ranking-detail-card ranking-contest-meta">
+          <header class="ranking-detail-heading">
+            <div>
+              <span class="ranking-kicker" :class="`ranking-kicker--${phaseOf(contest).toLowerCase()}`">
+                <CheckCircle2 v-if="phaseOf(contest) === 'FINISHED'" :size="14"/><Clock3 v-else :size="14"/>{{ phaseLabel(contest) }}
+              </span>
+              <h1>{{ contest.title }}</h1>
+              <small>由 {{ contest.ownerUsername }} 创建 · {{ formatDateTime(contest.createdAt) }}</small>
+            </div>
+            <span class="ranking-participants"><Users :size="15"/>{{ contest.participantCount }} 人</span>
+          </header>
+
+          <div class="ranking-progress" :class="`ranking-time--${timeTone(contest)}`">
+            <div class="ranking-time-flow-header"><span><Clock3 :size="15"/>比赛进度</span><strong>{{ timeLabel(contest) }}</strong></div>
+            <div class="ranking-time-track ranking-time-track--large" role="progressbar" aria-label="比赛已流逝时间" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="Math.round(elapsedRatio(contest) * 100)"><i :style="{width: `${(elapsedRatio(contest) * 100).toFixed(2)}%`}"/></div>
+            <div class="ranking-time-flow-footer"><span>{{ formatDateTime(contest.startsAt) }}</span><span>{{ formatDateTime(contest.endsAt) }}</span></div>
           </div>
-          <span class="ranking-participants"><Users :size="15"/>{{ contest.participantCount }} 人</span>
-        </header>
-
-        <div class="ranking-progress" :class="`ranking-time--${timeTone(contest)}`">
-          <div class="ranking-time-flow-header"><span><Clock3 :size="15"/>比赛进度</span><strong>{{ timeLabel(contest) }}</strong></div>
-          <div class="ranking-time-track ranking-time-track--large" role="progressbar" aria-label="比赛已流逝时间" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="Math.round(elapsedRatio(contest) * 100)"><i :style="{width: `${(elapsedRatio(contest) * 100).toFixed(2)}%`}"/></div>
-          <div class="ranking-time-flow-footer"><span>{{ formatDateTime(contest.startsAt) }}</span><span>{{ formatDateTime(contest.endsAt) }}</span></div>
-        </div>
-
         </section>
 
-        <div class="ranking-content-grid">
-          <section class="ranking-board">
-          <div v-if="phaseOf(contest) === 'UPCOMING'" class="ranking-private-state">
-            <Clock3 :size="20"/><strong>排名将在比赛开始后产生</strong><span>比赛开始后将展示参赛者的实时得分。</span>
-          </div>
-          <div v-else-if="ranking.length" class="ranking-user-list">
-            <article v-for="row in ranking" :key="row.username" class="ranking-user-card">
-              <header class="ranking-user-card-header">
-                <span class="ranking-medal" :class="`ranking-medal--${row.rank}`">{{ row.rank }}</span>
-                <strong>{{ row.username }}</strong>
-                <span class="ranking-user-score"><b>{{ row.totalScore }}</b><small>分</small></span>
-                <span class="ranking-user-time">{{ formatDuration(row.elapsedSeconds) }}</span>
-              </header>
-              <div class="ranking-user-problems" aria-label="题目得分">
-                <div v-for="(problem, index) in problems" :key="problem.versionId" class="ranking-user-problem">
-                  <span class="ranking-user-problem-label">{{ String.fromCharCode(65 + index) }}</span>
-                  <span class="ranking-problem-cell" :class="problemScore(row, problem.problemId) === 100 ? 'ranking-problem-cell--accepted' : problemScore(row, problem.problemId) > 0 ? 'ranking-problem-cell--partial' : 'ranking-problem-cell--empty'">{{ problemScore(row, problem.problemId) === 100 ? '✓' : problemScore(row, problem.problemId) > 0 ? problemScore(row, problem.problemId) : '·' }}</span>
-                </div>
-              </div>
+        <section v-if="phaseOf(contest) === 'UPCOMING'" class="ranking-list-card ranking-private-state">
+          <Clock3 :size="20"/><strong>排名将在比赛开始后产生</strong><span>比赛开始后将展示参赛者的实时得分。</span>
+        </section>
+
+        <template v-else-if="ranking.length">
+          <section v-if="podiumEntries.length" class="ranking-podium" :class="`ranking-podium--${podiumEntries.length}`" aria-label="领先选手">
+            <article v-for="entry in podiumEntries" :key="entry.row.username" class="ranking-podium-card" :class="`ranking-podium-card--${entry.tone}`">
+              <span class="ranking-podium-rank">#{{ entry.row.rank }}</span>
+              <span class="ranking-podium-icon"><component :is="entry.icon" :size="entry.tone === 'gold' ? 25 : 21"/></span>
+              <strong class="ranking-podium-user">{{ entry.row.username }}</strong>
+              <span class="ranking-podium-solved">通过 {{ solvedCount(entry.row) }} / {{ problems.length }} 题</span>
+              <b class="ranking-podium-score">{{ entry.row.totalScore }} 分</b>
+              <span class="ranking-podium-time"><Clock3 :size="12"/>{{ formatDuration(entry.row.elapsedSeconds) }}</span>
             </article>
-          </div>
-          <div v-else class="ranking-private-state"><Medal :size="20"/><strong>暂无排名数据</strong><span>该比赛还没有有效的参赛记录。</span></div>
           </section>
-        </div>
+
+          <section v-if="remainingRanking.length" class="ranking-list-card" aria-label="比赛排名">
+            <header class="ranking-list-heading">
+              <div><Trophy :size="17"/><h2>{{ podiumEntries.length ? "其余排名" : "比赛排名" }}</h2></div>
+              <span>{{ ranking.length }} 名参赛者</span>
+            </header>
+            <div class="ranking-list">
+              <article v-for="row in remainingRanking" :key="row.username" class="ranking-list-row">
+                <span class="ranking-list-rank">{{ row.rank }}</span>
+                <div class="ranking-list-user"><strong>{{ row.username }}</strong><small>通过 {{ solvedCount(row) }} / {{ problems.length }} 题</small></div>
+                <div class="ranking-list-problems" aria-label="逐题得分">
+                  <span v-for="(problem, index) in problems" :key="problem.versionId" class="ranking-list-problem" :title="problem.title">
+                    <small>{{ String.fromCharCode(65 + index) }}</small>
+                    <span class="ranking-problem-cell" :class="problemScore(row, problem.problemId) === 100 ? 'ranking-problem-cell--accepted' : problemScore(row, problem.problemId) > 0 ? 'ranking-problem-cell--partial' : 'ranking-problem-cell--empty'">{{ problemScore(row, problem.problemId) === 100 ? '✓' : problemScore(row, problem.problemId) > 0 ? problemScore(row, problem.problemId) : '·' }}</span>
+                  </span>
+                </div>
+                <span class="ranking-list-score"><strong>{{ row.totalScore }}</strong><small>分</small></span>
+                <span class="ranking-list-time"><Clock3 :size="12"/>{{ formatDuration(row.elapsedSeconds) }}</span>
+              </article>
+            </div>
+          </section>
+        </template>
+
+        <section v-else class="ranking-list-card ranking-private-state">
+          <Medal :size="20"/><strong>暂无排名数据</strong><span>该比赛还没有有效的参赛记录。</span>
+        </section>
       </div>
 
       <Teleport to="body">

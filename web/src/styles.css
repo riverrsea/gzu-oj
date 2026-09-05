@@ -2973,19 +2973,19 @@ a { color: inherit; text-decoration: none; }
 .ranking-sidebar-enter-from, .ranking-sidebar-leave-to { opacity: 0; transform: translateX(100%); }
 @keyframes training-tab-content-in { from { opacity: 0; } to { opacity: 1; } }
 
-/* 排名页通过比赛标识直接呈现一场比赛的经典 OJ 榜单。 */
+/* 排名页参考 LeetRank，以前三名领奖台和紧凑排行列表突出比赛结果。 */
 .rankings-page { display: grid; gap: 18px; }
 .ranking-page-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .ranking-page-toolbar-actions { display: inline-flex; align-items: center; gap: 8px; }
 .ranking-page-toolbar .is-active { border-color: color-mix(in srgb, var(--accent) 44%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); }
 .rankings-heading { margin-bottom: 0; }
 .rankings-heading p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
-.ranking-contest-card, .ranking-detail-card { overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-panel); }
-.ranking-card-heading, .ranking-detail-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 58px; padding: 0 18px; border-bottom: 1px solid var(--border); }
-.ranking-card-heading > div { display: inline-flex; align-items: center; gap: 8px; }
-.ranking-card-heading svg { color: var(--accent); }
-.ranking-card-heading h2, .ranking-detail-heading h1, .ranking-detail-heading h2 { margin: 0; color: var(--text); font-size: 16px; }
-.ranking-card-heading > span { color: var(--muted); font-size: 11px; }
+.ranking-contest-card, .ranking-detail-card, .ranking-list-card { overflow: hidden; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); box-shadow: var(--shadow); }
+.ranking-card-heading, .ranking-detail-heading, .ranking-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 58px; padding: 0 18px; border-bottom: 1px solid var(--border); }
+.ranking-card-heading > div, .ranking-list-heading > div { display: inline-flex; align-items: center; gap: 8px; }
+.ranking-card-heading svg, .ranking-list-heading svg { color: var(--accent); }
+.ranking-card-heading h2, .ranking-detail-heading h1, .ranking-list-heading h2 { margin: 0; color: var(--text); font-size: 16px; }
+.ranking-card-heading > span, .ranking-list-heading > span { color: var(--muted); font-size: 11px; }
 .ranking-contest-list { display: grid; }
 .ranking-contest-item { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto minmax(150px, .42fr); align-items: center; gap: 13px; min-height: 78px; padding: 11px 18px; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent); background: var(--surface); color: var(--text); cursor: pointer; text-align: left; transition: background-color 150ms ease, box-shadow 150ms ease; }
 .ranking-contest-item:last-child { border-bottom: 0; }
@@ -3007,14 +3007,16 @@ a { color: inherit; text-decoration: none; }
 .ranking-time--warning { --ranking-time-color: var(--warning); }
 .ranking-time--danger { --ranking-time-color: var(--danger); }
 .ranking-contest-skeleton { display: grid; grid-template-columns: 31px minmax(0, 1fr) 140px; align-items: center; gap: 13px; min-height: 78px; padding: 11px 18px; border-bottom: 1px solid var(--border); background: var(--surface); }
-.ranking-contest-skeleton > * { display: block; height: 10px; border-radius: 5px; background: color-mix(in srgb, var(--muted) 14%, var(--surface)); animation: submission-skeleton-pulse 1.2s ease-in-out infinite; }
+.ranking-contest-skeleton > *, .ranking-meta-skeleton i, .ranking-meta-skeleton span, .ranking-meta-skeleton b, .ranking-meta-skeleton em, .ranking-podium--loading .ranking-podium-card > *, .ranking-list-skeleton > * { display: block; height: 10px; border-radius: 999px; background: color-mix(in srgb, var(--muted) 14%, var(--surface)); animation: submission-skeleton-pulse 1.2s ease-in-out infinite; }
 .ranking-contest-skeleton i { width: 31px; height: 31px; border-radius: 8px; }
 .ranking-contest-skeleton b { width: 100%; justify-self: end; }
 .ranking-empty { min-height: 260px; }
-.ranking-detail-heading { min-height: 72px; }
-.ranking-detail-card--single { min-height: 0; }
-.ranking-detail-loading { min-height: 260px; }
-.ranking-detail-heading > div { display: grid; gap: 6px; min-width: 0; }
+.ranking-detail-layout { display: grid; width: min(100%, 960px); min-width: 0; gap: 28px; margin: 0 auto; }
+.ranking-detail-layout > * { width: 100%; min-width: 0; }
+.ranking-contest-meta { min-width: 0; }
+.ranking-detail-heading { min-height: 84px; padding: 12px 20px; }
+.ranking-detail-heading > div { display: grid; min-width: 0; gap: 6px; }
+.ranking-detail-heading h1 { overflow: hidden; font-size: 21px; text-overflow: ellipsis; white-space: nowrap; }
 .ranking-detail-heading small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .ranking-kicker { display: inline-flex; align-items: center; gap: 6px; color: var(--success); font-size: 11px; font-weight: 750; }
 .ranking-kicker--upcoming { color: var(--warning); }
@@ -3022,49 +3024,70 @@ a { color: inherit; text-decoration: none; }
 .ranking-kicker--finished { color: var(--muted); }
 .ranking-kicker svg { color: currentColor; }
 .ranking-participants { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; white-space: nowrap; }
-.ranking-time-flow { display: grid; gap: 9px; margin: 18px; padding: 13px 14px; border: 1px solid color-mix(in srgb, var(--ranking-time-color) 24%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--ranking-time-color) 5%, var(--surface)); transition: border-color 220ms ease, background-color 220ms ease; }
-.ranking-time-flow-header, .ranking-time-flow-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.ranking-time-flow-header span { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 10px; font-weight: 700; }
-.ranking-time-flow-header span svg { color: var(--ranking-time-color); }
-.ranking-time-flow-header strong { color: var(--ranking-time-color); font: 800 14px ui-monospace, monospace; white-space: nowrap; }
-.ranking-time-track--large { height: 7px; }
-.ranking-time-flow-footer { color: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums; }
-.ranking-progress { display: grid; gap: 9px; margin: 0 18px 20px; padding: 0 0 2px; }
+.ranking-progress { display: grid; gap: 9px; margin: 0 20px 21px; padding-top: 17px; }
 .ranking-progress .ranking-time-flow-header, .ranking-progress .ranking-time-flow-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .ranking-progress .ranking-time-flow-header span { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 10px; font-weight: 700; }
 .ranking-progress .ranking-time-flow-header span svg { color: var(--ranking-time-color); }
 .ranking-progress .ranking-time-flow-header strong { color: var(--ranking-time-color); font: 800 14px ui-monospace, monospace; white-space: nowrap; }
 .ranking-progress .ranking-time-flow-footer { color: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums; }
-.ranking-private-state { display: grid; place-items: center; align-content: center; gap: 8px; min-height: 180px; padding: 24px; color: var(--muted); text-align: center; }
-.ranking-private-state svg { color: var(--ranking-time-color, var(--accent)); }
-.ranking-private-state strong { color: var(--text); font-size: 14px; }
-.ranking-private-state span { font-size: 11px; }
-.ranking-table-wrap { overflow-x: auto; }
-.ranking-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.ranking-table th { height: 42px; padding: 0 18px; background: var(--surface-subtle); color: var(--muted); font-size: 11px; font-weight: 700; text-align: left; }
-.ranking-table td { height: 57px; padding: 0 18px; border-top: 1px solid color-mix(in srgb, var(--border) 75%, transparent); color: var(--text); }
-.ranking-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 5%, var(--surface)); }
-.ranking-table-rank { width: 75px; text-align: center !important; }
-.ranking-table-user { min-width: 150px; }
-.ranking-table-problem { width: 62px; min-width: 62px; color: var(--muted) !important; text-align: center !important; }
-.ranking-problem-cell { display: inline-grid; width: 28px; height: 28px; place-items: center; border-radius: 7px; font: 700 12px ui-monospace, monospace; }
+.ranking-time-track--large { height: 7px; }
+.ranking-podium { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 12px; padding: 10px 0 2px; }
+.ranking-podium--1 .ranking-podium-card--gold { grid-column: 2; }
+.ranking-podium--2 .ranking-podium-card--silver { grid-column: 1; }
+.ranking-podium--2 .ranking-podium-card--gold { grid-column: 2; }
+.ranking-podium-card { --podium-color: var(--accent); position: relative; display: flex; min-width: 0; min-height: 176px; align-items: center; justify-content: flex-end; flex-direction: column; gap: 8px; padding: 30px 18px 20px; border: 1px solid color-mix(in srgb, var(--podium-color) 50%, var(--border)); border-radius: 12px; background: linear-gradient(180deg, color-mix(in srgb, var(--podium-color) 7%, var(--surface)), var(--surface) 64%); box-shadow: 0 9px 24px color-mix(in srgb, var(--podium-color) 10%, transparent); transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
+.ranking-podium-card:hover { border-color: color-mix(in srgb, var(--podium-color) 72%, var(--border)); box-shadow: 0 14px 30px color-mix(in srgb, var(--podium-color) 17%, transparent); transform: translateY(-2px); }
+.ranking-podium-card--silver { --podium-color: #718096; min-height: 180px; }
+.ranking-podium-card--gold { --podium-color: #d99a11; min-height: 216px; box-shadow: 0 10px 28px color-mix(in srgb, var(--podium-color) 18%, transparent), 0 0 20px color-mix(in srgb, var(--accent) 9%, transparent); }
+.ranking-podium-card--bronze { --podium-color: #b76539; min-height: 164px; }
+.ranking-podium-rank { position: absolute; top: -11px; left: 50%; min-width: 38px; padding: 3px 9px; border: 1px solid color-mix(in srgb, var(--podium-color) 45%, var(--border)); border-radius: 999px; background: color-mix(in srgb, var(--podium-color) 13%, var(--surface)); color: var(--podium-color); font: 800 11px ui-monospace, monospace; text-align: center; transform: translateX(-50%); }
+.ranking-podium-icon { display: grid; width: 48px; height: 48px; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--podium-color) 13%, var(--surface)); color: var(--podium-color); }
+.ranking-podium-card--gold .ranking-podium-icon { width: 54px; height: 54px; }
+.ranking-podium-user { overflow: hidden; max-width: 100%; padding: 0 6px; color: var(--text); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.ranking-podium-solved { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.ranking-podium-score { color: var(--accent); font-size: 17px; font-variant-numeric: tabular-nums; }
+.ranking-podium-time { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font: 10px ui-monospace, monospace; }
+.ranking-list-card { min-width: 0; }
+.ranking-list { display: grid; padding: 8px 12px 12px; }
+.ranking-list-row { display: grid; grid-template-columns: 34px minmax(120px, .9fr) minmax(176px, 1fr) 82px 92px; align-items: center; gap: 12px; min-height: 67px; padding: 9px 10px; border-radius: 8px; transition: background-color 150ms ease, transform 150ms ease; }
+.ranking-list-row:hover { background: color-mix(in srgb, var(--accent) 5%, var(--surface)); transform: translateX(2px); }
+.ranking-list-rank { display: inline-grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: var(--surface-subtle); color: var(--muted); font: 700 11px ui-monospace, monospace; }
+.ranking-list-user { display: grid; min-width: 0; gap: 4px; }
+.ranking-list-user strong { overflow: hidden; color: var(--text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.ranking-list-user small { color: var(--muted); font-size: 9px; }
+.ranking-list-problems { display: flex; min-width: 0; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+.ranking-list-problem { display: inline-flex; align-items: center; gap: 4px; }
+.ranking-list-problem > small { color: var(--muted); font: 700 9px ui-monospace, monospace; }
+.ranking-problem-cell { display: inline-grid; width: 28px; height: 28px; place-items: center; border-radius: 7px; font: 700 11px ui-monospace, monospace; }
 .ranking-problem-cell--accepted { background: color-mix(in srgb, var(--success) 13%, var(--surface)); color: var(--success); }
 .ranking-problem-cell--partial { background: color-mix(in srgb, var(--warning) 14%, var(--surface)); color: var(--warning); }
 .ranking-problem-cell--empty { color: color-mix(in srgb, var(--muted) 58%, transparent); }
-.ranking-medal { display: inline-grid; width: 25px; height: 25px; place-items: center; border-radius: 50%; color: var(--muted); font: 700 11px ui-monospace, monospace; }
-.ranking-medal--1 { background: color-mix(in srgb, #f59e0b 20%, var(--surface)); color: #b45309; }
-.ranking-medal--2 { background: color-mix(in srgb, #94a3b8 22%, var(--surface)); color: #64748b; }
-.ranking-medal--3 { background: color-mix(in srgb, #c08457 20%, var(--surface)); color: #9a3412; }
-.ranking-user { font-weight: 700; }
-.ranking-table-score { width: 150px; color: var(--accent) !important; text-align: right !important; }
-.ranking-table-score strong { font-size: 15px; }
-.ranking-table-score small { margin-left: 3px; color: var(--muted); font-size: 10px; }
-.ranking-table-time { width: 160px; color: var(--muted) !important; font: 12px ui-monospace, monospace; text-align: right !important; }
-.ranking-detail-layout { display: grid; gap: 18px; }
-.ranking-detail-layout > * { width: 100%; min-width: 0; }
-.ranking-contest-meta { min-width: 0; }
-.ranking-content-grid { display: block; min-width: 0; }
-.ranking-board { display: grid; gap: 10px; min-width: 0; }
+.ranking-list-score { display: inline-flex; align-items: baseline; justify-content: flex-end; gap: 3px; color: var(--accent); white-space: nowrap; }
+.ranking-list-score strong { font-size: 15px; font-variant-numeric: tabular-nums; }
+.ranking-list-score small { color: var(--muted); font-size: 9px; }
+.ranking-list-time { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; color: var(--muted); font: 10px ui-monospace, monospace; white-space: nowrap; }
+.ranking-private-state { display: grid; place-items: center; align-content: center; gap: 8px; min-height: 190px; padding: 24px; color: var(--muted); text-align: center; }
+.ranking-private-state svg { color: var(--ranking-time-color, var(--accent)); }
+.ranking-private-state strong { color: var(--text); font-size: 14px; }
+.ranking-private-state span { font-size: 11px; }
+.ranking-detail-loading { min-height: 520px; }
+.ranking-meta-skeleton { display: grid; gap: 18px; padding: 20px; }
+.ranking-meta-skeleton > div { display: grid; width: min(100%, 360px); gap: 9px; }
+.ranking-meta-skeleton i { width: 74px; }
+.ranking-meta-skeleton span { width: 72%; height: 18px; }
+.ranking-meta-skeleton b { width: 52%; }
+.ranking-meta-skeleton em { width: 100%; height: 7px; }
+.ranking-podium--loading .ranking-podium-card { min-height: 170px; border-color: var(--border); background: var(--surface); box-shadow: none; }
+.ranking-podium--loading .ranking-podium-card:nth-child(2) { min-height: 205px; }
+.ranking-podium--loading .ranking-podium-card:nth-child(3) { min-height: 155px; }
+.ranking-podium--loading .ranking-podium-card i { width: 46px; height: 46px; }
+.ranking-podium--loading .ranking-podium-card span { width: 56%; }
+.ranking-podium--loading .ranking-podium-card b { width: 42%; }
+.ranking-podium--loading .ranking-podium-card em { width: 34%; }
+.ranking-list-card--loading { padding: 10px 12px; }
+.ranking-list-skeleton { display: grid; grid-template-columns: 28px minmax(0, 1fr) 90px; align-items: center; gap: 14px; min-height: 58px; padding: 8px 10px; }
+.ranking-list-skeleton i { width: 28px; height: 28px; }
+.ranking-list-skeleton b { width: 90px; justify-self: end; }
 .ranking-problems-sidebar { position: fixed; z-index: 92; top: 0; right: 0; bottom: 0; width: min(300px, calc(100vw - 24px)); overflow: auto; border: 1px solid var(--border); border-top: 0; border-right: 0; border-bottom: 0; border-radius: 12px 0 0 12px; background: var(--surface); box-shadow: -18px 0 44px color-mix(in srgb, #0b1020 22%, transparent); }
 .ranking-sidebar-backdrop { position: fixed; z-index: 90; inset: 0; background: color-mix(in srgb, #0b1020 32%, transparent); }
 .ranking-sidebar-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 58px; padding: 0 16px; border-bottom: 1px solid var(--border); }
@@ -3075,37 +3098,39 @@ a { color: inherit; text-decoration: none; }
 .ranking-problem-meta-item { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-subtle); }
 .ranking-problem-letter { display: inline-grid; width: 25px; height: 25px; place-items: center; border-radius: 6px; background: color-mix(in srgb, var(--accent) 12%, var(--surface)); color: var(--accent); font: 700 11px ui-monospace, monospace; }
 .ranking-problem-meta-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ranking-user-list { display: grid; gap: 10px; padding: 14px; }
-.ranking-user-card { border: 1px solid var(--border); border-radius: 9px; background: var(--surface); box-shadow: 0 4px 14px color-mix(in srgb, var(--text) 5%, transparent); transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease; }
-.ranking-user-card:hover { border-color: color-mix(in srgb, var(--accent) 36%, var(--border)); box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 9%, transparent); transform: translateY(-1px); }
-.ranking-user-card-header { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; min-height: 54px; padding: 0 14px; border-bottom: 1px solid var(--border); }
-.ranking-user-score { display: inline-flex; align-items: baseline; gap: 3px; color: var(--accent); }
-.ranking-user-score b { font-size: 16px; }
-.ranking-user-score small { color: var(--muted); font-size: 10px; }
-.ranking-user-time { min-width: 76px; color: var(--muted); font: 11px ui-monospace, monospace; text-align: right; }
-.ranking-user-problems { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; padding: 11px 14px 13px; }
-.ranking-user-problem { display: grid; grid-template-columns: 20px 28px; align-items: center; gap: 7px; min-width: 0; }
-.ranking-user-problem-label { color: var(--muted); font: 700 11px ui-monospace, monospace; }
-.ranking-user-problem small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 900px) {
+  .ranking-list-row { grid-template-columns: 34px minmax(0, 1fr) 82px 92px; }
+  .ranking-list-problems { grid-column: 2 / -1; justify-content: flex-start; padding-bottom: 2px; }
+}
 
 @media (max-width: 760px) {
   .rankings-heading { align-items: flex-start; }
   .ranking-contest-item { grid-template-columns: 31px minmax(0, 1fr) auto; gap: 10px; padding: 10px 13px; }
   .ranking-contest-time { grid-column: 2 / -1; }
   .ranking-contest-time small { text-align: left; }
-  .ranking-card-heading, .ranking-detail-heading { padding: 0 14px; }
-  .ranking-progress { margin: 0 14px 16px; }
-  .ranking-table th, .ranking-table td { padding: 0 12px; }
-  .ranking-table-rank { width: 70px; }
-  .ranking-table-user { min-width: 120px; }
-  .ranking-table-problem { width: 54px; min-width: 54px; }
-  .ranking-table-score { width: 90px; }
-  .ranking-table-time { width: 110px; }
-  .ranking-user-card-header { grid-template-columns: 27px minmax(0, 1fr) auto; gap: 8px; padding: 0 12px; }
-  .ranking-user-time { grid-column: 2 / -1; grid-row: 2; padding-bottom: 10px; text-align: left; }
-  .ranking-user-card-header { min-height: 62px; }
-  .ranking-user-problems { grid-template-columns: 1fr; padding: 10px 12px 12px; }
-  .ranking-content-grid { display: block; }
+  .ranking-card-heading, .ranking-detail-heading, .ranking-list-heading { padding-right: 14px; padding-left: 14px; }
+  .ranking-detail-heading { align-items: flex-start; min-height: 0; padding-top: 15px; padding-bottom: 15px; }
+  .ranking-detail-heading h1 { font-size: 17px; }
+  .ranking-progress { margin: 0 14px 16px; padding-top: 14px; }
+  .ranking-detail-layout { gap: 22px; }
+  .ranking-podium { gap: 5px; padding-top: 8px; }
+  .ranking-podium-card { min-height: 148px; gap: 6px; padding: 26px 7px 14px; }
+  .ranking-podium-card--silver { min-height: 154px; }
+  .ranking-podium-card--gold { min-height: 184px; }
+  .ranking-podium-card--bronze { min-height: 140px; }
+  .ranking-podium-icon { width: 38px; height: 38px; }
+  .ranking-podium-card--gold .ranking-podium-icon { width: 43px; height: 43px; }
+  .ranking-podium-user { max-width: 100%; padding: 0 3px; font-size: 11px; }
+  .ranking-podium-solved, .ranking-podium-time { font-size: 8px; }
+  .ranking-podium-score { font-size: 13px; }
+  .ranking-list { padding: 6px 7px 9px; }
+  .ranking-list-row { grid-template-columns: 30px minmax(0, 1fr) auto; align-items: start; gap: 8px; min-height: 82px; padding: 10px 8px; }
+  .ranking-list-rank { grid-column: 1; grid-row: 1; }
+  .ranking-list-user { grid-column: 2; grid-row: 1; }
+  .ranking-list-score { grid-column: 3; grid-row: 1; }
+  .ranking-list-time { grid-column: 2 / -1; grid-row: 2; justify-content: flex-start; }
+  .ranking-list-problems { grid-column: 2 / -1; grid-row: 3; justify-content: flex-start; padding-top: 2px; }
   .ranking-problems-sidebar { width: min(360px, calc(100vw - 12px)); }
 }
 

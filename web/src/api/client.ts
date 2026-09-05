@@ -145,7 +145,7 @@ export const api = {
       headers: { "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify(body),
     }),
-  run: (body: { problemId: string; problemVersionId: string; language: JudgeLanguage; sourceCode: string; inputs: string[]; expectedOutputs: string[] }) =>
+  run: (body: { problemId: string; problemVersionId: string; language: JudgeLanguage; sourceCode: string; inputs: string[]; expectedOutputs: string[]; timedPaperAttemptId?: string }) =>
     request<Submission>("/api/v1/runs", {
       method: "POST",
       headers: { "Idempotency-Key": crypto.randomUUID() },
@@ -190,6 +190,9 @@ export const api = {
   timedAttempts: () => request<TimedAttempt[]>("/api/v1/timed-papers/attempts"),
   startTimedPaper: (id: string) => request<TimedAttempt>("/api/v1/timed-papers/" + id + "/attempts", { method: "POST" }),
   timedAttempt: (id: string) => request<TimedAttempt>("/api/v1/timed-papers/attempts/" + id),
+  pauseTimedAttempt: (id: string) => request<TimedAttempt>("/api/v1/timed-papers/attempts/" + id + "/pause", { method: "POST" }),
+  resumeTimedAttempt: (id: string) => request<TimedAttempt>("/api/v1/timed-papers/attempts/" + id + "/resume", { method: "POST" }),
+  finishTimedAttempt: (id: string) => request<TimedAttempt>("/api/v1/timed-papers/attempts/" + id + "/finish", { method: "POST" }),
   shareTimedAttempt: (id: string) => request<{ token: string }>("/api/v1/timed-papers/attempts/" + id + "/share", { method: "POST" }),
   sharedTimedAttempt: (token: string) => request<TimedAttempt>("/api/v1/shares/timed-papers/" + token),
   stageImport: (file: File) => {

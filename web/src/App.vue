@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ArrowLeft, BookOpen, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Heart, List, LogIn, LogOut, Moon, Monitor, Play, Send, Settings, Sun, Trophy, UserPlus } from "@lucide/vue";
+import { ArrowLeft, BookOpen, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Heart, List, LogIn, LogOut, Moon, Monitor, Pause, Play, Send, Settings, Square, Sun, Trophy, UserPlus } from "@lucide/vue";
 import { api } from "./api/client";
 import { loadSession, session, setSession } from "./stores/session";
 import { workspaceToolbar } from "./stores/workspaceToolbar";
@@ -26,6 +26,17 @@ const isAdmin = computed(() => route.matched.some((record) => record.meta.admin 
 const isAuth = computed(() => route.matched.some((record) => record.meta.auth === true));
 /** 登录用户在顶栏头像中显示的首字母。 */
 const userInitial = computed(() => session.user?.username.trim().slice(0, 1).toUpperCase() ?? "U");
+
+/** 将个人计时剩余秒数转换为紧凑的顶栏倒计时。 */
+function formatWorkspaceDuration(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const secondPart = safeSeconds % 60;
+  return hours > 0
+    ? [hours, minutes, secondPart].map((part) => String(part).padStart(2, "0")).join(":")
+    : [minutes, secondPart].map((part) => String(part).padStart(2, "0")).join(":");
+}
 
 /** 根据页面滚动位置更新顶栏状态。 */
 function updateTopbarState(): void {
@@ -93,8 +104,12 @@ watch(() => route.fullPath, () => {
         </nav>
         <div v-if="isWorkspace && workspaceToolbar.active" class="workspace-topbar-center" aria-label="做题操作">
           <button class="workspace-problem-nav-button" type="button" title="上一题" aria-label="上一题" :disabled="!workspaceToolbar.canPreviousProblem" @click="workspaceToolbar.previousProblem?.()"><ChevronLeft :size="17" /></button>
-          <UiButton variant="outline" size="sm" class="workspace-run-button" :loading="workspaceToolbar.running" :disabled="!workspaceToolbar.ready || workspaceToolbar.submitting || workspaceToolbar.coolingDown" @click="workspaceToolbar.run?.()"><Play :size="14" fill="currentColor" aria-hidden="true" />运行</UiButton>
-          <UiButton variant="default" size="sm" class="workspace-submit-button" :loading="workspaceToolbar.submitting" :disabled="!workspaceToolbar.ready || workspaceToolbar.running || workspaceToolbar.coolingDown" @click="workspaceToolbar.submit?.()"><Send :size="14" aria-hidden="true" />提交</UiButton>
+          <span v-if="workspaceToolbar.timedAttemptStatus" class="workspace-timed-countdown" :class="'workspace-timed-countdown--' + workspaceToolbar.timedAttemptStatus.toLowerCase()">{{ workspaceToolbar.timedAttemptStatus === "FINISHED" ? "已结束" : workspaceToolbar.timedAttemptStatus === "PAUSED" ? "已暂停 " + formatWorkspaceDuration(workspaceToolbar.timedAttemptRemainingSeconds) : formatWorkspaceDuration(workspaceToolbar.timedAttemptRemainingSeconds) }}</span>
+          <UiButton v-if="workspaceToolbar.timedAttemptStatus === 'RUNNING'" variant="outline" size="sm" class="workspace-timed-action" :loading="workspaceToolbar.timedAttemptActionLoading" @click="workspaceToolbar.pauseTimedAttempt?.()"><Pause :size="14" aria-hidden="true" />暂停</UiButton>
+          <UiButton v-else-if="workspaceToolbar.timedAttemptStatus === 'PAUSED'" variant="outline" size="sm" class="workspace-timed-action" :loading="workspaceToolbar.timedAttemptActionLoading" @click="workspaceToolbar.resumeTimedAttempt?.()"><Play :size="14" aria-hidden="true" />继续</UiButton>
+          <UiButton variant="outline" size="sm" class="workspace-run-button" :loading="workspaceToolbar.running" :disabled="!workspaceToolbar.ready || workspaceToolbar.submitting || workspaceToolbar.coolingDown || Boolean(workspaceToolbar.timedAttemptStatus && workspaceToolbar.timedAttemptStatus !== 'RUNNING')" @click="workspaceToolbar.run?.()"><Play :size="14" fill="currentColor" aria-hidden="true" />运行</UiButton>
+          <UiButton variant="default" size="sm" class="workspace-submit-button" :loading="workspaceToolbar.submitting" :disabled="!workspaceToolbar.ready || workspaceToolbar.running || workspaceToolbar.coolingDown || Boolean(workspaceToolbar.timedAttemptStatus && workspaceToolbar.timedAttemptStatus !== 'RUNNING')" @click="workspaceToolbar.submit?.()"><Send :size="14" aria-hidden="true" />提交</UiButton>
+          <UiButton v-if="workspaceToolbar.timedAttemptStatus && workspaceToolbar.timedAttemptStatus !== 'FINISHED'" variant="destructive" size="sm" class="workspace-timed-finish" :disabled="workspaceToolbar.timedAttemptActionLoading" @click="workspaceToolbar.finishTimedAttempt?.()"><Square :size="13" aria-hidden="true" />提前结束</UiButton>
           <button class="workspace-problem-nav-button" type="button" title="下一题" aria-label="下一题" :disabled="!workspaceToolbar.canNextProblem" @click="workspaceToolbar.nextProblem?.()"><ChevronRight :size="17" /></button>
         </div>
         <div class="topbar-actions">

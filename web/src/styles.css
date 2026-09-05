@@ -689,6 +689,17 @@ a { color: inherit; text-decoration: none; }
 .workspace-topbar-center .workspace-submit-button:hover:not(:disabled) {
   background: var(--primary-button-hover);
 }
+.workspace-timed-countdown {
+  min-width: 66px;
+  color: var(--accent);
+  font: 700 12px ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.workspace-timed-countdown--paused { color: var(--warning); }
+.workspace-timed-countdown--finished { color: var(--muted); }
+.workspace-topbar-center .workspace-timed-action { min-width: 64px; }
+.workspace-topbar-center .workspace-timed-finish { min-width: 86px; }
 /* 进入做题页时，顶栏左右内容从中央向两端展开，保持与 Dock 面板一致的节奏。 */
 .topbar-inner--workspace > .workspace-back-button,
 .topbar-inner--workspace > .workspace-problem-list-button,
@@ -981,6 +992,9 @@ a { color: inherit; text-decoration: none; }
   .workspace-topbar-center {
     gap: 4px;
   }
+  .workspace-timed-countdown { display: none; }
+  .workspace-topbar-center .workspace-timed-action,
+  .workspace-topbar-center .workspace-timed-finish { width: 32px; min-width: 32px; padding: 0; gap: 0; font-size: 0; }
   .app-shell--modern .topbar-menu-toggle:hover,
   .app-shell--modern .topbar--codex.topbar--menu-open .topbar-menu-toggle {
     background: color-mix(in srgb, var(--accent) 9%, transparent);
@@ -2949,12 +2963,13 @@ a { color: inherit; text-decoration: none; }
 .training-empty-panel p, .training-start-panel p { max-width: 280px; margin: 0 0 8px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .training-empty-icon { display: grid; width: 52px; height: 52px; place-items: center; margin-bottom: 3px; border-radius: 14px; background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); }
 .training-empty-icon--paper { background: color-mix(in srgb, #8b5cf6 10%, var(--surface)); color: #8b5cf6; }
-.training-attempt-status { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 20px; margin-bottom: 22px; padding: 15px 16px; border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--accent) 5%, var(--surface)); }
+.training-attempt-status { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px 20px; margin-bottom: 22px; padding: 15px 16px; border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--accent) 5%, var(--surface)); }
 .training-time-flow--embedded { margin: 0; padding: 0; border: 0; background: transparent; }
 .training-attempt-score { display: grid; gap: 4px; text-align: right; }
 .training-attempt-score small { color: var(--muted); font-size: 10px; }
 .training-attempt-score strong { color: var(--text); font-size: 18px; font-variant-numeric: tabular-nums; }
 .training-attempt-score em { color: var(--muted); font-size: 11px; font-style: normal; }
+.training-attempt-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
 
 /* 训练页采用单栏列表，详情通过遮罩卡片打开，避免列表与详情同时占用横向空间。 */
 .training-workbench { display: block; min-height: 0; overflow: visible; }
@@ -3169,7 +3184,7 @@ a { color: inherit; text-decoration: none; }
   .training-problem-copy strong { white-space: normal; }
   .training-problem-score { font-size: 10px; }
   .training-attempt-status { grid-template-columns: 1fr auto; gap: 12px; }
-  .training-attempt-status > .ui-button { grid-column: 1 / -1; justify-self: start; }
+  .training-attempt-actions { align-items: stretch; }
   .training-empty-panel, .training-start-panel { min-height: 300px; padding: 24px 16px; }
 }
 

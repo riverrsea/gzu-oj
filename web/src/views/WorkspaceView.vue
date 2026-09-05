@@ -7,14 +7,16 @@ import { DockviewVue, themeDark, themeLight } from "dockview-vue";
 import type { DockviewApi, DockviewReadyEvent, VueComponent } from "dockview-vue";
 import "dockview-vue/dist/styles/dockview.css";
 import { toast } from "../lib/notify";
+import { formatProblemOrdinal } from "../lib/problemOrdinal";
 import { api, ApiError } from "../api/client";
-import type { JudgeLanguage, JudgeStatus, ProblemDetail, ProblemSummary, Submission } from "../api/types";
+import type { JudgeLanguage, JudgeStatus, ProblemDetail, ProblemSummary, Submission, TimedAttempt } from "../api/types";
 import { session } from "../stores/session";
 import { resetWorkspaceToolbar, workspaceToolbar } from "../stores/workspaceToolbar";
 import WorkspaceDockPanel from "../components/WorkspaceDockPanel.vue";
 import WorkspaceDockPanelAdapter from "../components/WorkspaceDockPanelAdapter.vue";
 import type { CodeSaveState, WorkspacePanelContext, WorkspacePanelKind } from "./workspacePanel";
 import UiButton from "../components/ui/Button.vue";
+import UiDialog from "../components/ui/Dialog.vue";
 import { CheckCircle2, Circle, X } from "@lucide/vue";
 
 /** 移动端的六个工作区标签。桌面端由 Dockview 管理同名面板。 */
@@ -46,6 +48,16 @@ const activeCase = ref(0);
 const submitting = ref(false);
 const running = ref(false);
 const actionCoolingDown = ref(false);
+/** 当前做题页所属的个人计时作答；普通题库和训练赛为空。 */
+const timedAttempt = ref<TimedAttempt>();
+/** 接收最近一次个人计时快照的本地时间。 */
+const timedAttemptSyncedAt = ref(Date.now());
+/** 驱动个人计时顶栏倒计时的本地时间。 */
+const timedAttemptNow = ref(Date.now());
+/** 暂停、继续或提前结束请求是否正在处理。 */
+const timedAttemptActionLoading = ref(false);
+/** 是否显示提前结束个人计时的确认对话框。 */
+const finishConfirmOpen = ref(false);
 const isSolved = ref(false);
 const isFavorited = ref(false);
 const favoriteLoading = ref(false);
@@ -105,6 +117,8 @@ let dockLayoutSubscription: { dispose: () => void } | undefined;
 let dockLayoutSaveTimer: number | undefined;
 let actionCooldownTimer: number | undefined;
 let codeSaveTimer: number | undefined;
+let timedAttemptTicker: number | undefined;
+let timedAttemptPoller: number | undefined;
 let suppressNextCodeAutosave = false;
 let codeSaveErrorNotified = false;
 const ACTION_COOLDOWN_MS = 1000;
@@ -114,6 +128,21 @@ const CODE_AUTOSAVE_DELAY_MS = 700;
 const terminalStatuses = new Set<JudgeStatus>(["AC", "PARTIAL", "WA", "CE", "TLE", "MLE", "RE", "OLE", "SYSTEM_ERROR", "CANCELED"]);
 /** 会触发错题本询问的用户代码判题失败状态；基础设施错误和主动取消不计入。 */
 const wrongBookCandidateStatuses = new Set<JudgeStatus>(["PARTIAL", "WA", "CE", "TLE", "MLE", "RE", "OLE"]);
+/** 当前路由中的个人计时作答标识。 */
+const timedAttemptId = computed(() => typeof route.query.timedPaperAttemptId === "string" ? route.query.timedPaperAttemptId : undefined);
+/** 使用后端剩余秒数和快照时间计算运行状态下的本地倒计时。 */
+const timedAttemptRemainingSeconds = computed(() => {
+  const attempt = timedAttempt.value;
+  if (!attempt || attempt.status === "FINISHED") return 0;
+  if (attempt.status === "PAUSED") return attempt.remainingSeconds;
+  const elapsedSeconds = Math.max(0, Math.floor((timedAttemptNow.value - timedAttemptSyncedAt.value) / 1000));
+  return Math.max(0, attempt.remainingSeconds - elapsedSeconds);
+});
+/** 截止时间到达后先在前端切换为结束，下一轮轮询再同步持久化状态。 */
+const timedAttemptStatus = computed(() => {
+  const status = timedAttempt.value?.status;
+  return status === "RUNNING" && timedAttemptRemainingSeconds.value <= 0 ? "FINISHED" : status;
+});
 const renderedStatement = computed(() => {
   if (!problem.value) return "";
   return DOMPurify.sanitize(marked.parse(problem.value.statementMarkdown, { async: false }) as string);
@@ -122,6 +151,70 @@ const renderedStatement = computed(() => {
 /** 比赛和个人套卷使用独立的锁定题目序列，不直接复用题库的全局已解决状态。 */
 function isScopedPracticeContext(): boolean {
   return typeof route.query.contestId === "string" || typeof route.query.timedPaperAttemptId === "string";
+}
+
+/** 将后端作答响应保存为新的倒计时基准。 */
+function replaceTimedAttempt(attempt: TimedAttempt): void {
+  timedAttempt.value = attempt;
+  timedAttemptSyncedAt.value = Date.now();
+  timedAttemptNow.value = timedAttemptSyncedAt.value;
+}
+
+/** 静默刷新当前个人计时状态，使其他标签页的操作能在本页生效。 */
+async function refreshTimedAttempt(): Promise<void> {
+  const attemptId = timedAttemptId.value;
+  if (!attemptId) {
+    timedAttempt.value = undefined;
+    return;
+  }
+  try {
+    const updated = await api.timedAttempt(attemptId);
+    if (timedAttemptId.value === attemptId) replaceTimedAttempt(updated);
+  } catch (error) {
+    console.warn("个人计时状态同步失败", error);
+  }
+}
+
+/** 执行个人计时暂停或继续操作。 */
+async function changeTimedAttemptState(action: "pause" | "resume"): Promise<void> {
+  const attemptId = timedAttemptId.value;
+  if (!attemptId || timedAttemptActionLoading.value) return;
+  timedAttemptActionLoading.value = true;
+  try {
+    const updated = action === "pause"
+      ? await api.pauseTimedAttempt(attemptId)
+      : await api.resumeTimedAttempt(attemptId);
+    replaceTimedAttempt(updated);
+    toast.success(action === "pause" ? "计时已暂停" : "计时已继续");
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "计时状态更新失败");
+    await refreshTimedAttempt();
+  } finally {
+    timedAttemptActionLoading.value = false;
+  }
+}
+
+/** 打开提前结束当前个人计时作答的确认对话框。 */
+function requestFinishTimedAttempt(): void {
+  if (!timedAttemptId.value || timedAttemptStatus.value === "FINISHED" || timedAttemptActionLoading.value) return;
+  finishConfirmOpen.value = true;
+}
+
+/** 确认后不可逆地结束当前个人计时作答。 */
+async function finishTimedAttempt(): Promise<void> {
+  const attemptId = timedAttemptId.value;
+  if (!attemptId || timedAttemptStatus.value === "FINISHED" || timedAttemptActionLoading.value) return;
+  timedAttemptActionLoading.value = true;
+  try {
+    replaceTimedAttempt(await api.finishTimedAttempt(attemptId));
+    finishConfirmOpen.value = false;
+    toast.success("本次作答已结束");
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "结束作答失败");
+    await refreshTimedAttempt();
+  } finally {
+    timedAttemptActionLoading.value = false;
+  }
 }
 const activeLimit = computed(() => problem.value?.languageLimits.find((item) => item.language === language.value));
 const dockTheme = computed(() => dark.value ? themeDark : themeLight);
@@ -308,6 +401,7 @@ async function loadNavigation(): Promise<void> {
   try {
     const contestId = typeof route.query.contestId === "string" ? route.query.contestId : undefined;
     const attemptId = typeof route.query.timedPaperAttemptId === "string" ? route.query.timedPaperAttemptId : undefined;
+    if (!attemptId) timedAttempt.value = undefined;
     if (contestId) {
       const contest = await api.contest(contestId);
       navigationTitle.value = contest.title;
@@ -319,6 +413,7 @@ async function loadNavigation(): Promise<void> {
       }));
     } else if (attemptId) {
       const attempt = await api.timedAttempt(attemptId);
+      replaceTimedAttempt(attempt);
       navigationTitle.value = attempt.paper.title;
       navigationItems.value = attempt.paper.problems.map((item) => ({
         problemId: item.problemId,
@@ -714,7 +809,7 @@ async function runSamples(): Promise<void> {
     await router.push({ path: "/login", query: { redirect: route.fullPath } });
     return;
   }
-  if (!problem.value || running.value || submitting.value || actionCoolingDown.value) return;
+  if (!problem.value || running.value || submitting.value || actionCoolingDown.value || (timedAttemptId.value && timedAttemptStatus.value !== "RUNNING")) return;
   running.value = true;
   submission.value = undefined;
   runSubmission.value = undefined;
@@ -727,6 +822,7 @@ async function runSamples(): Promise<void> {
       sourceCode: code.value,
       inputs: runInputs.value,
       expectedOutputs: runInputs.value.map((_, index) => problem.value?.samples[index]?.output ?? ""),
+      timedPaperAttemptId: timedAttemptId.value,
     });
     submission.value = result;
     runSubmission.value = result;
@@ -743,7 +839,7 @@ async function submit(): Promise<void> {
     await router.push({ path: "/login", query: { redirect: route.fullPath } });
     return;
   }
-  if (!problem.value || running.value || submitting.value || actionCoolingDown.value) return;
+  if (!problem.value || running.value || submitting.value || actionCoolingDown.value || (timedAttemptId.value && timedAttemptStatus.value !== "RUNNING")) return;
   submitting.value = true;
   submission.value = undefined;
   submitSubmission.value = undefined;
@@ -755,7 +851,7 @@ async function submit(): Promise<void> {
       language: language.value,
       sourceCode: code.value,
       contestId: typeof route.query.contestId === "string" ? route.query.contestId : undefined,
-      timedPaperAttemptId: typeof route.query.timedPaperAttemptId === "string" ? route.query.timedPaperAttemptId : undefined,
+      timedPaperAttemptId: timedAttemptId.value,
     });
     submission.value = result;
     submitSubmission.value = result;
@@ -910,8 +1006,14 @@ watchEffect(() => {
   workspaceToolbar.running = running.value;
   workspaceToolbar.submitting = submitting.value;
   workspaceToolbar.coolingDown = actionCoolingDown.value;
+  workspaceToolbar.timedAttemptStatus = timedAttemptStatus.value;
+  workspaceToolbar.timedAttemptRemainingSeconds = timedAttemptRemainingSeconds.value;
+  workspaceToolbar.timedAttemptActionLoading = timedAttemptActionLoading.value;
   workspaceToolbar.run = runSamples;
   workspaceToolbar.submit = submit;
+  workspaceToolbar.pauseTimedAttempt = () => changeTimedAttemptState("pause");
+  workspaceToolbar.resumeTimedAttempt = () => changeTimedAttemptState("resume");
+  workspaceToolbar.finishTimedAttempt = requestFinishTimedAttempt;
   workspaceToolbar.back = () => { void router.push("/problems"); };
   workspaceToolbar.toggleProblemList = toggleProblemList;
   workspaceToolbar.problemListOpen = problemListOpen.value;
@@ -959,6 +1061,9 @@ onMounted(() => {
   window.addEventListener("keydown", handleCodeSaveShortcut, true);
   window.addEventListener("beforeunload", handleCodeBeforeUnload);
   window.addEventListener("keydown", handleProblemListKeydown);
+  timedAttemptTicker = window.setInterval(() => { timedAttemptNow.value = Date.now(); }, 1_000);
+  timedAttemptPoller = window.setInterval(() => { void refreshTimedAttempt(); }, 5_000);
+  document.addEventListener("visibilitychange", refreshTimedAttempt);
   void loadProblem();
 });
 onBeforeUnmount(() => {
@@ -966,6 +1071,8 @@ onBeforeUnmount(() => {
   if (actionCooldownTimer !== undefined) window.clearTimeout(actionCooldownTimer);
   actionCooldownTimer = undefined;
   if (dockLayoutSaveTimer !== undefined) window.clearTimeout(dockLayoutSaveTimer);
+  if (timedAttemptTicker !== undefined) window.clearInterval(timedAttemptTicker);
+  if (timedAttemptPoller !== undefined) window.clearInterval(timedAttemptPoller);
   if (problem.value) saveCodeDraftNow(code.value, language.value, { notifyFailure: false });
   saveDockLayout();
   dockLayoutSubscription?.dispose();
@@ -973,6 +1080,7 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleCodeSaveShortcut, true);
   window.removeEventListener("beforeunload", handleCodeBeforeUnload);
   window.removeEventListener("keydown", handleProblemListKeydown);
+  document.removeEventListener("visibilitychange", refreshTimedAttempt);
   resetWorkspaceToolbar();
 });
 </script>
@@ -1040,15 +1148,27 @@ onBeforeUnmount(() => {
                 <Circle v-else :size="16" aria-hidden="true" />
               </span>
               <span class="workspace-problem-drawer-copy">
-                <strong><small v-if="item.ordinal !== undefined">{{ item.ordinal }}.</small>{{ item.title }}</strong>
+                <strong><small v-if="item.ordinal !== undefined">{{ formatProblemOrdinal(item.ordinal) }}.</small>{{ item.title }}</strong>
                 <span>{{ [item.school, item.year, difficultyText(item.difficulty)].filter(Boolean).join(" · ") || "题目" }}</span>
               </span>
-              <span class="workspace-problem-drawer-index">{{ index + 1 }}</span>
+              <span class="workspace-problem-drawer-index">{{ item.ordinal === undefined ? index + 1 : formatProblemOrdinal(item.ordinal) }}</span>
             </button>
           </div>
           <div v-else class="workspace-problem-drawer-state">暂无可导航题目</div>
         </aside>
       </div>
     </Transition>
+    <UiDialog
+      v-model="finishConfirmOpen"
+      title="提前结束作答"
+      description="提前结束后不能继续运行或提交，且无法恢复。"
+      class="workspace-finish-dialog"
+    >
+      <p>确定结束本次个人计时作答吗？</p>
+      <template #footer>
+        <UiButton variant="outline" :disabled="timedAttemptActionLoading" @click="finishConfirmOpen = false">取消</UiButton>
+        <UiButton variant="destructive" :loading="timedAttemptActionLoading" @click="finishTimedAttempt">确认结束</UiButton>
+      </template>
+    </UiDialog>
   </section>
 </template>

@@ -34,7 +34,7 @@ onMounted(load);
   <section class="content-page content-page--modern oj-page share-page loading-shell" :aria-busy="loading">
     <div v-if="loading" class="loading-overlay"><span class="loading-spinner" aria-label="加载中" /></div>
     <template v-if="attempt">
-      <div class="page-heading"><div><h1>{{ attempt.paper.title }}</h1><p>个人计时套卷只读结果</p></div><strong class="share-score">{{ attempt.totalScore }} 分</strong></div>
+      <div class="page-heading"><div><h1>{{ attempt.paper.title }}</h1><p>个人计时套卷只读结果</p></div><strong class="share-score">{{ attempt.totalScore }}/{{ attempt.maximumScore }} 分</strong></div>
       <div class="share-meta"><span><Clock3 :size="16" />{{ attempt.paper.durationMinutes }} 分钟</span><span>{{ attempt.finished ? '已结束' : '进行中' }}</span><span>{{ formatChinaDateTime(attempt.startedAt, { dateStyle: 'medium', timeStyle: 'short' }) }}</span></div>
       <UiTable>
         <thead><tr><th>#</th><th>题目</th><th>最高分</th></tr></thead>

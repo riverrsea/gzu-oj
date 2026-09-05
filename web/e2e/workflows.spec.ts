@@ -12,6 +12,15 @@ const problem = {
   difficulty: "EASY",
 };
 
+/** 个人计时和训练赛中用于验证 B 序号的第二道题。 */
+const secondProblem = {
+  ...problem,
+  id: "88888888-8888-4888-8888-888888888888",
+  versionId: "99999999-9999-4999-8999-999999999999",
+  externalKey: "e2e-sort",
+  title: "整数排序",
+};
+
 /** 返回做题工作区所需的完整题目模型。 */
 const problemDetail = {
   ...problem,
@@ -29,7 +38,33 @@ const problemDetail = {
 };
 
 /** 设置 API 拦截器，使页面布局和交互回归不依赖外部服务。 */
-async function mockApi(page: Page): Promise<void> {
+async function mockApi(page: Page): Promise<{ lastRunTimedAttemptId?: string }> {
+  const timedPaperId = "44444444-4444-4444-8444-444444444444";
+  const timedAttemptId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const timedProblems = [problem, secondProblem].map((item, index) => ({
+    ordinal: index + 1,
+    problemId: item.id,
+    versionId: item.versionId,
+    title: item.title,
+  }));
+  const timedState: { started: boolean; status: "RUNNING" | "PAUSED" | "FINISHED"; remainingSeconds: number; lastRunTimedAttemptId?: string } = {
+    started: false,
+    status: "RUNNING",
+    remainingSeconds: 5_400,
+  };
+  /** 返回与当前模拟状态一致的个人计时响应。 */
+  const timedAttempt = () => ({
+    id: timedAttemptId,
+    paper: {id: timedPaperId, title: "模拟套卷", durationMinutes: 90, problems: timedProblems},
+    startedAt: "2099-08-05T09:00:00Z",
+    expiresAt: "2099-08-05T10:30:00Z",
+    finished: timedState.status === "FINISHED",
+    status: timedState.status,
+    remainingSeconds: timedState.status === "FINISHED" ? 0 : timedState.remainingSeconds,
+    scores: {[problem.id]: 100, [secondProblem.id]: 60},
+    totalScore: 160,
+    maximumScore: 200,
+  });
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -73,17 +108,38 @@ async function mockApi(page: Page): Promise<void> {
       dataNotice: null,
       testCases: [{ ordinal: 1, input: "1 2\n", output: "3\n", score: 100, sample: true }],
     });
-    if (path === "/api/v1/problems") return json([problem]);
+    if (path === "/api/v1/problems") return json([problem, secondProblem]);
     if (path === "/api/v1/problems/" + problem.id || path === "/api/v1/problems/versions/" + problem.versionId) return json(problemDetail);
+    if (path === "/api/v1/problems/" + secondProblem.id || path === "/api/v1/problems/versions/" + secondProblem.versionId) {
+      return json({...problemDetail, ...secondProblem});
+    }
     if (path === "/api/v1/contests") return json([{
       id: "33333333-3333-4333-8333-333333333333", title: "公开训练赛", visibility: "PUBLIC", ownerUsername: "管理员", createdAt: "2026-08-05T08:00:00Z",
       startsAt: "2026-08-05T09:00:00Z", endsAt: "2026-08-05T11:00:00Z", phase: "UPCOMING",
       maxParticipants: 5, participantCount: 1, joined: true,
     }]);
-    if (path === "/api/v1/timed-papers") return json([{ id: "44444444-4444-4444-8444-444444444444", title: "模拟套卷", durationMinutes: 90, problems: [{ ordinal: 1, problemId: problem.id, versionId: problem.versionId, title: problem.title }] }]);
-    if (path === "/api/v1/timed-papers/attempts") return json([]);
+    if (path === "/api/v1/timed-papers") return json([{id: timedPaperId, title: "模拟套卷", durationMinutes: 90, problems: timedProblems}]);
+    if (path === "/api/v1/timed-papers/attempts" && request.method() === "GET") return json(timedState.started ? [timedAttempt()] : []);
+    if (path === `/api/v1/timed-papers/${timedPaperId}/attempts` && request.method() === "POST") {
+      timedState.started = true;
+      return json(timedAttempt());
+    }
+    if (path === `/api/v1/timed-papers/attempts/${timedAttemptId}` && request.method() === "GET") return json(timedAttempt());
+    if (path === `/api/v1/timed-papers/attempts/${timedAttemptId}/pause` && request.method() === "POST") {
+      timedState.status = "PAUSED";
+      return json(timedAttempt());
+    }
+    if (path === `/api/v1/timed-papers/attempts/${timedAttemptId}/resume` && request.method() === "POST") {
+      timedState.status = "RUNNING";
+      return json(timedAttempt());
+    }
+    if (path === `/api/v1/timed-papers/attempts/${timedAttemptId}/finish` && request.method() === "POST") {
+      timedState.status = "FINISHED";
+      return json(timedAttempt());
+    }
     if (path === "/api/v1/runs" && request.method() === "POST") {
-      const body = request.postDataJSON() as { problemId?: string; problemVersionId?: string; expectedOutputs?: string[] };
+      const body = request.postDataJSON() as { problemId?: string; problemVersionId?: string; expectedOutputs?: string[]; timedPaperAttemptId?: string };
+      timedState.lastRunTimedAttemptId = body.timedPaperAttemptId;
       if (body.problemId !== problem.id || body.problemVersionId !== problem.versionId) {
         return json({ code: "INVALID_PROBLEM_VERSION", message: "运行请求未锁定工作区版本" }, 400);
       }
@@ -107,6 +163,7 @@ async function mockApi(page: Page): Promise<void> {
     });
     return json({ code: "UNMOCKED", message: "未配置的浏览器测试请求", timestamp: "2026-08-05T09:00:00Z" }, 404);
   });
+  return timedState;
 }
 
 /** 验证注销后服务端清除旧令牌时，下一次登录会重新请求 CSRF。 */
@@ -262,6 +319,59 @@ test("管理员录题与训练中心可加载", async ({ page }) => {
   await expect(page.getByText("公开训练赛")).toBeVisible();
 });
 
+/** 验证个人计时从开始跳转到结束只保留一次作答，并同步顶栏状态与字母题号。 */
+test("个人计时可暂停继续并提前结束", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "此用例只验证桌面端完整计时顶栏");
+  const timedState = await mockApi(page);
+
+  await page.goto("/training");
+  await page.getByRole("tab", {name: "个人计时"}).click();
+  const paperCard = page.locator(".training-browser-item").filter({hasText: "模拟套卷"});
+  await paperCard.click({position: {x: 20, y: 20}});
+  const paperDetail = page.locator(".training-detail-drawer");
+  await expect(paperDetail.getByRole("button", {name: "开始作答"})).toHaveCount(1);
+  await paperDetail.getByRole("button", {name: "开始作答"}).click();
+
+  await expect(page).toHaveURL(/\/problems\/11111111-1111-4111-8111-111111111111\?.*timedPaperAttemptId=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/);
+  await page.getByRole("button", {name: "题目列表"}).click();
+  const drawer = page.locator(".workspace-problem-drawer");
+  await expect(drawer).toContainText("A.");
+  await expect(drawer).toContainText("B.");
+  await expect(drawer).toContainText("整数排序");
+  await page.getByRole("button", {name: "关闭题目列表"}).click();
+
+  await page.getByRole("button", {name: "暂停"}).click();
+  await expect(page.getByText("计时已暂停")).toBeVisible();
+  await expect(page.getByRole("button", {name: "运行"})).toBeDisabled();
+  await expect(page.getByRole("button", {name: "提交", exact: true})).toBeDisabled();
+  const frozenCountdown = await page.locator(".workspace-timed-countdown").textContent();
+  await page.waitForTimeout(1_100);
+  await expect(page.locator(".workspace-timed-countdown")).toHaveText(frozenCountdown ?? "");
+
+  await page.getByRole("button", {name: "继续"}).click();
+  await expect(page.getByText("计时已继续")).toBeVisible();
+  await page.getByRole("button", {name: "运行"}).click();
+  await expect(page.getByText("通过").first()).toBeVisible({timeout: 5_000});
+  expect(timedState.lastRunTimedAttemptId).toBe("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+
+  await page.getByRole("button", {name: "提前结束"}).click();
+  const finishDialog = page.getByRole("dialog", {name: "提前结束作答"});
+  await expect(finishDialog).toBeVisible();
+  await finishDialog.getByRole("button", {name: "确认结束"}).click();
+  await expect(page.locator(".workspace-timed-countdown")).toHaveText("已结束");
+  await expect(page.getByRole("button", {name: "运行"})).toBeDisabled();
+  await expect(page.getByRole("button", {name: "提交", exact: true})).toBeDisabled();
+
+  await page.goto("/training");
+  await page.getByRole("tab", {name: "个人计时"}).click();
+  const finishedCard = page.locator(".training-browser-item").filter({hasText: "模拟套卷"});
+  await expect(finishedCard).toContainText("已结束");
+  await expect(finishedCard.getByRole("button", {name: "查看结果"})).toHaveCount(0);
+  await finishedCard.click({position: {x: 20, y: 20}});
+  await expect(page.locator(".training-attempt-score")).toContainText("160/200");
+  await expect(page.locator(".training-problem-ordinal")).toHaveText(["A", "B"]);
+});
+
 /** 验证训练赛发现条件、口令赛锁定摘要和邀请码加入入口。 */
 test("训练赛可查询并使用邀请码加入口令赛", async ({ page }) => {
   await mockApi(page);
@@ -366,6 +476,8 @@ test("训练赛可查询并使用邀请码加入口令赛", async ({ page }) => 
 
   await page.locator(".training-browser-item").filter({hasText: "公开训练赛"}).click();
   await expect(page.getByRole("heading", {name: "题目"})).toBeVisible();
+  await expect(page.locator(".training-problem-ordinal")).toHaveText("A");
+  await expect(page.locator(".training-problem-score")).toHaveCount(0);
   await page.getByRole("button", {name: "加入比赛"}).click();
   await expect(page.getByText("已加入训练赛")).toBeVisible();
   expect(publicJoinPassword).toBeUndefined();

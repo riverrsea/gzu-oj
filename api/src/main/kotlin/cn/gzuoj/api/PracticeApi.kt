@@ -300,6 +300,99 @@ data class TimedPaperProblemResponse(
     val title: String,
 )
 
+/** 个人计时作答状态。 */
+enum class TimedAttemptStatus {
+    /** 正在计时，可以运行和提交。 */
+    RUNNING,
+    /** 计时已经冻结，不能运行或提交。 */
+    PAUSED,
+    /** 作答已经结束，状态不可恢复。 */
+    FINISHED,
+}
+
+/** 用于统一计算截止时间和剩余时间的计时快照。 */
+internal data class TimedAttemptClock(
+    /** 开始计时的时刻。 */
+    val startedAt: Instant,
+    /** 已经结束时的结束时刻。 */
+    val finishedAt: Instant?,
+    /** 当前暂停开始时刻。 */
+    val pausedAt: Instant?,
+    /** 已完成暂停的累计毫秒数。 */
+    val accumulatedPausedMs: Long,
+    /** 套卷规定时长。 */
+    val durationMinutes: Int,
+)
+
+/** 计算包含已完成暂停时长的当前截止时间。 */
+internal fun timedAttemptExpiresAt(clock: TimedAttemptClock): Instant = clock.startedAt
+    .plus(Duration.ofMinutes(clock.durationMinutes.toLong()))
+    .plusMillis(clock.accumulatedPausedMs)
+
+/** 按每道题一百分计算套卷满分。 */
+internal fun timedAttemptMaximumScore(problemCount: Int): Int = problemCount * 100
+
+/** 汇总每道题的历史最高分。 */
+internal fun timedAttemptTotalScore(scores: Map<UUID, Int>): Int = scores.values.sum()
+
+/** 在同一个时间快照下推导作答状态。 */
+internal fun timedAttemptStatusAt(clock: TimedAttemptClock, currentTime: Instant): TimedAttemptStatus = when {
+    clock.finishedAt != null -> TimedAttemptStatus.FINISHED
+    clock.pausedAt != null -> TimedAttemptStatus.PAUSED
+    !currentTime.isBefore(timedAttemptExpiresAt(clock)) -> TimedAttemptStatus.FINISHED
+    else -> TimedAttemptStatus.RUNNING
+}
+
+/** 计算供前端同步的整秒剩余时间；暂停期间使用暂停时刻冻结结果。 */
+internal fun timedAttemptRemainingSecondsAt(clock: TimedAttemptClock, currentTime: Instant): Long {
+    if (timedAttemptStatusAt(clock, currentTime) == TimedAttemptStatus.FINISHED) return 0
+    val referenceTime = clock.pausedAt ?: currentTime
+    val remainingMillis = Duration.between(referenceTime, timedAttemptExpiresAt(clock)).toMillis().coerceAtLeast(0)
+    return (remainingMillis + 999) / 1_000
+}
+
+/** 个人计时状态操作。 */
+internal enum class TimedAttemptAction {
+    /** 请求暂停。 */
+    PAUSE,
+    /** 请求继续。 */
+    RESUME,
+    /** 请求结束。 */
+    FINISH,
+}
+
+/** 状态操作需要执行的持久化变化。 */
+internal enum class TimedAttemptMutation {
+    /** 当前状态已经满足请求，无需更新。 */
+    NONE,
+    /** 写入暂停时刻。 */
+    PAUSE,
+    /** 累加暂停时长并恢复计时。 */
+    RESUME,
+    /** 写入不可逆结束状态。 */
+    FINISH,
+    /** 已结束作答不允许执行该操作。 */
+    CONFLICT,
+}
+
+/** 将重复操作统一收敛为幂等结果，并拒绝恢复已经结束的作答。 */
+internal fun timedAttemptMutation(status: TimedAttemptStatus, action: TimedAttemptAction): TimedAttemptMutation = when (action) {
+    TimedAttemptAction.PAUSE -> when (status) {
+        TimedAttemptStatus.RUNNING -> TimedAttemptMutation.PAUSE
+        TimedAttemptStatus.PAUSED -> TimedAttemptMutation.NONE
+        TimedAttemptStatus.FINISHED -> TimedAttemptMutation.CONFLICT
+    }
+    TimedAttemptAction.RESUME -> when (status) {
+        TimedAttemptStatus.RUNNING -> TimedAttemptMutation.NONE
+        TimedAttemptStatus.PAUSED -> TimedAttemptMutation.RESUME
+        TimedAttemptStatus.FINISHED -> TimedAttemptMutation.CONFLICT
+    }
+    TimedAttemptAction.FINISH -> when (status) {
+        TimedAttemptStatus.RUNNING, TimedAttemptStatus.PAUSED -> TimedAttemptMutation.FINISH
+        TimedAttemptStatus.FINISHED -> TimedAttemptMutation.NONE
+    }
+}
+
 /** 一次个人套卷作答结果。 */
 data class TimedAttemptResponse(
     /** 作答标识。 */
@@ -312,10 +405,16 @@ data class TimedAttemptResponse(
     val expiresAt: Instant,
     /** 是否已经结束。 */
     val finished: Boolean,
+    /** 当前持久化作答状态。 */
+    val status: TimedAttemptStatus,
+    /** 当前剩余秒数；暂停期间保持不变。 */
+    val remainingSeconds: Long,
     /** 每题最高分。 */
     val scores: Map<UUID, Int>,
     /** 总分。 */
     val totalScore: Int,
+    /** 套卷满分，每道题按一百分计算。 */
+    val maximumScore: Int,
 )
 
 /** 个人计时套卷服务。 */
@@ -393,6 +492,78 @@ class TimedPaperService(
         return loadAttempt(attemptId, "a.user_id = ?", userId)
     }
 
+    /** 暂停正在进行的作答；已经暂停时直接返回当前状态。 */
+    @Transactional(noRollbackFor = [ApiException::class])
+    fun pause(attemptId: UUID, userId: UUID): TimedAttemptResponse {
+        val row = lockAttempt(attemptId, userId)
+        val currentTime = Instant.now()
+        val mutation = timedAttemptMutation(timedAttemptStatusAt(row.clock(), currentTime), TimedAttemptAction.PAUSE)
+        when (mutation) {
+            TimedAttemptMutation.PAUSE -> jdbc.update(
+                "UPDATE timed_paper_attempt SET paused_at = ? WHERE id = ?",
+                Timestamp.from(currentTime),
+                attemptId,
+            )
+            TimedAttemptMutation.CONFLICT -> {
+                finishIfExpired(row, currentTime)
+                throw ApiException(HttpStatus.CONFLICT, "TIMED_ATTEMPT_FINISHED", "套卷作答已经结束")
+            }
+            else -> Unit
+        }
+        return loadAttempt(attemptId, "a.user_id = ?", userId)
+    }
+
+    /** 继续暂停中的作答，并将本次暂停时长顺延到截止时间。 */
+    @Transactional(noRollbackFor = [ApiException::class])
+    fun resume(attemptId: UUID, userId: UUID): TimedAttemptResponse {
+        val row = lockAttempt(attemptId, userId)
+        val currentTime = Instant.now()
+        val mutation = timedAttemptMutation(timedAttemptStatusAt(row.clock(), currentTime), TimedAttemptAction.RESUME)
+        when (mutation) {
+            TimedAttemptMutation.RESUME -> {
+                val pausedMillis = Duration.between(requireNotNull(row.pausedAt), currentTime).toMillis().coerceAtLeast(0)
+                jdbc.update(
+                    "UPDATE timed_paper_attempt SET paused_at = NULL, accumulated_paused_ms = accumulated_paused_ms + ? WHERE id = ?",
+                    pausedMillis,
+                    attemptId,
+                )
+            }
+            TimedAttemptMutation.CONFLICT -> {
+                finishIfExpired(row, currentTime)
+                throw ApiException(HttpStatus.CONFLICT, "TIMED_ATTEMPT_FINISHED", "套卷作答已经结束")
+            }
+            else -> Unit
+        }
+        return loadAttempt(attemptId, "a.user_id = ?", userId)
+    }
+
+    /** 提前结束作答；重复调用保持结束状态不变。 */
+    @Transactional
+    fun finish(attemptId: UUID, userId: UUID): TimedAttemptResponse {
+        val row = lockAttempt(attemptId, userId)
+        val currentTime = Instant.now()
+        val mutation = timedAttemptMutation(timedAttemptStatusAt(row.clock(), currentTime), TimedAttemptAction.FINISH)
+        if (mutation == TimedAttemptMutation.FINISH) {
+            val pausedMillis = row.pausedAt
+                ?.let { Duration.between(it, currentTime).toMillis().coerceAtLeast(0) }
+                ?: 0
+            jdbc.update(
+                """
+                UPDATE timed_paper_attempt
+                SET finished_at = ?, paused_at = NULL,
+                    accumulated_paused_ms = accumulated_paused_ms + ?
+                WHERE id = ?
+                """.trimIndent(),
+                Timestamp.from(currentTime),
+                pausedMillis,
+                attemptId,
+            )
+        } else if (row.finishedAt == null) {
+            finishIfExpired(row, currentTime)
+        }
+        return loadAttempt(attemptId, "a.user_id = ?", userId)
+    }
+
     /** 生成新的分享令牌并覆盖旧令牌。 */
     @Transactional
     fun share(attemptId: UUID, userId: UUID): String {
@@ -464,7 +635,8 @@ class TimedPaperService(
         val arguments = if (attemptId == null) arrayOf(argument) else arrayOf(attemptId, argument)
         val row = jdbc.query(
             """
-            SELECT a.id, a.timed_paper_id, a.started_at, a.finished_at, t.duration_minutes
+            SELECT a.id, a.timed_paper_id, a.started_at, a.finished_at, a.paused_at,
+                   a.accumulated_paused_ms, t.duration_minutes
             FROM timed_paper_attempt a JOIN timed_paper t ON t.id = a.timed_paper_id
             WHERE $idCondition$extraCondition
             """.trimIndent(),
@@ -474,6 +646,8 @@ class TimedPaperService(
                     result.getObject("timed_paper_id", UUID::class.java),
                     result.getTimestamp("started_at").toInstant(),
                     result.getTimestamp("finished_at")?.toInstant(),
+                    result.getTimestamp("paused_at")?.toInstant(),
+                    result.getLong("accumulated_paused_ms"),
                     result.getInt("duration_minutes"),
                 )
             },
@@ -483,21 +657,27 @@ class TimedPaperService(
             """
             SELECT pv.problem_id, max(s.score) AS score
             FROM submission s JOIN problem_version pv ON pv.id = s.problem_version_id
-            WHERE s.timed_paper_attempt_id = ? AND s.finished_at IS NOT NULL
+            WHERE s.timed_paper_attempt_id = ? AND s.execution_mode = 'SUBMIT'
+              AND s.finished_at IS NOT NULL
             GROUP BY pv.problem_id
             """.trimIndent(),
             { result, _ -> result.getObject("problem_id", UUID::class.java) to result.getInt("score") },
             row.id,
         ).toMap()
-        val expiresAt = row.startedAt.plus(Duration.ofMinutes(row.durationMinutes.toLong()))
+        val paper = getPaper(row.paperId)
+        val currentTime = Instant.now()
+        val status = timedAttemptStatusAt(row.clock(), currentTime)
         return TimedAttemptResponse(
             id = row.id,
-            paper = getPaper(row.paperId),
+            paper = paper,
             startedAt = row.startedAt,
-            expiresAt = expiresAt,
-            finished = row.finishedAt != null || !Instant.now().isBefore(expiresAt),
+            expiresAt = timedAttemptExpiresAt(row.clock()),
+            finished = status == TimedAttemptStatus.FINISHED,
+            status = status,
+            remainingSeconds = timedAttemptRemainingSecondsAt(row.clock(), currentTime),
             scores = scores,
-            totalScore = scores.values.sum(),
+            totalScore = timedAttemptTotalScore(scores),
+            maximumScore = timedAttemptMaximumScore(paper.problems.size),
         )
     }
 
@@ -505,13 +685,55 @@ class TimedPaperService(
     private fun finishExpired(attemptId: UUID) {
         jdbc.update(
             """
-            UPDATE timed_paper_attempt a SET finished_at = a.started_at + make_interval(mins => t.duration_minutes)
+            UPDATE timed_paper_attempt a
+            SET finished_at = a.started_at + make_interval(mins => t.duration_minutes)
+                + (a.accumulated_paused_ms * interval '1 millisecond')
             FROM timed_paper t
             WHERE a.id = ? AND t.id = a.timed_paper_id AND a.finished_at IS NULL
+              AND a.paused_at IS NULL
               AND now() >= a.started_at + make_interval(mins => t.duration_minutes)
+                  + (a.accumulated_paused_ms * interval '1 millisecond')
             """.trimIndent(),
             attemptId,
         )
+    }
+
+    /** 锁定当前用户的一行作答，串行化暂停、继续、结束与提交操作。 */
+    private fun lockAttempt(attemptId: UUID, userId: UUID): AttemptRow = jdbc.query(
+        """
+        SELECT a.id, a.timed_paper_id, a.started_at, a.finished_at, a.paused_at,
+               a.accumulated_paused_ms, t.duration_minutes
+        FROM timed_paper_attempt a
+        JOIN timed_paper t ON t.id = a.timed_paper_id
+        WHERE a.id = ? AND a.user_id = ?
+        FOR UPDATE OF a
+        """.trimIndent(),
+        { result, _ ->
+            AttemptRow(
+                result.getObject("id", UUID::class.java),
+                result.getObject("timed_paper_id", UUID::class.java),
+                result.getTimestamp("started_at").toInstant(),
+                result.getTimestamp("finished_at")?.toInstant(),
+                result.getTimestamp("paused_at")?.toInstant(),
+                result.getLong("accumulated_paused_ms"),
+                result.getInt("duration_minutes"),
+            )
+        },
+        attemptId,
+        userId,
+    ).firstOrNull() ?: throw ApiException(HttpStatus.NOT_FOUND, "ATTEMPT_NOT_FOUND", "套卷作答不存在")
+
+    /** 在行锁内持久化自然到期；暂停状态不参与自然到期。 */
+    private fun finishIfExpired(row: AttemptRow, currentTime: Instant): Boolean {
+        if (row.finishedAt != null || row.pausedAt != null || currentTime.isBefore(timedAttemptExpiresAt(row.clock()))) {
+            return false
+        }
+        jdbc.update(
+            "UPDATE timed_paper_attempt SET finished_at = ? WHERE id = ? AND finished_at IS NULL",
+            Timestamp.from(timedAttemptExpiresAt(row.clock())),
+            row.id,
+        )
+        return true
     }
 
     /** 确认套卷属于当前用户。 */
@@ -549,9 +771,22 @@ class TimedPaperService(
         val startedAt: Instant,
         /** 结束时间。 */
         val finishedAt: Instant?,
+        /** 当前暂停开始时间。 */
+        val pausedAt: Instant?,
+        /** 已完成暂停的累计毫秒数。 */
+        val accumulatedPausedMs: Long,
         /** 时长分钟数。 */
         val durationMinutes: Int,
-    )
+    ) {
+        /** 转换为不包含数据库标识的计时快照。 */
+        fun clock(): TimedAttemptClock = TimedAttemptClock(
+            startedAt = startedAt,
+            finishedAt = finishedAt,
+            pausedAt = pausedAt,
+            accumulatedPausedMs = accumulatedPausedMs,
+            durationMinutes = durationMinutes,
+        )
+    }
 }
 
 /** 个人计时套卷接口。 */
@@ -587,6 +822,21 @@ class TimedPaperController(
     @GetMapping("/attempts/{attemptId}")
     fun attempt(@PathVariable attemptId: UUID, @AuthenticationPrincipal principal: AppPrincipal): TimedAttemptResponse =
         service.getAttempt(attemptId, principal.userId)
+
+    /** 暂停个人计时。 */
+    @PostMapping("/attempts/{attemptId}/pause")
+    fun pause(@PathVariable attemptId: UUID, @AuthenticationPrincipal principal: AppPrincipal): TimedAttemptResponse =
+        service.pause(attemptId, principal.userId)
+
+    /** 继续个人计时。 */
+    @PostMapping("/attempts/{attemptId}/resume")
+    fun resume(@PathVariable attemptId: UUID, @AuthenticationPrincipal principal: AppPrincipal): TimedAttemptResponse =
+        service.resume(attemptId, principal.userId)
+
+    /** 提前结束个人计时。 */
+    @PostMapping("/attempts/{attemptId}/finish")
+    fun finish(@PathVariable attemptId: UUID, @AuthenticationPrincipal principal: AppPrincipal): TimedAttemptResponse =
+        service.finish(attemptId, principal.userId)
 
     /** 生成可撤销只读分享链接。 */
     @PostMapping("/attempts/{attemptId}/share")
@@ -748,7 +998,7 @@ data class ContestResponse(
     val joined: Boolean,
     /** 锁定的题目。 */
     val problems: List<ContestProblemResponse>,
-    /** 进行中只包含当前用户每题最高分。 */
+    /** 已加入用户在比赛开始后可见的本人每题最高分。 */
     val myScores: Map<UUID, Int>?,
     /** 公开赛开始后可见的实时排名；比赛开始前为空。 */
     val ranking: List<ContestRankResponse>?,
@@ -933,7 +1183,7 @@ class ContestService(
             participantCount = participantCount(contestId),
             joined = joined,
             problems = problems,
-            myScores = viewerId?.takeIf { phase == ContestPhase.RUNNING && joined }
+            myScores = viewerId?.takeIf { joined && phase != ContestPhase.UPCOMING }
                 ?.let { loadUserScores(contestId, it) },
             // 公开赛从开始后即可查看实时排名；口令赛仍只展示给已加入用户，避免泄露受限比赛信息。
             ranking = if (contest.visibility == ContestVisibility.PUBLIC && phase != ContestPhase.UPCOMING) ranking(contest, problems.map { it.problemId }) else null,
@@ -1011,7 +1261,8 @@ class ContestService(
         """
         SELECT pv.problem_id, max(s.score) AS score
         FROM submission s JOIN problem_version pv ON pv.id = s.problem_version_id
-        WHERE s.contest_id = ? AND s.user_id = ? AND s.finished_at IS NOT NULL
+        WHERE s.contest_id = ? AND s.user_id = ? AND s.execution_mode = 'SUBMIT'
+          AND s.finished_at IS NOT NULL
         GROUP BY pv.problem_id
         """.trimIndent(),
         { result, _ -> result.getObject("problem_id", UUID::class.java) to result.getInt("score") },

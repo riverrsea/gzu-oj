@@ -1,4 +1,5 @@
 import { reactive } from "vue";
+import type { TimedAttemptStatus } from "../api/types";
 
 /** 全局顶端栏使用的做题操作状态。由做题页注册，应用壳层负责展示。 */
 export interface WorkspaceToolbarState {
@@ -12,12 +13,24 @@ export interface WorkspaceToolbarState {
   submitting: boolean;
   /** 是否处于判题结束后的短暂冷却期。 */
   coolingDown: boolean;
+  /** 个人计时上下文的当前状态；普通练习和训练赛为空。 */
+  timedAttemptStatus?: TimedAttemptStatus;
+  /** 个人计时上下文的本地实时剩余秒数。 */
+  timedAttemptRemainingSeconds: number;
+  /** 个人计时状态操作是否正在请求后端。 */
+  timedAttemptActionLoading: boolean;
   /** 返回题库回调。 */
   back?: () => void | Promise<void>;
   /** 执行公开测试的回调。 */
   run?: () => void | Promise<void>;
   /** 提交全部测试点的回调。 */
   submit?: () => void | Promise<void>;
+  /** 暂停当前个人计时。 */
+  pauseTimedAttempt?: () => void | Promise<void>;
+  /** 继续当前个人计时。 */
+  resumeTimedAttempt?: () => void | Promise<void>;
+  /** 提前结束当前个人计时。 */
+  finishTimedAttempt?: () => void | Promise<void>;
   /** 打开或关闭做题页题目列表抽屉。 */
   toggleProblemList?: () => void;
   /** 题目列表抽屉是否已经展开。 */
@@ -39,6 +52,8 @@ export const workspaceToolbar = reactive<WorkspaceToolbarState>({
   running: false,
   submitting: false,
   coolingDown: false,
+  timedAttemptRemainingSeconds: 0,
+  timedAttemptActionLoading: false,
   problemListOpen: false,
   canPreviousProblem: false,
   canNextProblem: false,
@@ -51,9 +66,15 @@ export function resetWorkspaceToolbar(): void {
   workspaceToolbar.running = false;
   workspaceToolbar.submitting = false;
   workspaceToolbar.coolingDown = false;
+  workspaceToolbar.timedAttemptStatus = undefined;
+  workspaceToolbar.timedAttemptRemainingSeconds = 0;
+  workspaceToolbar.timedAttemptActionLoading = false;
   workspaceToolbar.back = undefined;
   workspaceToolbar.run = undefined;
   workspaceToolbar.submit = undefined;
+  workspaceToolbar.pauseTimedAttempt = undefined;
+  workspaceToolbar.resumeTimedAttempt = undefined;
+  workspaceToolbar.finishTimedAttempt = undefined;
   workspaceToolbar.toggleProblemList = undefined;
   workspaceToolbar.problemListOpen = false;
   workspaceToolbar.previousProblem = undefined;

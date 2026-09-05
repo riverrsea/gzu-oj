@@ -62,6 +62,21 @@ data class CreateRunRequest(
     /** 与公开输入按序对应的样例标准输出；由控制端传给判题 Worker。 */
     @field:Size(min = 1, max = 8, message = "公开运行需要为每组输入提供样例输出")
     val expectedOutputs: List<@Size(max = 262_144, message = "单组样例输出不能超过 256 KiB") String> = emptyList(),
+    /** 可选个人计时作答标识，用于执行前校验计时状态。 */
+    val timedPaperAttemptId: UUID? = null,
+)
+
+/** 生成包含个人计时上下文的公开运行请求哈希。 */
+internal fun runRequestHash(request: CreateRunRequest): String = SecureValues.sha256(
+    listOf(
+        request.problemId,
+        request.problemVersionId,
+        request.language,
+        request.timedPaperAttemptId ?: "",
+        SecureValues.sha256(request.sourceCode),
+        request.inputs.joinToString("\u001e") { SecureValues.sha256(it) },
+        request.expectedOutputs.joinToString("\u001e") { SecureValues.sha256(it) },
+    ).joinToString("\u001f"),
 )
 
 /** 脱敏的逐点判题结果。 */
@@ -209,16 +224,7 @@ class SubmissionService(
         if (totalExpectedOutputBytes > 1_048_576) {
             throw ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "RUN_OUTPUT_TOO_LARGE", "公开运行样例输出合计不能超过 1 MiB")
         }
-        val requestHash = SecureValues.sha256(
-            listOf(
-                request.problemId,
-                request.problemVersionId,
-                request.language,
-                SecureValues.sha256(request.sourceCode),
-                request.inputs.joinToString("") { SecureValues.sha256(it) },
-                request.expectedOutputs.joinToString("") { SecureValues.sha256(it) },
-            ).joinToString(""),
-        )
+        val requestHash = runRequestHash(request)
         val storedKey = "run:" + SecureValues.sha256(idempotencyKey)
         lockSubmissionActions(userId)
         val existing = jdbc.query(
@@ -246,17 +252,27 @@ class SubmissionService(
             "INVALID_PROBLEM_VERSION",
             "公开运行版本不属于该题或尚未发布",
         )
+        request.timedPaperAttemptId?.let { attemptId ->
+            lockAndValidateTimedAttempt(
+                attemptId = attemptId,
+                userId = userId,
+                problemId = request.problemId,
+                versionId = versionId,
+            )
+        }
         val submissionId = UUID.randomUUID()
         jdbc.update(
             """
-            INSERT INTO submission(id, user_id, problem_version_id, language, source_code, execution_mode)
-            VALUES (?, ?, ?, ?, ?, 'RUN')
+            INSERT INTO submission(
+                id, user_id, problem_version_id, language, source_code, execution_mode, timed_paper_attempt_id
+            ) VALUES (?, ?, ?, ?, ?, 'RUN', ?)
             """.trimIndent(),
             submissionId,
             userId,
             versionId,
             request.language.name,
             request.sourceCode,
+            request.timedPaperAttemptId,
         )
         request.inputs.forEachIndexed { index, input ->
             jdbc.update(
@@ -368,23 +384,57 @@ class SubmissionService(
             if (!valid) throw ApiException(HttpStatus.FORBIDDEN, "CONTEST_SUBMISSION_FORBIDDEN", "当前无法向该比赛提交")
         }
         if (request.timedPaperAttemptId != null) {
-            val valid = jdbc.queryForObject(
-                """
-                SELECT EXISTS(
-                    SELECT 1 FROM timed_paper_attempt a
-                    JOIN timed_paper t ON t.id = a.timed_paper_id
-                    JOIN timed_paper_problem p ON p.timed_paper_id = t.id
-                    WHERE a.id = ? AND a.user_id = ? AND p.problem_version_id = ?
-                      AND a.finished_at IS NULL
-                      AND now() <= a.started_at + make_interval(mins => t.duration_minutes)
+            lockAndValidateTimedAttempt(
+                attemptId = request.timedPaperAttemptId,
+                userId = userId,
+                problemId = request.problemId,
+                versionId = versionId,
+            )
+        }
+    }
+
+    /**
+     * 锁定作答行并校验归属、题目版本和可写状态。
+     *
+     * 行锁会一直持有到提交或运行任务写入完成，避免暂停、结束请求在状态校验后并发穿透。
+     */
+    private fun lockAndValidateTimedAttempt(
+        attemptId: UUID,
+        userId: UUID,
+        problemId: UUID,
+        versionId: UUID,
+    ) {
+        val clock = jdbc.query(
+            """
+            SELECT a.started_at, a.finished_at, a.paused_at, a.accumulated_paused_ms, t.duration_minutes
+            FROM timed_paper_attempt a
+            JOIN timed_paper t ON t.id = a.timed_paper_id
+            JOIN timed_paper_problem tpp ON tpp.timed_paper_id = t.id
+            JOIN problem_version pv ON pv.id = tpp.problem_version_id
+            WHERE a.id = ? AND a.user_id = ? AND pv.problem_id = ?
+              AND tpp.problem_version_id = ?
+            FOR UPDATE OF a
+            """.trimIndent(),
+            { result, _ ->
+                TimedAttemptClock(
+                    startedAt = result.getTimestamp("started_at").toInstant(),
+                    finishedAt = result.getTimestamp("finished_at")?.toInstant(),
+                    pausedAt = result.getTimestamp("paused_at")?.toInstant(),
+                    accumulatedPausedMs = result.getLong("accumulated_paused_ms"),
+                    durationMinutes = result.getInt("duration_minutes"),
                 )
-                """.trimIndent(),
-                Boolean::class.java,
-                request.timedPaperAttemptId,
-                userId,
-                versionId,
-            ) ?: false
-            if (!valid) throw ApiException(HttpStatus.FORBIDDEN, "TIMED_PAPER_SUBMISSION_FORBIDDEN", "当前无法向该套卷提交")
+            },
+            attemptId,
+            userId,
+            problemId,
+            versionId,
+        ).firstOrNull() ?: throw ApiException(
+            HttpStatus.FORBIDDEN,
+            "TIMED_PAPER_SUBMISSION_FORBIDDEN",
+            "套卷未包含该题、版本不匹配或作答不属于当前用户",
+        )
+        if (timedAttemptStatusAt(clock, Instant.now()) != TimedAttemptStatus.RUNNING) {
+            throw ApiException(HttpStatus.FORBIDDEN, "TIMED_PAPER_SUBMISSION_FORBIDDEN", "套卷已暂停或结束，当前无法运行或提交")
         }
     }
 

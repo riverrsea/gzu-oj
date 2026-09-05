@@ -12,18 +12,22 @@ import {
   ListChecks,
   LockKeyhole,
   Medal,
+  Pause,
+  Play,
   Plus,
   RefreshCw,
   RotateCcw,
   Search,
+  Square,
   Trophy,
   Users
 } from "@lucide/vue";
 import {promptAction, toast} from "../lib/notify";
+import {formatProblemOrdinal} from "../lib/problemOrdinal";
 import {APP_TIME_ZONE, chinaDateTimeInputToIso, toChinaDateTimeInputValue} from "../lib/time";
 import {useRouter} from "vue-router";
 import {api} from "../api/client";
-import type {Contest, ContestSummary, ContestVisibility, ProblemSummary, TimedAttempt, TimedPaper} from "../api/types";
+import type {Contest, ContestSummary, ContestVisibility, ProblemSummary, TimedAttempt, TimedAttemptStatus, TimedPaper} from "../api/types";
 import UiButton from "../components/ui/Button.vue";
 import UiDialog from "../components/ui/Dialog.vue";
 import UiEmptyState from "../components/ui/EmptyState.vue";
@@ -57,6 +61,12 @@ const attemptsByPaperId = ref<Record<string, TimedAttempt>>({});
 const selectedPaper = ref<TimedPaper>();
 /** 当前是否打开个人套卷详情遮罩。 */
 const paperDetailOpen = ref(false);
+/** 暂停、继续或结束请求是否正在处理。 */
+const attemptActionLoading = ref(false);
+/** 是否显示提前结束个人计时的确认对话框。 */
+const finishConfirmOpen = ref(false);
+/** 每次收到后端作答快照的本地时间，用于运行状态下平滑倒计时。 */
+const attemptSyncedAt = ref<Record<string, number>>({});
 /** 新建比赛对话框状态。 */
 const contestDialog = ref(false);
 /** 新建套卷对话框状态。 */
@@ -173,17 +183,36 @@ function paperRemainingRatio(paper: TimedPaper): number {
 function paperCountdown(paper: TimedPaper): string {
   const attempt = attemptFor(paper);
   if (!attempt) return "尚未开始";
-  return attemptFinished(attempt) ? "已结束" : "剩余 " + formatDuration(attemptRemainingSeconds(attempt));
+  if (attemptFinished(attempt)) return "已结束";
+  const prefix = attemptStatus(attempt) === "PAUSED" ? "已暂停 · 剩余 " : "剩余 ";
+  return prefix + formatDuration(attemptRemainingSeconds(attempt));
 }
 
-/** 返回套卷作答的剩余秒数。 */
+/** 返回套卷作答的本地实时剩余秒数，暂停状态始终使用后端冻结值。 */
 function attemptRemainingSeconds(attempt: TimedAttempt): number {
-  return Math.max(0, Math.floor((new Date(attempt.expiresAt).getTime() - now.value) / 1000));
+  if (attempt.status === "FINISHED") return 0;
+  if (attempt.status === "PAUSED") return attempt.remainingSeconds;
+  const syncedAt = attemptSyncedAt.value[attempt.id] ?? now.value;
+  const elapsedSeconds = Math.max(0, Math.floor((now.value - syncedAt) / 1000));
+  return Math.max(0, attempt.remainingSeconds - elapsedSeconds);
 }
 
-/** 截止时间到达后，前端立即视为结束，不等待下一次接口刷新。 */
+/** 截止时间到达后，前端立即切换为结束状态，不等待下一次接口刷新。 */
+function attemptStatus(attempt: TimedAttempt): TimedAttemptStatus {
+  if (attempt.status === "FINISHED" || attempt.finished) return "FINISHED";
+  if (attempt.status === "RUNNING" && attemptRemainingSeconds(attempt) <= 0) return "FINISHED";
+  return attempt.status;
+}
+
+/** 判断作答是否已经不可继续。 */
 function attemptFinished(attempt: TimedAttempt): boolean {
-  return attempt.finished || attemptRemainingSeconds(attempt) <= 0;
+  return attemptStatus(attempt) === "FINISHED";
+}
+
+/** 返回套卷列表项的实时作答状态。 */
+function paperAttemptStatus(paper: TimedPaper): TimedAttemptStatus | undefined {
+  const attempt = attemptFor(paper);
+  return attempt ? attemptStatus(attempt) : undefined;
 }
 
 /** 返回套卷作答当前剩余比例。 */
@@ -214,11 +243,6 @@ function formatDateTime(value: string): string {
   }).format(new Date(value));
 }
 
-/** 将题目序号统一为两位显示，便于在列表中快速定位。 */
-function formatOrdinal(value: number): string {
-  return String(value).padStart(2, "0");
-}
-
 /** 判断套卷是否已经创建过作答。 */
 function hasPaperAttempt(paper: TimedPaper): boolean {
   return attemptFor(paper) !== undefined;
@@ -228,6 +252,12 @@ function hasPaperAttempt(paper: TimedPaper): boolean {
 function isPaperActive(paper: TimedPaper): boolean {
   const attempt = attemptFor(paper);
   return attempt !== undefined && !attemptFinished(attempt);
+}
+
+/** 保存后端最新作答快照并重置本地倒计时基准。 */
+function replaceAttempt(attempt: TimedAttempt): void {
+  attemptsByPaperId.value = {...attemptsByPaperId.value, [attempt.paper.id]: attempt};
+  attemptSyncedAt.value = {...attemptSyncedAt.value, [attempt.id]: Date.now()};
 }
 
 /** 加载训练中心所需数据。 */
@@ -244,6 +274,7 @@ async function load(): Promise<void> {
     papers.value = loadedPapers;
     problems.value = loadedProblems;
     attemptsByPaperId.value = Object.fromEntries(loadedAttempts.map((attempt) => [attempt.paper.id, attempt]));
+    attemptSyncedAt.value = Object.fromEntries(loadedAttempts.map((attempt) => [attempt.id, Date.now()]));
     if (selectedContest.value && !contests.value.some((contest) => contest.id === selectedContest.value?.id)) {
       selectedContest.value = undefined;
       contestDetailOpen.value = false;
@@ -432,8 +463,16 @@ async function startPaper(paper: TimedPaper): Promise<void> {
   paperDetailOpen.value = true;
   try {
     const attempt = await api.startTimedPaper(paper.id);
-    attemptsByPaperId.value = {...attemptsByPaperId.value, [paper.id]: attempt};
+    replaceAttempt(attempt);
     tab.value = "paper";
+    const firstProblem = attempt.paper.problems[0];
+    if (firstProblem && attempt.status === "RUNNING") {
+      paperDetailOpen.value = false;
+      await router.push({
+        path: "/problems/" + firstProblem.problemId,
+        query: {versionId: firstProblem.versionId, timedPaperAttemptId: attempt.id},
+      });
+    }
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "套卷启动失败");
   }
@@ -448,12 +487,54 @@ function inspectPaper(paper: TimedPaper): void {
 /** 关闭个人套卷详情遮罩。 */
 function closePaperDetail(): void {
   paperDetailOpen.value = false;
+  finishConfirmOpen.value = false;
 }
 
 /** 打开套卷锁定版本的做题工作区。 */
 function openTimedProblem(problemId: string, versionId: string): void {
-  if (!selectedAttempt.value || attemptFinished(selectedAttempt.value)) return;
+  if (!selectedAttempt.value || attemptStatus(selectedAttempt.value) !== "RUNNING") return;
   void router.push({path: "/problems/" + problemId, query: {versionId, timedPaperAttemptId: selectedAttempt.value.id}});
+}
+
+/** 执行暂停或继续并以响应覆盖本地作答状态。 */
+async function changeAttemptState(action: "pause" | "resume"): Promise<void> {
+  const attempt = selectedAttempt.value;
+  if (!attempt || attemptActionLoading.value) return;
+  attemptActionLoading.value = true;
+  try {
+    const updated = action === "pause"
+      ? await api.pauseTimedAttempt(attempt.id)
+      : await api.resumeTimedAttempt(attempt.id);
+    replaceAttempt(updated);
+    toast.success(action === "pause" ? "计时已暂停" : "计时已继续");
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "计时状态更新失败");
+  } finally {
+    attemptActionLoading.value = false;
+  }
+}
+
+/** 打开提前结束个人计时的确认对话框。 */
+function requestFinishAttempt(): void {
+  const attempt = selectedAttempt.value;
+  if (!attempt || attemptStatus(attempt) === "FINISHED" || attemptActionLoading.value) return;
+  finishConfirmOpen.value = true;
+}
+
+/** 确认后不可逆地提前结束作答。 */
+async function finishAttempt(): Promise<void> {
+  const attempt = selectedAttempt.value;
+  if (!attempt || attemptStatus(attempt) === "FINISHED" || attemptActionLoading.value) return;
+  attemptActionLoading.value = true;
+  try {
+    replaceAttempt(await api.finishTimedAttempt(attempt.id));
+    finishConfirmOpen.value = false;
+    toast.success("本次作答已结束");
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "结束作答失败");
+  } finally {
+    attemptActionLoading.value = false;
+  }
 }
 
 /** 生成并复制只读分享链接。 */
@@ -627,10 +708,10 @@ onBeforeUnmount(() => window.clearInterval(ticker));
               <button v-for="problem in selectedContestDetail.problems" :key="problem.versionId" type="button"
                       :disabled="!selectedContestDetail.joined || liveContestPhase(selectedContestDetail) !== 'RUNNING'"
                       @click="openContestProblem(selectedContestDetail, problem.problemId, problem.versionId)"><span
-                  class="training-problem-ordinal">{{ formatOrdinal(problem.ordinal) }}</span><span
+                  class="training-problem-ordinal">{{ formatProblemOrdinal(problem.ordinal) }}</span><span
                   class="training-problem-copy"><strong>{{
                   problem.title
-                }}</strong></span><span
+                }}</strong></span><span v-if="selectedContestDetail.joined"
                   class="training-problem-score">{{ selectedContestDetail.myScores?.[problem.problemId] ?? 0 }} 分</span>
                 <ExternalLink :size="15" aria-hidden="true"/>
               </button>
@@ -656,7 +737,7 @@ onBeforeUnmount(() => window.clearInterval(ticker));
       </Teleport>
       <aside class="training-browser" aria-label="个人计时套卷列表">
         <header class="training-browser-header">
-          <div><strong>个人计时套卷</strong><span>独立计时，随时继续</span></div>
+          <div><strong>个人计时套卷</strong></div>
         </header>
         <div v-if="loading" class="training-browser-list training-browser-list--loading" aria-busy="true">
           <div v-for="index in 4" :key="index" class="training-browser-skeleton"><i/><span/><b/></div>
@@ -678,13 +759,14 @@ onBeforeUnmount(() => window.clearInterval(ticker));
                 :style="{ width: progressWidth(paperRemainingRatio(paper)) }"/></span><small>{{
                 paperCountdown(paper)
               }}</small></div>
-            <div class="training-browser-item-footer"><span v-if="isPaperActive(paper)"
+            <div class="training-browser-item-footer"><span v-if="paperAttemptStatus(paper) === 'RUNNING'"
                                                             class="training-running-label"><span
                 class="training-phase-dot training-phase-dot--running"/>进行中</span><span
+                v-else-if="paperAttemptStatus(paper) === 'PAUSED'">已暂停</span><span
                 v-else-if="hasPaperAttempt(paper)">已结束</span><span v-else>尚未开始</span>
-              <UiButton size="sm" variant="outline"
+              <UiButton v-if="!hasPaperAttempt(paper) || isPaperActive(paper)" size="sm" variant="outline"
                         @click.stop="hasPaperAttempt(paper) ? inspectPaper(paper) : startPaper(paper)">
-                {{ isPaperActive(paper) ? '继续作答' : hasPaperAttempt(paper) ? '查看结果' : '开始作答' }}
+                {{ isPaperActive(paper) ? '继续作答' : '开始作答' }}
               </UiButton>
             </div>
           </article>
@@ -703,41 +785,51 @@ onBeforeUnmount(() => window.clearInterval(ticker));
           <header class="training-inspector-header">
             <div><span class="training-phase-label training-phase-label--paper"><Clock3 :size="14"/>个人计时</span>
               <h2>{{ selectedPaper.title }}</h2>
-              <p>{{ selectedPaper.problems.length }} 道题 · 首次进入后开始独立计时</p></div>
+              <p>{{ selectedPaper.problems.length }} 道题</p></div>
             <button class="icon-button training-detail-close" type="button" aria-label="关闭详情" @click="closePaperDetail">×</button>
-            <UiButton v-if="!hasPaperAttempt(selectedPaper)" size="sm" @click="startPaper(selectedPaper)">
-              <Clock3 :size="15"/>
-              开始作答
-            </UiButton>
-            <span v-else-if="isPaperActive(selectedPaper)"
+            <span v-if="selectedAttempt && attemptStatus(selectedAttempt) === 'RUNNING'"
                   class="training-joined-badge training-joined-badge--active"><span
-                class="training-phase-dot training-phase-dot--running"/>进行中</span><span v-else
-                                                                                           class="training-joined-badge training-joined-badge--finished">已结束</span>
+                class="training-phase-dot training-phase-dot--running"/>进行中</span><span
+                v-else-if="selectedAttempt && attemptStatus(selectedAttempt) === 'PAUSED'"
+                class="training-joined-badge">已暂停</span><span
+                v-else-if="selectedAttempt && attemptStatus(selectedAttempt) === 'FINISHED'"
+                class="training-joined-badge training-joined-badge--finished">已结束</span>
           </header>
           <div class="training-detail-meta"><span><Clock3 :size="15"/>限时 {{
               selectedPaper.durationMinutes
             }} 分钟</span><span><ListChecks :size="15"/>{{ selectedPaper.problems.length }} 道题</span><span
-              v-if="selectedAttempt"><Gauge :size="15"/>当前 {{ selectedAttempt.totalScore }} 分</span></div>
+              v-if="selectedAttempt"><Gauge :size="15"/>当前 {{ selectedAttempt.totalScore }}/{{ selectedAttempt.maximumScore }} 分</span></div>
           <template v-if="selectedAttempt">
             <section class="training-attempt-status">
-              <div class="training-attempt-score"><small>当前得分</small><strong>{{ selectedAttempt.totalScore }}<em>/100</em></strong>
+              <div class="training-time-flow training-time-flow--embedded"
+                   :class="'training-time-flow--' + timeTone(attemptRemainingRatio(selectedAttempt))">
+                <header><span><Clock3 :size="14"/>{{ attemptStatus(selectedAttempt) === 'PAUSED' ? '计时已暂停' : attemptStatus(selectedAttempt) === 'FINISHED' ? '作答已结束' : '剩余时间' }}</span><strong>{{ formatDuration(attemptRemainingSeconds(selectedAttempt)) }}</strong></header>
+                <span class="training-time-track"><i :style="{ width: progressWidth(attemptRemainingRatio(selectedAttempt)) }"/></span>
               </div>
-              <UiButton variant="outline" size="sm" @click="shareAttempt">
-                <Link2 :size="15"/>
-                分享
-              </UiButton>
+              <div class="training-attempt-score"><small>当前得分</small><strong>{{ selectedAttempt.totalScore }}<em>/{{ selectedAttempt.maximumScore }}</em></strong>
+              </div>
+              <div class="training-attempt-actions">
+                <UiButton v-if="attemptStatus(selectedAttempt) === 'RUNNING'" variant="outline" size="sm"
+                          :loading="attemptActionLoading" @click="changeAttemptState('pause')"><Pause :size="15"/>暂停</UiButton>
+                <UiButton v-else-if="attemptStatus(selectedAttempt) === 'PAUSED'" variant="outline" size="sm"
+                          :loading="attemptActionLoading" @click="changeAttemptState('resume')"><Play :size="15"/>继续</UiButton>
+                <UiButton v-if="attemptStatus(selectedAttempt) !== 'FINISHED'" variant="destructive" size="sm"
+                          :disabled="attemptActionLoading" @click="requestFinishAttempt"><Square :size="14"/>提前结束</UiButton>
+                <UiButton variant="outline" size="sm" :disabled="attemptActionLoading" @click="shareAttempt">
+                  <Link2 :size="15"/>分享
+                </UiButton>
+              </div>
             </section>
             <section class="training-detail-section">
               <header class="training-section-heading">
-                <div><h3>题目</h3><span>{{
-                    attemptFinished(selectedAttempt) ? '本次作答已经结束' : '点击题目继续作答'
-                  }}</span></div>
+                <div><h3>题目</h3><span v-if="attemptFinished(selectedAttempt)">本次作答已经结束</span><span
+                    v-else-if="attemptStatus(selectedAttempt) === 'PAUSED'">继续计时后可以进入题目</span></div>
                 <span class="training-section-count">{{ selectedAttempt.paper.problems.length }} 题</span></header>
               <div class="training-problem-list">
                 <button v-for="problem in selectedAttempt.paper.problems" :key="problem.versionId" type="button"
-                        :disabled="attemptFinished(selectedAttempt)"
+                        :disabled="attemptStatus(selectedAttempt) !== 'RUNNING'"
                         @click="openTimedProblem(problem.problemId, problem.versionId)"><span
-                    class="training-problem-ordinal">{{ formatOrdinal(problem.ordinal) }}</span><span
+                    class="training-problem-ordinal">{{ formatProblemOrdinal(problem.ordinal) }}</span><span
                     class="training-problem-copy"><strong>{{
                     problem.title
                   }}</strong><small>{{
@@ -751,7 +843,6 @@ onBeforeUnmount(() => window.clearInterval(ticker));
           </template>
           <div v-else class="training-start-panel"><span class="training-empty-icon training-empty-icon--paper"><Clock3
               :size="26"/></span><strong>准备好后开始计时</strong>
-            <p>开始后计时只属于这一次作答，可以从任意题目进入。</p>
             <UiButton @click="startPaper(selectedPaper)">
               <Clock3 :size="15"/>
               开始作答
@@ -838,6 +929,18 @@ onBeforeUnmount(() => window.clearInterval(ticker));
           </div>
         </div>
       </form>
+    </UiDialog>
+    <UiDialog
+      v-model="finishConfirmOpen"
+      title="提前结束作答"
+      description="提前结束后不能继续运行或提交，且无法恢复。"
+      class="training-finish-dialog"
+    >
+      <p>确定结束本次个人计时作答吗？</p>
+      <template #footer>
+        <UiButton variant="outline" :disabled="attemptActionLoading" @click="finishConfirmOpen = false">取消</UiButton>
+        <UiButton variant="destructive" :loading="attemptActionLoading" @click="finishAttempt">确认结束</UiButton>
+      </template>
     </UiDialog>
   </section>
 </template>

@@ -150,14 +150,20 @@ export interface TimedPaper {
   problems: LockedProblem[];
 }
 
+/** 个人计时作答的后端持久化状态。 */
+export type TimedAttemptStatus = "RUNNING" | "PAUSED" | "FINISHED";
+
 export interface TimedAttempt {
   id: string;
   paper: TimedPaper;
   startedAt: string;
   expiresAt: string;
   finished: boolean;
+  status: TimedAttemptStatus;
+  remainingSeconds: number;
   scores: Record<string, number>;
   totalScore: number;
+  maximumScore: number;
 }
 
 export interface ImportItem {

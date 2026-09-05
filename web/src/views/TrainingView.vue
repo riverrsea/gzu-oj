@@ -14,6 +14,8 @@ import {
   Medal,
   Plus,
   RefreshCw,
+  RotateCcw,
+  Search,
   Trophy,
   Users
 } from "@lucide/vue";
@@ -35,14 +37,18 @@ import ProblemPicker from "../components/ProblemPicker.vue";
 const tab = ref<"contest" | "paper">("contest");
 /** 页面加载状态。 */
 const loading = ref(false);
-/** 当前公开比赛列表。 */
+/** 比赛列表独立查询状态，避免筛选时阻塞个人计时数据。 */
+const contestLoading = ref(false);
+/** 比赛详情独立加载状态。 */
+const contestDetailLoading = ref(false);
+/** 当前公开赛和口令赛摘要列表。 */
 const contests = ref<ContestSummary[]>([]);
 /** 当前用户的个人套卷。 */
 const papers = ref<TimedPaper[]>([]);
 /** 可供组题的发布题目。 */
 const problems = ref<ProblemSummary[]>([]);
-/** 当前展开的比赛。 */
-const selectedContest = ref<Contest>();
+/** 当前展开的比赛；未加入的口令赛只保存安全摘要。 */
+const selectedContest = ref<Contest | ContestSummary>();
 /** 当前是否打开训练赛详情遮罩。 */
 const contestDetailOpen = ref(false);
 /** 按套卷标识保存的既有作答，页面重进后由服务端恢复。 */
@@ -71,6 +77,14 @@ const contestForm = reactive({
   problemIds: [] as string[],
 });
 
+/** 训练赛查询表单，空可见性表示查询全部类型。 */
+const contestQuery = reactive({
+  keyword: "",
+  visibility: "" as ContestVisibility | "",
+});
+/** 已应用到列表请求的训练赛查询条件。 */
+const appliedContestQuery = ref<{keyword?: string; visibility?: ContestVisibility}>({});
+
 /** 新建套卷表单。 */
 const paperForm = reactive({title: "", durationMinutes: 120, problemIds: [] as string[]});
 
@@ -79,6 +93,13 @@ const selectedAttempt = computed(() => {
   if (!selectedPaper.value) return undefined;
   return attemptsByPaperId.value[selectedPaper.value.id];
 });
+/** 当前是否已经拿到受权限保护的比赛完整详情。 */
+const selectedContestDetail = computed<Contest | undefined>(() => {
+  const selected = selectedContest.value;
+  return selected && "problems" in selected ? selected : undefined;
+});
+/** 当前列表是否应用了任意查询条件。 */
+const hasContestQuery = computed(() => Boolean(appliedContestQuery.value.keyword || appliedContestQuery.value.visibility));
 /** 格式化分钟与秒倒计时。 */
 function formatDuration(seconds: number): string {
   const safeSeconds = Math.max(0, Math.floor(seconds));
@@ -214,7 +235,7 @@ async function load(): Promise<void> {
   loading.value = true;
   try {
     const [loadedContests, loadedPapers, loadedProblems, loadedAttempts] = await Promise.all([
-      api.contests(),
+      api.contests(appliedContestQuery.value),
       api.timedPapers(),
       api.problems({}),
       api.timedAttempts(),
@@ -238,10 +259,54 @@ async function load(): Promise<void> {
   }
 }
 
+/** 将查询表单转换成不携带空字符串的接口参数。 */
+function normalizedContestQuery(): {keyword?: string; visibility?: ContestVisibility} {
+  const keyword = contestQuery.keyword.trim();
+  return {
+    keyword: keyword || undefined,
+    visibility: contestQuery.visibility || undefined,
+  };
+}
+
+/** 仅刷新训练赛摘要，并在筛选移除当前项时关闭旧详情。 */
+async function loadContestList(): Promise<void> {
+  contestLoading.value = true;
+  try {
+    contests.value = await api.contests(appliedContestQuery.value);
+    if (selectedContest.value && !contests.value.some((contest) => contest.id === selectedContest.value?.id)) {
+      selectedContest.value = undefined;
+      contestDetailOpen.value = false;
+    }
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "训练赛查询失败");
+  } finally {
+    contestLoading.value = false;
+  }
+}
+
+/** 应用比赛名称、创建者和可见性查询条件。 */
+async function queryContests(): Promise<void> {
+  appliedContestQuery.value = normalizedContestQuery();
+  await loadContestList();
+}
+
+/** 清空训练赛查询条件并恢复全部比赛。 */
+async function resetContestQuery(): Promise<void> {
+  contestQuery.keyword = "";
+  contestQuery.visibility = "";
+  appliedContestQuery.value = {};
+  await loadContestList();
+}
+
 /** 先切换当前比赛，再异步刷新详情，避免点击后右侧出现空白等待。 */
 function selectContest(contest: ContestSummary): void {
-  selectedContest.value = undefined;
+  selectedContest.value = contest;
   contestDetailOpen.value = true;
+  // 未加入的口令赛不能请求完整详情，直接使用列表安全摘要呈现邀请入口。
+  if (contest.visibility === "PASSWORD" && !contest.joined) {
+    contestDetailLoading.value = false;
+    return;
+  }
   void inspect(contest);
 }
 
@@ -272,13 +337,13 @@ async function createContest(): Promise<void> {
 }
 
 /** 加入一场公开或口令比赛。 */
-async function join(contest: Contest): Promise<void> {
+async function join(contest: Contest | ContestSummary): Promise<void> {
   try {
     let password: string | undefined;
     if (contest.visibility === "PASSWORD") {
-      password = await promptAction("输入比赛口令（8 到 100 位）");
+      password = await promptAction("输入邀请码（8 到 100 位）");
       if (!/^.{8,100}$/.test(password)) {
-        toast.warning("口令长度需为 8 到 100 位");
+        toast.warning("邀请码长度需为 8 到 100 位");
         return;
       }
     }
@@ -295,12 +360,20 @@ async function join(contest: Contest): Promise<void> {
 
 /** 刷新并展开比赛详情。 */
 async function inspect(contest: ContestSummary): Promise<void> {
+  contestDetailLoading.value = true;
   try {
     const detail = await api.contest(contest.id);
     replaceContest(detail);
-    selectedContest.value = detail;
+    // 用户可能在请求返回前切换了比赛，不让旧响应覆盖当前抽屉。
+    if (contestDetailOpen.value && selectedContest.value?.id === contest.id) {
+      selectedContest.value = detail;
+    }
   } catch (error) {
-    toast.error(error instanceof Error ? error.message : "比赛详情加载失败");
+    if (selectedContest.value?.id === contest.id) {
+      toast.error(error instanceof Error ? error.message : "比赛详情加载失败");
+    }
+  } finally {
+    if (selectedContest.value?.id === contest.id) contestDetailLoading.value = false;
   }
 }
 
@@ -407,7 +480,7 @@ onBeforeUnmount(() => window.clearInterval(ticker));
 
 <template>
   <section class="content-page content-page--modern oj-page training-page training-page--refactored loading-shell"
-           :aria-busy="loading">
+           :aria-busy="loading || contestLoading">
     <div v-if="loading" class="loading-overlay"><span class="loading-spinner" aria-label="加载中"/></div>
 
     <header class="training-page-heading">
@@ -429,11 +502,11 @@ onBeforeUnmount(() => window.clearInterval(ticker));
       <button type="button" role="tab" :aria-selected="tab === 'contest'" :class="{ active: tab === 'contest' }"
               @click="tab = 'contest'; paperDetailOpen = false">
         <Trophy :size="16"/>
-        训练赛<span>{{ contests.length }}</span></button>
+        训练赛</button>
       <button type="button" role="tab" :aria-selected="tab === 'paper'" :class="{ active: tab === 'paper' }"
               @click="tab = 'paper'; contestDetailOpen = false">
         <Clock3 :size="16"/>
-        个人计时<span>{{ papers.length }}</span></button>
+        个人计时</button>
     </nav>
 
     <div v-show="tab === 'contest'" class="training-workbench training-tab-panel training-workbench--contest" :class="{ 'training-workbench--detail-open': contestDetailOpen }">
@@ -444,9 +517,24 @@ onBeforeUnmount(() => window.clearInterval(ticker));
       </Teleport>
       <aside class="training-browser" aria-label="训练赛列表">
         <header class="training-browser-header">
-          <div><strong>公开训练赛</strong></div>
-          <span class="training-browser-count">{{ contests.length }}</span></header>
-        <div v-if="loading" class="training-browser-list training-browser-list--loading" aria-busy="true">
+          <div><strong>训练赛</strong><span>查找公开赛或口令赛</span></div>
+        </header>
+        <form class="training-contest-filters" role="search" @submit.prevent="queryContests">
+          <UiInput v-model="contestQuery.keyword" maxlength="120" aria-label="比赛关键词"
+                   placeholder="搜索比赛名称或创建者"/>
+          <UiSelect v-model="contestQuery.visibility" aria-label="比赛类型" placeholder="全部比赛">
+            <option value="PUBLIC">公开赛</option>
+            <option value="PASSWORD">口令赛</option>
+          </UiSelect>
+          <UiButton type="submit" size="sm" :loading="contestLoading">
+            <Search :size="14"/>查询
+          </UiButton>
+          <UiButton type="button" size="sm" variant="outline" :disabled="contestLoading"
+                    @click="resetContestQuery">
+            <RotateCcw :size="14"/>重置
+          </UiButton>
+        </form>
+        <div v-if="loading || contestLoading" class="training-browser-list training-browser-list--loading" aria-busy="true">
           <div v-for="index in 5" :key="index" class="training-browser-skeleton"><i/><span/><b/></div>
         </div>
         <div v-else-if="contests.length" class="training-browser-list">
@@ -477,7 +565,8 @@ onBeforeUnmount(() => window.clearInterval(ticker));
               }}</span><span v-if="row.joined" class="training-joined-label"><Check :size="13"/>已加入</span></div>
           </article>
         </div>
-        <UiEmptyState v-else description="暂无训练赛" class="training-browser-empty">
+        <UiEmptyState v-else :description="hasContestQuery ? '没有符合条件的训练赛' : '暂无训练赛'"
+                      class="training-browser-empty">
           <template #icon>
             <Trophy :size="24"/>
           </template>
@@ -500,10 +589,11 @@ onBeforeUnmount(() => window.clearInterval(ticker));
             </div>
             <button class="icon-button training-detail-close" type="button" aria-label="关闭详情" @click="closeContestDetail">×</button>
             <div class="training-inspector-actions">
-              <UiButton variant="outline" size="sm" @click="openContestRanking(selectedContest)">
+              <UiButton v-if="selectedContestDetail && selectedContest.visibility === 'PUBLIC'" variant="outline"
+                        size="sm" @click="openContestRanking(selectedContestDetail)">
                 <Medal :size="15"/>查看排名
               </UiButton>
-              <UiButton v-if="!selectedContest.joined && liveContestPhase(selectedContest) !== 'FINISHED'" size="sm"
+              <UiButton v-if="selectedContest.visibility === 'PUBLIC' && !selectedContest.joined && liveContestPhase(selectedContest) !== 'FINISHED'" size="sm"
                         @click="join(selectedContest)">
                 <Trophy :size="15"/>
                 加入比赛
@@ -514,28 +604,41 @@ onBeforeUnmount(() => window.clearInterval(ticker));
           <div class="training-detail-meta"><span><CalendarDays :size="15"/>{{
               formatDateTime(selectedContest.startsAt)
             }} - {{ formatDateTime(selectedContest.endsAt) }}</span><span><Users
-              :size="15"/>{{ selectedContest.participantCount }}/{{ selectedContest.maxParticipants }} 人</span><span><ListChecks
-              :size="15"/>{{ selectedContest.problems.length }} 道题</span></div>
-          <section class="training-detail-section">
+              :size="15"/>{{ selectedContest.participantCount }}/{{ selectedContest.maxParticipants }} 人</span><span
+              v-if="selectedContestDetail"><ListChecks :size="15"/>{{ selectedContestDetail.problems.length }} 道题</span></div>
+          <section v-if="selectedContest.visibility === 'PASSWORD' && !selectedContest.joined"
+                   class="training-locked-panel">
+            <span class="training-empty-icon training-empty-icon--locked"><LockKeyhole :size="26"/></span>
+            <strong>这是一场口令赛</strong>
+            <p v-if="liveContestPhase(selectedContest) !== 'FINISHED'">输入创建者提供的邀请码后，才能查看题目、成绩和比赛详情。</p>
+            <p v-else>比赛已经结束，未加入用户无法查看题目、成绩和比赛详情。</p>
+            <UiButton v-if="liveContestPhase(selectedContest) !== 'FINISHED'" @click="join(selectedContest)">
+              <LockKeyhole :size="15"/>输入邀请码加入
+            </UiButton>
+          </section>
+          <div v-else-if="contestDetailLoading" class="training-detail-loading" aria-label="正在加载比赛详情">
+            <span class="loading-spinner"/><span>正在加载比赛详情</span>
+          </div>
+          <section v-else-if="selectedContestDetail" class="training-detail-section">
             <header class="training-section-heading">
               <div><h3>题目</h3></div>
-              <span class="training-section-count">{{ selectedContest.problems.length }} 题</span></header>
+              <span class="training-section-count">{{ selectedContestDetail.problems.length }} 题</span></header>
             <div class="training-problem-list">
-              <button v-for="problem in selectedContest.problems" :key="problem.versionId" type="button"
-                      :disabled="!selectedContest.joined || liveContestPhase(selectedContest) !== 'RUNNING'"
-                      @click="openContestProblem(selectedContest, problem.problemId, problem.versionId)"><span
+              <button v-for="problem in selectedContestDetail.problems" :key="problem.versionId" type="button"
+                      :disabled="!selectedContestDetail.joined || liveContestPhase(selectedContestDetail) !== 'RUNNING'"
+                      @click="openContestProblem(selectedContestDetail, problem.problemId, problem.versionId)"><span
                   class="training-problem-ordinal">{{ formatOrdinal(problem.ordinal) }}</span><span
                   class="training-problem-copy"><strong>{{
                   problem.title
                 }}</strong></span><span
-                  class="training-problem-score">{{ selectedContest.myScores?.[problem.problemId] ?? 0 }} 分</span>
+                  class="training-problem-score">{{ selectedContestDetail.myScores?.[problem.problemId] ?? 0 }} 分</span>
                 <ExternalLink :size="15" aria-hidden="true"/>
               </button>
             </div>
-            <p v-if="!selectedContest.joined" class="training-detail-hint">加入比赛后才能打开题目</p>
-            <p v-else-if="liveContestPhase(selectedContest) === 'UPCOMING'" class="training-detail-hint">
+            <p v-if="!selectedContestDetail.joined" class="training-detail-hint">加入比赛后才能打开题目</p>
+            <p v-else-if="liveContestPhase(selectedContestDetail) === 'UPCOMING'" class="training-detail-hint">
               比赛开始后可以进入题目</p>
-            <p v-else-if="liveContestPhase(selectedContest) === 'FINISHED'" class="training-detail-hint">
+            <p v-else-if="liveContestPhase(selectedContestDetail) === 'FINISHED'" class="training-detail-hint">
               比赛已经结束</p></section>
         </template>
         <div v-else class="training-empty-panel"><span class="training-empty-icon"><Trophy :size="26"/></span><strong>选择一场训练赛</strong>
@@ -554,7 +657,7 @@ onBeforeUnmount(() => window.clearInterval(ticker));
       <aside class="training-browser" aria-label="个人计时套卷列表">
         <header class="training-browser-header">
           <div><strong>个人计时套卷</strong><span>独立计时，随时继续</span></div>
-          <span class="training-browser-count">{{ papers.length }}</span></header>
+        </header>
         <div v-if="loading" class="training-browser-list training-browser-list--loading" aria-busy="true">
           <div v-for="index in 4" :key="index" class="training-browser-skeleton"><i/><span/><b/></div>
         </div>
@@ -678,8 +781,8 @@ onBeforeUnmount(() => window.clearInterval(ticker));
             </UiSelect>
           </div>
           <div v-if="contestForm.visibility === 'PASSWORD'" class="form-field">
-            <UiLabel>比赛口令</UiLabel>
-            <UiInput v-model="contestForm.password" type="password" placeholder="8 到 100 位" required/>
+            <UiLabel>邀请码</UiLabel>
+            <UiInput v-model="contestForm.password" type="password" placeholder="设置 8 到 100 位邀请码" required/>
           </div>
           <div class="form-field training-form-time">
             <UiLabel>开始时间</UiLabel>

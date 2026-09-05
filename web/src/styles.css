@@ -2826,7 +2826,6 @@ a { color: inherit; text-decoration: none; }
 }
 .training-tabs button:hover { color: var(--text); }
 .training-tabs button.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
-.training-tabs button span { min-width: 20px; padding: 2px 6px; border-radius: 999px; background: var(--surface-subtle); color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; text-align: center; }
 .training-workbench {
   display: grid;
   grid-template-columns: minmax(270px, 0.38fr) minmax(0, 0.62fr);
@@ -2842,7 +2841,8 @@ a { color: inherit; text-decoration: none; }
 .training-browser-header > div { display: grid; gap: 4px; min-width: 0; }
 .training-browser-header strong { color: var(--text); font-size: 13px; }
 .training-browser-header span { color: var(--muted); font-size: 10px; }
-.training-browser-count { display: grid; min-width: 24px; min-height: 22px; place-items: center; padding: 0 6px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.training-contest-filters { display: grid; grid-template-columns: minmax(180px, 1fr) 140px auto auto; gap: 8px; padding: 10px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.training-contest-filters .ui-control { min-width: 0; }
 .training-browser-list { display: grid; gap: 6px; min-height: 0; padding: 10px; overflow: auto; }
 .training-browser-item { display: grid; gap: 8px; min-width: 0; padding: 12px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text); cursor: pointer; text-align: left; transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease, transform 150ms ease; }
 .training-browser-item:hover, .training-browser-item:focus-visible { border-color: color-mix(in srgb, var(--accent) 34%, var(--border)); background: var(--surface); outline: none; transform: translateX(2px); }
@@ -2937,6 +2937,11 @@ a { color: inherit; text-decoration: none; }
 .training-problem-score { color: var(--accent); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .training-problem-list button > svg { color: var(--muted); }
 .training-detail-hint { margin: 0; color: var(--muted); font-size: 11px; }
+.training-locked-panel { display: grid; min-height: 310px; place-items: center; align-content: center; gap: 10px; padding: 30px; border: 1px dashed color-mix(in srgb, var(--warning) 38%, var(--border)); border-radius: 9px; background: color-mix(in srgb, var(--warning) 5%, var(--surface)); color: var(--muted); text-align: center; }
+.training-locked-panel strong { color: var(--text); font-size: 15px; }
+.training-locked-panel p { max-width: 330px; margin: 0 0 8px; font-size: 12px; line-height: 1.65; }
+.training-empty-icon--locked { background: color-mix(in srgb, var(--warning) 12%, var(--surface)); color: var(--warning); }
+.training-detail-loading { display: flex; min-height: 260px; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 12px; }
 .training-ranking .ui-table-surface { box-shadow: none; }
 .training-ranking-score { color: var(--accent); font-weight: 750; }
 .training-empty-panel, .training-start-panel { display: grid; min-height: 390px; place-items: center; align-content: center; gap: 9px; padding: 30px; color: var(--muted); text-align: center; }
@@ -3149,6 +3154,8 @@ a { color: inherit; text-decoration: none; }
   .training-metric strong { font-size: 17px; }
   .training-tabs { display: flex; width: 100%; margin-bottom: 10px; }
   .training-tabs button { flex: 1 1 0; justify-content: center; }
+  .training-contest-filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .training-contest-filters .ui-control:first-child { grid-column: 1 / -1; }
   .training-workbench { display: block; min-height: 0; overflow: visible; }
   .training-browser { border-right: 0; border-bottom: 1px solid var(--border); }
   .training-browser-list { max-height: none; }

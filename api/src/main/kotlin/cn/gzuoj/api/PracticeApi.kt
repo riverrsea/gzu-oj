@@ -657,6 +657,19 @@ enum class ContestPhase {
     FINISHED,
 }
 
+/** 使用同一个时间快照判断比赛阶段，保证列表排序和响应字段保持一致。 */
+internal fun contestPhaseAt(currentTime: Instant, startsAt: Instant, endsAt: Instant): ContestPhase = when {
+    currentTime.isBefore(startsAt) -> ContestPhase.UPCOMING
+    currentTime.isBefore(endsAt) -> ContestPhase.RUNNING
+    else -> ContestPhase.FINISHED
+}
+
+/** 生成按普通文本匹配的 PostgreSQL ILIKE 包含模式。 */
+internal fun contestKeywordPattern(value: String): String = "%${value
+    .replace("\\", "\\\\")
+    .replace("%", "\\%")
+    .replace("_", "\\_")}%"
+
 /** 比赛题目摘要。 */
 data class ContestProblemResponse(
     /** 题目顺序。 */
@@ -818,33 +831,82 @@ class ContestService(
         return detail(contestId, userId)
     }
 
-    /** 返回公开赛轻量列表；题目、得分和排名由详情接口按需返回。 */
-    fun publicContests(viewerId: UUID?): List<ContestSummaryResponse> = jdbc.queryForList(
-        "SELECT id FROM contest WHERE visibility = 'PUBLIC' ORDER BY starts_at DESC LIMIT 100",
-        UUID::class.java,
-    ).filterNotNull().map { summary(it, viewerId) }
-
-    /** 组装比赛列表元数据，避免列表接口加载题目和排名明细。 */
-    private fun summary(contestId: UUID, viewerId: UUID?): ContestSummaryResponse {
-        val contest = loadContestRow(contestId, lock = false)
-        val now = Instant.now()
-        val phase = when {
-            now.isBefore(contest.startsAt) -> ContestPhase.UPCOMING
-            now.isBefore(contest.endsAt) -> ContestPhase.RUNNING
-            else -> ContestPhase.FINISHED
+    /**
+     * 查询公开赛和口令赛的轻量摘要。
+     *
+     * 列表只聚合比赛元数据与当前用户的加入状态，不读取题目、得分或排名；口令赛的
+     * 完整内容仍由详情接口校验参赛关系。关键词中的 SQL 通配符按普通字符处理。
+     */
+    fun contests(
+        viewerId: UUID,
+        keyword: String?,
+        visibility: ContestVisibility?,
+    ): List<ContestSummaryResponse> {
+        val currentTime = Instant.now()
+        val conditions = mutableListOf<String>()
+        val arguments = mutableListOf<Any>(Timestamp.from(currentTime), viewerId)
+        keyword?.trim()?.takeIf(String::isNotEmpty)?.let { value ->
+            conditions += "(c.title ILIKE ? ESCAPE '\\' OR u.username ILIKE ? ESCAPE '\\')"
+            val pattern = contestKeywordPattern(value)
+            arguments += pattern
+            arguments += pattern
         }
-        return ContestSummaryResponse(
-            id = contest.id,
-            title = contest.title,
-            visibility = contest.visibility,
-            ownerUsername = contest.ownerUsername,
-            createdAt = contest.createdAt,
-            startsAt = contest.startsAt,
-            endsAt = contest.endsAt,
-            phase = phase,
-            maxParticipants = contest.maxParticipants,
-            participantCount = participantCount(contestId),
-            joined = viewerId != null && isJoined(contestId, viewerId),
+        visibility?.let {
+            conditions += "c.visibility = ?"
+            arguments += it.name
+        }
+        val whereClause = conditions.takeIf(List<String>::isNotEmpty)
+            ?.joinToString(prefix = "WHERE ", separator = " AND ")
+            .orEmpty()
+        return jdbc.query(
+            """
+            WITH current_clock AS (
+                SELECT ?::timestamptz AS value
+            ), contest_summary AS (
+                SELECT c.id, c.title, c.visibility, c.starts_at,
+                       c.starts_at + make_interval(mins => c.duration_minutes) AS ends_at,
+                       c.max_participants, c.created_at, u.username,
+                       count(cp.user_id)::integer AS participant_count,
+                       coalesce(bool_or(cp.user_id = ?), false) AS joined
+                FROM contest c
+                JOIN app_user u ON u.id = c.owner_id
+                LEFT JOIN contest_participant cp ON cp.contest_id = c.id
+                $whereClause
+                GROUP BY c.id, u.username
+            )
+            SELECT contest_summary.*
+            FROM contest_summary CROSS JOIN current_clock
+            ORDER BY
+                CASE
+                    WHEN current_clock.value >= starts_at AND current_clock.value < ends_at THEN 0
+                    WHEN current_clock.value < starts_at THEN 1
+                    ELSE 2
+                END,
+                CASE WHEN current_clock.value >= starts_at AND current_clock.value < ends_at THEN ends_at END ASC,
+                CASE WHEN current_clock.value < starts_at THEN starts_at END ASC,
+                CASE WHEN current_clock.value >= ends_at THEN ends_at END DESC,
+                created_at DESC,
+                id ASC
+            LIMIT 100
+            """.trimIndent(),
+            { result, _ ->
+                val startsAt = result.getTimestamp("starts_at").toInstant()
+                val endsAt = result.getTimestamp("ends_at").toInstant()
+                ContestSummaryResponse(
+                    id = result.getObject("id", UUID::class.java),
+                    title = result.getString("title"),
+                    visibility = ContestVisibility.valueOf(result.getString("visibility")),
+                    ownerUsername = result.getString("username"),
+                    createdAt = result.getTimestamp("created_at").toInstant(),
+                    startsAt = startsAt,
+                    endsAt = endsAt,
+                    phase = contestPhaseAt(currentTime, startsAt, endsAt),
+                    maxParticipants = result.getInt("max_participants"),
+                    participantCount = result.getInt("participant_count"),
+                    joined = result.getBoolean("joined"),
+                )
+            },
+            *arguments.toTypedArray(),
         )
     }
 
@@ -855,11 +917,7 @@ class ContestService(
             throw ApiException(HttpStatus.NOT_FOUND, "CONTEST_NOT_FOUND", "比赛不存在")
         }
         val now = Instant.now()
-        val phase = when {
-            now.isBefore(contest.startsAt) -> ContestPhase.UPCOMING
-            now.isBefore(contest.endsAt) -> ContestPhase.RUNNING
-            else -> ContestPhase.FINISHED
-        }
+        val phase = contestPhaseAt(now, contest.startsAt, contest.endsAt)
         val joined = viewerId != null && isJoined(contestId, viewerId)
         val problems = loadProblems(contestId)
         return ContestResponse(
@@ -1097,10 +1155,13 @@ class ContestController(
     /** 比赛服务。 */
     private val service: ContestService,
 ) {
-    /** 查询公开训练赛。 */
+    /** 按关键词和可见性查询训练赛摘要；未传筛选条件时返回全部训练赛。 */
     @GetMapping
-    fun list(@AuthenticationPrincipal principal: AppPrincipal?): List<ContestSummaryResponse> =
-        service.publicContests(principal?.userId)
+    fun list(
+        @RequestParam(required = false) keyword: String?,
+        @RequestParam(required = false) visibility: ContestVisibility?,
+        @AuthenticationPrincipal principal: AppPrincipal,
+    ): List<ContestSummaryResponse> = service.contests(principal.userId, keyword, visibility)
 
     /** 创建受限训练赛。 */
     @PostMapping

@@ -169,7 +169,14 @@ export const api = {
     method: "POST",
     body: JSON.stringify({ submissionId }),
   }),
-  contests: () => request<ContestSummary[]>("/api/v1/contests"),
+  /** 查询训练赛安全摘要；空条件同时返回公开赛和口令赛。 */
+  contests: (filters: { keyword?: string; visibility?: ContestVisibility } = {}) => {
+    const query = new URLSearchParams();
+    if (filters.keyword) query.set("keyword", filters.keyword);
+    if (filters.visibility) query.set("visibility", filters.visibility);
+    const suffix = query.size ? "?" + query.toString() : "";
+    return request<ContestSummary[]>("/api/v1/contests" + suffix);
+  },
   contest: (id: string) => request<Contest>("/api/v1/contests/" + id),
   contestRanking: (id: string) => request<ContestRank[]>("/api/v1/contests/" + id + "/ranking"),
   createContest: (body: { title: string; visibility: ContestVisibility; password?: string; startsAt: string; durationMinutes: number; problemIds: string[] }) =>

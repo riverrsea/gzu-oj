@@ -76,11 +76,12 @@ async function mockApi(page: Page): Promise<void> {
     if (path === "/api/v1/problems") return json([problem]);
     if (path === "/api/v1/problems/" + problem.id || path === "/api/v1/problems/versions/" + problem.versionId) return json(problemDetail);
     if (path === "/api/v1/contests") return json([{
-      id: "33333333-3333-4333-8333-333333333333", title: "公开训练赛", visibility: "PUBLIC", ownerUsername: "管理员",
+      id: "33333333-3333-4333-8333-333333333333", title: "公开训练赛", visibility: "PUBLIC", ownerUsername: "管理员", createdAt: "2026-08-05T08:00:00Z",
       startsAt: "2026-08-05T09:00:00Z", endsAt: "2026-08-05T11:00:00Z", phase: "UPCOMING",
-      maxParticipants: 5, participantCount: 1, joined: true, problems: [{ ordinal: 1, problemId: problem.id, versionId: problem.versionId, title: problem.title }], myScores: null, ranking: null,
+      maxParticipants: 5, participantCount: 1, joined: true,
     }]);
     if (path === "/api/v1/timed-papers") return json([{ id: "44444444-4444-4444-8444-444444444444", title: "模拟套卷", durationMinutes: 90, problems: [{ ordinal: 1, problemId: problem.id, versionId: problem.versionId, title: problem.title }] }]);
+    if (path === "/api/v1/timed-papers/attempts") return json([]);
     if (path === "/api/v1/runs" && request.method() === "POST") {
       const body = request.postDataJSON() as { problemId?: string; problemVersionId?: string; expectedOutputs?: string[] };
       if (body.problemId !== problem.id || body.problemVersionId !== problem.versionId) {
@@ -257,8 +258,152 @@ test("管理员录题与训练中心可加载", async ({ page }) => {
   await expect(page.getByText("题目描述", { exact: true }).first()).toBeVisible();
   await expect(page.locator(".statement-preview")).toContainText("题目描述");
   await page.goto("/training");
-  await expect(page.getByRole("heading", { name: "训练中心" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "训练", exact: true })).toBeVisible();
   await expect(page.getByText("公开训练赛")).toBeVisible();
+});
+
+/** 验证训练赛发现条件、口令赛锁定摘要和邀请码加入入口。 */
+test("训练赛可查询并使用邀请码加入口令赛", async ({ page }) => {
+  await mockApi(page);
+  const publicContest = {
+    id: "33333333-3333-4333-8333-333333333333",
+    title: "公开训练赛",
+    visibility: "PUBLIC",
+    ownerUsername: "管理员",
+    createdAt: "2026-08-05T08:00:00Z",
+    startsAt: "2099-08-05T09:00:00Z",
+    endsAt: "2099-08-05T11:00:00Z",
+    phase: "UPCOMING",
+    maxParticipants: 5,
+    participantCount: 1,
+    joined: false,
+  } as const;
+  const passwordContest = {
+    ...publicContest,
+    id: "77777777-7777-4777-8777-777777777777",
+    title: "算法邀请赛",
+    visibility: "PASSWORD",
+    ownerUsername: "教练",
+    participantCount: 2,
+    joined: false,
+  } as const;
+  let publicJoined = false;
+  let joined = false;
+  let protectedDetailRequests = 0;
+  let publicJoinPassword: string | undefined;
+  const listQueries: string[] = [];
+
+  await page.route("**/api/v1/contests**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const path = url.pathname;
+    const json = (body: unknown, status = 200) => route.fulfill({
+      status,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
+
+    if (path === "/api/v1/contests" && request.method() === "GET") {
+      listQueries.push(url.search);
+      const keyword = url.searchParams.get("keyword")?.toLocaleLowerCase("zh-CN") ?? "";
+      const visibility = url.searchParams.get("visibility");
+      const all = [{...publicContest, joined: publicJoined}, {...passwordContest, joined}];
+      return json(all.filter((contest) =>
+        (!visibility || contest.visibility === visibility) &&
+        (!keyword || contest.title.toLocaleLowerCase("zh-CN").includes(keyword) || contest.ownerUsername.toLocaleLowerCase("zh-CN").includes(keyword)),
+      ));
+    }
+    if (path === `/api/v1/contests/${publicContest.id}` && request.method() === "GET") {
+      return json({
+        ...publicContest,
+        joined: publicJoined,
+        participantCount: publicJoined ? 2 : 1,
+        problems: [{ordinal: 1, problemId: problem.id, versionId: problem.versionId, title: problem.title}],
+        myScores: null,
+        ranking: null,
+      });
+    }
+    if (path === `/api/v1/contests/${publicContest.id}/participants` && request.method() === "POST") {
+      const body = request.postDataJSON() as {password?: string};
+      publicJoinPassword = body.password;
+      publicJoined = true;
+      return json({
+        ...publicContest,
+        joined: true,
+        participantCount: 2,
+        problems: [{ordinal: 1, problemId: problem.id, versionId: problem.versionId, title: problem.title}],
+        myScores: null,
+        ranking: null,
+      });
+    }
+    if (path === `/api/v1/contests/${passwordContest.id}` && request.method() === "GET") {
+      protectedDetailRequests += 1;
+      if (!joined) return json({code: "CONTEST_NOT_FOUND", message: "比赛不存在"}, 404);
+    }
+    if (path === `/api/v1/contests/${passwordContest.id}/participants` && request.method() === "POST") {
+      const body = request.postDataJSON() as {password?: string};
+      if (body.password !== "invite-2026") {
+        return json({code: "CONTEST_PASSWORD_INVALID", message: "邀请码不正确"}, 403);
+      }
+      joined = true;
+      return json({
+        ...passwordContest,
+        joined: true,
+        participantCount: 3,
+        problems: [{ordinal: 1, problemId: problem.id, versionId: problem.versionId, title: problem.title}],
+        myScores: null,
+        ranking: null,
+      });
+    }
+    return route.fallback();
+  });
+
+  await page.goto("/training");
+  await expect(page.getByText("公开训练赛")).toBeVisible();
+  await expect(page.getByText("算法邀请赛")).toBeVisible();
+  await expect(page.locator(".training-browser-count")).toHaveCount(0);
+  await expect(page.locator(".training-tabs button > span")).toHaveCount(0);
+
+  await page.locator(".training-browser-item").filter({hasText: "公开训练赛"}).click();
+  await expect(page.getByRole("heading", {name: "题目"})).toBeVisible();
+  await page.getByRole("button", {name: "加入比赛"}).click();
+  await expect(page.getByText("已加入训练赛")).toBeVisible();
+  expect(publicJoinPassword).toBeUndefined();
+  await page.getByRole("button", {name: "关闭详情"}).click();
+
+  await page.getByLabel("比赛类型").selectOption("PUBLIC");
+  await page.getByRole("button", {name: "查询"}).click();
+  await expect(page.getByText("公开训练赛")).toBeVisible();
+  await expect(page.getByText("算法邀请赛")).toHaveCount(0);
+  expect(listQueries.at(-1)).toBe("?visibility=PUBLIC");
+
+  await page.getByRole("button", {name: "重置"}).click();
+  await expect(page.getByText("算法邀请赛")).toBeVisible();
+  expect(listQueries.at(-1)).toBe("");
+
+  await page.getByLabel("比赛关键词").fill("不存在的比赛");
+  await page.getByRole("button", {name: "查询"}).click();
+  await expect(page.getByText("没有符合条件的训练赛")).toBeVisible();
+  await page.getByRole("button", {name: "重置"}).click();
+
+  await page.getByText("算法邀请赛").click();
+  await expect(page.getByText("这是一场口令赛")).toBeVisible();
+  expect(protectedDetailRequests).toBe(0);
+
+  page.once("dialog", (dialog) => dialog.accept("wrong-code"));
+  await page.getByRole("button", {name: "输入邀请码加入"}).click();
+  await expect(page.getByText("邀请码不正确")).toBeVisible();
+  await expect(page.getByText("这是一场口令赛")).toBeVisible();
+
+  page.once("dialog", (dialog) => dialog.accept("invite-2026"));
+  await page.getByRole("button", {name: "输入邀请码加入"}).click();
+  await expect(page.getByText("已加入训练赛")).toBeVisible();
+  await expect(page.getByRole("heading", {name: "题目"})).toBeVisible();
+  await expect(page.getByText("A + B")).toBeVisible();
+
+  await page.goto("/rankings");
+  await expect(page.getByText("公开训练赛")).toBeVisible();
+  expect(listQueries.at(-1)).toBe("?visibility=PUBLIC");
 });
 
 /** 验证管理功能使用独立路由，并在桌面和移动端保持可操作布局。 */

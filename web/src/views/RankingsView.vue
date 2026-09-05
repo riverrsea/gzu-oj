@@ -169,7 +169,7 @@ async function loadContestChoices(): Promise<void> {
   errorMessage.value = "";
   contest.value = undefined;
   try {
-    contests.value = await api.contests();
+    contests.value = await api.contests({visibility: "PUBLIC"});
   } catch (error) {
     contests.value = [];
     errorMessage.value = error instanceof Error ? error.message : "比赛列表加载失败";

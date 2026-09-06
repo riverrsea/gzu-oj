@@ -1219,7 +1219,7 @@ class ContestService(
             JOIN problem_version pv ON pv.id = s.problem_version_id
             JOIN contest c ON c.id = s.contest_id
             JOIN contest_problem cp ON cp.contest_id = c.id AND cp.problem_version_id = s.problem_version_id
-            WHERE s.contest_id = ? AND s.finished_at IS NOT NULL
+            WHERE s.contest_id = ? AND s.execution_mode = 'SUBMIT' AND s.finished_at IS NOT NULL
               AND s.created_at >= c.starts_at
               AND s.created_at <= c.starts_at + make_interval(mins => c.duration_minutes)
             """.trimIndent(),

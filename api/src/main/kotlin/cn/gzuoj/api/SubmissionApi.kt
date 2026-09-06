@@ -62,6 +62,8 @@ data class CreateRunRequest(
     /** 与公开输入按序对应的样例标准输出；由控制端传给判题 Worker。 */
     @field:Size(min = 1, max = 8, message = "公开运行需要为每组输入提供样例输出")
     val expectedOutputs: List<@Size(max = 262_144, message = "单组样例输出不能超过 256 KiB") String> = emptyList(),
+    /** 可选训练赛标识，用于校验报名状态、时间窗口和锁定版本。 */
+    val contestId: UUID? = null,
     /** 可选个人计时作答标识，用于执行前校验计时状态。 */
     val timedPaperAttemptId: UUID? = null,
 )
@@ -72,6 +74,7 @@ internal fun runRequestHash(request: CreateRunRequest): String = SecureValues.sh
         request.problemId,
         request.problemVersionId,
         request.language,
+        request.contestId ?: "",
         request.timedPaperAttemptId ?: "",
         SecureValues.sha256(request.sourceCode),
         request.inputs.joinToString("\u001e") { SecureValues.sha256(it) },
@@ -207,6 +210,9 @@ class SubmissionService(
     /** 创建公开运行任务；只执行用户提供的输入，不读取隐藏测试点。 */
     @Transactional
     fun createRun(request: CreateRunRequest, idempotencyKey: String, userId: UUID): SubmissionResponse {
+        if (request.contestId != null && request.timedPaperAttemptId != null) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_RUN_CONTEXT", "比赛与个人计时上下文不能同时指定")
+        }
         validateIdempotencyKey(idempotencyKey)
         validateSourceSize(request.sourceCode)
         if (request.inputs.size != request.expectedOutputs.size) {
@@ -252,6 +258,9 @@ class SubmissionService(
             "INVALID_PROBLEM_VERSION",
             "公开运行版本不属于该题或尚未发布",
         )
+        request.contestId?.let { contestId ->
+            validateContestContext(contestId, userId, request.problemId, versionId)
+        }
         request.timedPaperAttemptId?.let { attemptId ->
             lockAndValidateTimedAttempt(
                 attemptId = attemptId,
@@ -264,14 +273,15 @@ class SubmissionService(
         jdbc.update(
             """
             INSERT INTO submission(
-                id, user_id, problem_version_id, language, source_code, execution_mode, timed_paper_attempt_id
-            ) VALUES (?, ?, ?, ?, ?, 'RUN', ?)
+                id, user_id, problem_version_id, language, source_code, execution_mode, contest_id, timed_paper_attempt_id
+            ) VALUES (?, ?, ?, ?, ?, 'RUN', ?, ?)
             """.trimIndent(),
             submissionId,
             userId,
             versionId,
             request.language.name,
             request.sourceCode,
+            request.contestId,
             request.timedPaperAttemptId,
         )
         request.inputs.forEachIndexed { index, input ->
@@ -298,6 +308,29 @@ class SubmissionService(
             submissionId,
         )
         return get(submissionId, userId, false)
+    }
+
+    /** 校验公开运行请求属于当前用户可参与且仍在进行中的训练赛。 */
+    private fun validateContestContext(contestId: UUID, userId: UUID, problemId: UUID, versionId: UUID) {
+        val valid = jdbc.queryForObject(
+            """
+            SELECT EXISTS(
+                SELECT 1 FROM contest_participant cp
+                JOIN contest c ON c.id = cp.contest_id
+                JOIN contest_problem p ON p.contest_id = c.id
+                JOIN problem_version pv ON pv.id = p.problem_version_id
+                WHERE cp.contest_id = ? AND cp.user_id = ? AND pv.problem_id = ?
+                  AND p.problem_version_id = ?
+                  AND now() >= c.starts_at AND now() < c.starts_at + make_interval(mins => c.duration_minutes)
+            )
+            """.trimIndent(),
+            Boolean::class.java,
+            contestId,
+            userId,
+            problemId,
+            versionId,
+        ) ?: false
+        if (!valid) throw ApiException(HttpStatus.FORBIDDEN, "CONTEST_RUN_FORBIDDEN", "当前无法在该比赛中运行")
     }
 
     /** 读取一份提交；管理员可读取任意提交，普通用户只能读取自己的提交。 */

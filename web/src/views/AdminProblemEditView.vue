@@ -287,7 +287,7 @@ async function cancelAi(): Promise<void> {
 
 async function save(publish: boolean): Promise<void> {
   if (!detail.value || saving.value || aiLocked.value) return;
-  if (publish && totalScore.value !== 100) {
+  if (publish && form.testCases.length === 0) {
     toast.error("发布时至少需要一个测试点");
     return;
   }

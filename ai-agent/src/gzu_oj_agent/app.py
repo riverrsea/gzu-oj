@@ -38,7 +38,25 @@ class AgentRuntime:
             return
         task = asyncio.create_task(self.graph.ainvoke(value, self.config(run_id)))
         self.tasks[run_id] = task
-        task.add_done_callback(lambda _task: self.tasks.pop(run_id, None))
+
+        def completed(finished: asyncio.Task[Any]) -> None:
+            self.tasks.pop(run_id, None)
+            if finished.cancelled():
+                return
+            error = finished.exception()
+            if error is not None:
+                # 图节点异常不应让 Kotlin 运行永久停留在中间状态。
+                asyncio.create_task(self._report_failure(run_id, str(error)))
+
+        task.add_done_callback(completed)
+
+    async def _report_failure(self, run_id: UUID, reason: str) -> None:
+        """将未被图中 fail 节点处理的异常回报给 Kotlin。"""
+        try:
+            await self.kotlin.fail(run_id, reason[:2_000] or "Agent 运行异常")
+        except Exception:
+            # Kotlin 不可用时保留 PostgreSQL 检查点；重启后的人工恢复仍可读取状态。
+            return
 
 
 def create_app(settings: Settings | None = None, runtime: AgentRuntime | None = None) -> FastAPI:

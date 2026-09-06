@@ -176,26 +176,6 @@ data class AiStateHistoryEntry(
     val createdAt: Instant,
 )
 
-/** 已移除 Kotlin 协调租约，运行由 Python Agent 检查点管理。 */
-/*
-internal data class AiRunLease(
-    /** 运行标识。 */
-    val runId: UUID,
-    /** 本次协调租约。 */
-    val lease: UUID,
-    /** 当前状态。 */
-    val state: AiWorkflowState,
-    /** 题面 Markdown。 */
-    val statement: String,
-    /** 管理员要求生成的测试点数量。 */
-    val requestedTestCaseCount: Int,
-    /** 是否在差分通过后自动发布。 */
-    val autoPublish: Boolean,
-    /** 自动发布时选择的公开样例数量。 */
-    val requestedSampleCount: Int,
-)
-*/
-
 /** AI 运行当前状态的数据库行。 */
 private data class AiRunRecord(
     /** 运行标识。 */
@@ -239,24 +219,6 @@ private data class AiPublicationOptions(
     /** 需要标记为公开样例的测试点数量。 */
     val sampleCount: Int,
 )
-
-/** 已移除 Kotlin 协调投影，运行输入由 Python Agent 接收。 */
-/*
-private data class ClaimRow(
-    /** 运行标识。 */
-    val id: UUID,
-    /** 当前小状态。 */
-    val state: AiWorkflowState,
-    /** 题面 Markdown。 */
-    val statement: String,
-    /** 管理员要求生成的测试点数量。 */
-    val requestedTestCaseCount: Int,
-    /** 是否在差分通过后自动发布。 */
-    val autoPublish: Boolean,
-    /** 自动发布时选择的公开样例数量。 */
-    val requestedSampleCount: Int,
-)
-*/
 
 /** AI 状态、审计步骤和发布门禁持久化服务。 */
 @Service
@@ -443,6 +405,9 @@ class AiRunService(
             reason ?: "已生成 $caseCount 个测试点，确定性差分和发布门禁全部通过",
             publicationGatePassed = next == AiWorkflowState.VALIDATING,
         )
+        if (next == AiWorkflowState.VALIDATING && run.autoPublish) {
+            publishAfterGate(runId)
+        }
     }
 
     /** AI 生成源码或差分结果不合格时进入人工审查，并保留完整失败原因。 */
@@ -465,6 +430,24 @@ class AiRunService(
             runId,
         )
         recordStateTransition(runId, state, AiWorkflowState.NEEDS_REVIEW, reason)
+    }
+
+    /** 前两轮差分失败交给 Python Agent 定向修复，第三轮才进入人工接管。 */
+    @Transactional
+    internal fun prepareSandboxRepair(runId: UUID, reason: String) {
+        val state = jdbc.query(
+            "SELECT state FROM ai_problem_run WHERE id = ? FOR UPDATE",
+            { result, _ -> AiWorkflowState.valueOf(result.getString("state")) },
+            runId,
+        ).firstOrNull() ?: throw ApiException(HttpStatus.NOT_FOUND, "AI_RUN_NOT_FOUND", "AI 运行不存在")
+        if (state != AiWorkflowState.DIFFERENTIAL_TESTING) return
+        AiWorkflow.requireRepair(state, AiWorkflowState.GENERATING_TESTS)
+        jdbc.update(
+            "UPDATE ai_problem_run SET state = 'GENERATING_TESTS', failure_reason = ?, updated_at = now() WHERE id = ?",
+            reason.take(2_000),
+            runId,
+        )
+        recordStateTransition(runId, state, AiWorkflowState.GENERATING_TESTS, "差分未通过，Agent 将针对失败原因修复测试生成器")
     }
 
     /** 汇总未通过的门禁，直接展示给管理员定位人工处理项。 */
@@ -499,6 +482,16 @@ class AiRunService(
         )
         jdbc.update(
             "UPDATE ai_sandbox_job SET status = 'CANCELED', completed_at = now() WHERE run_id = ? AND status IN ('QUEUED', 'LEASED')",
+            runId,
+        )
+        // 取消通知也进入 outbox，Agent 暂时不可用时由调度器重试，不阻塞管理员请求。
+        jdbc.update(
+            """
+            INSERT INTO ai_agent_outbox(idempotency_key, event_type, run_id, payload)
+            VALUES (?, 'CANCEL_RUN', ?, '{}'::jsonb)
+            ON CONFLICT(idempotency_key) DO NOTHING
+            """.trimIndent(),
+            "cancel:$runId",
             runId,
         )
         recordStateTransition(runId, state, AiWorkflowState.CANCELED, "管理员取消 AI 录题流程")

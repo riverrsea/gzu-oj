@@ -3,7 +3,7 @@
 import asyncio
 import json
 from typing import Any, Literal, TypedDict
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
@@ -84,14 +84,15 @@ class Workflow:
 
     async def _progress(self, state: AgentState, stage: str, status: str, message: str) -> None:
         request = validate_checkpoint(StartRunRequest, state["request"])
+        repair_round = state.get("repair_round", request.repair_round)
         await self.kotlin.progress(
             ProgressEvent(
-                event_id=uuid4(),
+                event_id=uuid5(NAMESPACE_URL, f"{request.run_id}:{repair_round}:{stage}:{status}"),
                 run_id=request.run_id,
                 stage=stage,
                 status=status,
                 message=message,
-                repair_round=state.get("repair_round", request.repair_round),
+                repair_round=repair_round,
             )
         )
 

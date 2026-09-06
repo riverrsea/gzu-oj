@@ -327,6 +327,8 @@ export interface AiRun {
   history: AiStateHistoryEntry[];
   /** 已通过真实沙箱差分并写入题目版本的测试点。 */
   generatedTestCases: AiGeneratedTestCase[];
+  /** 标准答案源码是否已通过哈希校验并保存到数据库。 */
+  referenceSolutionSaved: boolean;
 }
 
 /** 管理员可见的 AI 生成测试点。 */

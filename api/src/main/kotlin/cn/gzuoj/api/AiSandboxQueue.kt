@@ -139,6 +139,8 @@ class AiSandboxQueue(
     private val properties: AppProperties,
     /** AI 状态机和测试点落库服务。 */
     private val runs: AiRunService,
+    /** Python Agent 回调客户端。 */
+    private val notifier: AiAgentNotifier,
 ) {
     /** 领取一份低优先级 AI 沙箱任务并立即提交租约事务。 */
     @Transactional
@@ -204,12 +206,13 @@ class AiSandboxQueue(
     fun complete(worker: WorkerIdentity, jobId: UUID, completion: AiSandboxCompletion): CompleteLeaseResponse {
         val job = jdbc.query(
             """
-            SELECT run_id, status, attempt_id, lease_token_hash, leased_by, infrastructure_attempts, payload::text
+            SELECT run_id, repair_round, status, attempt_id, lease_token_hash, leased_by, infrastructure_attempts, payload::text
             FROM ai_sandbox_job WHERE id = ? FOR UPDATE
             """.trimIndent(),
             { result, _ ->
                 CompletionRow(
                     runId = result.getObject("run_id", UUID::class.java),
+                    repairRound = result.getInt("repair_round"),
                     status = result.getString("status"),
                     attemptId = result.getObject("attempt_id", UUID::class.java),
                     leaseTokenHash = result.getString("lease_token_hash"),
@@ -266,6 +269,13 @@ class AiSandboxQueue(
             completion.failureReason?.take(2_000),
             jobId,
         )
+        notifier.sandboxResult(
+            runId = job.runId,
+            jobId = jobId,
+            repairRound = job.repairRound,
+            status = completion.status.name,
+            reason = completion.failureReason,
+        )
         return CompleteLeaseResponse(accepted = true, requeued = false)
     }
 
@@ -304,6 +314,8 @@ class AiSandboxQueue(
     private data class CompletionRow(
         /** AI 运行标识。 */
         val runId: UUID,
+        /** Python Agent 修复轮次。 */
+        val repairRound: Int,
         /** 当前队列状态。 */
         val status: String,
         /** 当前执行尝试。 */

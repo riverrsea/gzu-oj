@@ -92,7 +92,7 @@ data class CreateProblemVersionRequest(
     @field:Pattern(regexp = "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", message = "外部题目标识格式不正确")
     @field:Size(max = 128)
     val externalKey: String? = null,
-    /** 测试点；草稿阶段可以暂时为空，发布版本的分值必须合计为 100。 */
+    /** 测试点；草稿阶段可以暂时为空，发布版本至少需要一个测试点。 */
     @field:Size(max = 200)
     val testCases: List<@Valid CreateTestCaseRequest> = emptyList(),
     /** 是否在创建后立即发布。 */
@@ -440,8 +440,8 @@ class ProblemService(
         creator: UUID,
         testCases: List<AiGeneratedTestCase>,
     ) {
-        if (testCases.isEmpty() || testCases.sumOf(AiGeneratedTestCase::score) != 100) {
-            throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_SCORE_SUM", "AI 测试点不能为空且分值之和必须为 100")
+        if (testCases.isEmpty()) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "EMPTY_AI_TEST_CASES", "AI 测试点不能为空")
         }
         val version = jdbc.query(
             """
@@ -825,8 +825,8 @@ class ProblemService(
             versionId,
         ) ?: false
         if (activeAi) throw ApiException(HttpStatus.CONFLICT, "AI_RUN_ACTIVE", "该版本存在进行中的 AI 流程，请先等待或取消")
-        if (request.publish && (request.testCases.isEmpty() || request.testCases.sumOf { it.score } != 100)) {
-            throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_SCORE_SUM", "发布版本至少需要一个测试点且分值之和必须为 100")
+        if (request.publish && request.testCases.isEmpty()) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "EMPTY_TEST_CASES", "发布版本至少需要一个测试点")
         }
         validateTags(request.tags)
         lockProblem(record.problemId)
@@ -900,8 +900,8 @@ class ProblemService(
         contentHashOverride: String? = null,
         fixedProblemId: UUID? = null,
     ): CreatedProblemVersionResponse {
-        if (request.publish && (request.testCases.isEmpty() || request.testCases.sumOf { it.score } != 100)) {
-            throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_SCORE_SUM", "发布版本至少需要一个测试点且分值之和必须为 100")
+        if (request.publish && request.testCases.isEmpty()) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "EMPTY_TEST_CASES", "发布版本至少需要一个测试点")
         }
         if (request.tags.map { it.trim().lowercase() }.distinct().size != request.tags.size) {
             throw ApiException(HttpStatus.BAD_REQUEST, "DUPLICATE_TAG", "题目标签不能重复")
@@ -998,13 +998,13 @@ class ProblemService(
             throw ApiException(HttpStatus.CONFLICT, "VERSION_IMMUTABLE", "只有草稿版本可以发布")
         }
         lockProblem(record.first)
-        val scoreSum = jdbc.queryForObject(
-            "SELECT coalesce(sum(score), 0) FROM problem_test_case WHERE problem_version_id = ?",
+        val caseCount = jdbc.queryForObject(
+            "SELECT count(*) FROM problem_test_case WHERE problem_version_id = ?",
             Int::class.java,
             versionId,
         ) ?: 0
-        if (scoreSum != 100) {
-            throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_SCORE_SUM", "发布版本的测试点分值之和必须为 100")
+        if (caseCount == 0) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "EMPTY_TEST_CASES", "发布版本至少需要一个测试点")
         }
         jdbc.update("UPDATE problem_version SET status = 'WITHDRAWN' WHERE problem_id = ? AND status = 'PUBLISHED'", record.first)
         jdbc.update("UPDATE problem_version SET status = 'PUBLISHED', published_at = now() WHERE id = ?", versionId)

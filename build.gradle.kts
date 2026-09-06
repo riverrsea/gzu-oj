@@ -7,8 +7,6 @@ plugins {
     id("io.spring.dependency-management") version "1.1.7" apply false
 }
 
-extra["springAiVersion"] = "2.0.0"
-
 allprojects {
     group = "cn.gzuoj"
     version = "0.1.0"

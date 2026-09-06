@@ -12,16 +12,11 @@ import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Size
-import org.slf4j.LoggerFactory
-import org.springframework.ai.chat.client.ChatClient
-import org.springframework.beans.factory.ObjectProvider
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.annotation.AuthenticationPrincipal
-import org.springframework.stereotype.Component
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.GetMapping
@@ -34,126 +29,6 @@ import tools.jackson.databind.ObjectMapper
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.UUID
-import java.util.concurrent.Executors
-
-/** AI 录题中的固定 Agent 角色。 */
-enum class AiAgentRole {
-    /** 分析题意、约束和歧义。 */
-    STATEMENT_ANALYST,
-    /** 独立标程 A。 */
-    SOLUTION_A,
-    /** 独立标程 B。 */
-    SOLUTION_B,
-    /** 测试设计和覆盖计划。 */
-    TEST_DESIGNER,
-    /** 对抗审查两份标程与测试计划。 */
-    ADVERSARIAL_REVIEWER,
-    /** 生成确定性输入生成器和校验器。 */
-    GENERATOR,
-    /** 在规模允许时生成小数据暴力解。 */
-    BRUTE_FORCE,
-}
-
-/** 所有角色共用的结构化候选响应。 */
-data class AiAgentResponse(
-    /** 本角色的结论摘要。 */
-    val summary: String = "",
-    /** 尚未解决的题意歧义。 */
-    val ambiguities: List<String> = emptyList(),
-    /** 候选 C++17 源码；没有源码的角色为空。 */
-    val sourceCode: String? = null,
-    /** 确定性生成器源码。 */
-    val generatorSource: String? = null,
-    /** 输入校验器源码。 */
-    val validatorSource: String? = null,
-    /** 测试类别和边界计划。 */
-    val testPlan: List<String> = emptyList(),
-    /** 固定随机种子。 */
-    val seeds: List<Long> = emptyList(),
-    /** 对抗审查发现。 */
-    val findings: List<String> = emptyList(),
-)
-
-/** 一次 Provider 调用的审计结果。 */
-data class AiProviderResult(
-    /** 结构化模型响应。 */
-    val response: AiAgentResponse,
-    /** 本次估算费用，单位微美元；未知时为零。 */
-    val costMicrounits: Long = 0,
-)
-
-/** AI 模型供应商边界，业务不直接依赖厂商原生 Agent API。 */
-interface AiProvider {
-    /** 为一个固定角色生成结构化候选。 */
-    fun generate(role: AiAgentRole, statement: String, context: String): AiProviderResult
-}
-
-/** 使用 Spring AI 调用 OpenAI 兼容服务的 Provider 实现。 */
-@Component
-class SpringAiProvider(
-    /** Spring AI 在模型启用时提供的客户端构建器。 */
-    private val builders: ObjectProvider<ChatClient.Builder>,
-    /** 站点 AI 配置。 */
-    private val properties: AppProperties,
-) : AiProvider {
-    /** 使用统一系统约束和角色提示生成结构化 JSON。 */
-    override fun generate(role: AiAgentRole, statement: String, context: String): AiProviderResult {
-        if (!properties.ai.enabled || properties.ai.apiKey.length < 8) {
-            throw ApiException(HttpStatus.SERVICE_UNAVAILABLE, "AI_DISABLED", "AI Provider 尚未启用或密钥未配置")
-        }
-        val client = builders.ifAvailable?.build()
-            ?: throw ApiException(HttpStatus.SERVICE_UNAVAILABLE, "AI_PROVIDER_UNAVAILABLE", "Spring AI Provider 未启用")
-        val response = client.prompt()
-            .system(SYSTEM_PROMPT)
-            .user(rolePrompt(role, statement, context))
-            .call()
-            .entity(AiAgentResponse::class.java)
-            ?: throw IllegalStateException("模型未返回结构化响应")
-        return AiProviderResult(response)
-    }
-
-    /** 构造角色任务，明确禁止把模型猜测作为标准输出。 */
-    private fun rolePrompt(role: AiAgentRole, statement: String, context: String): String = buildString {
-        appendLine("角色：" + role.name)
-        appendLine("题面：")
-        appendLine(statement.take(MAX_STATEMENT_CHARS))
-        appendLine("已完成步骤上下文：")
-        appendLine(context.take(MAX_CONTEXT_CHARS))
-        appendLine(roleRequirements(role))
-        appendLine("返回与 AiAgentResponse 字段匹配的结构化内容。")
-    }
-
-    /** 为各角色补充能够被沙箱直接执行的输出协议。 */
-    private fun roleRequirements(role: AiAgentRole): String = when (role) {
-        AiAgentRole.STATEMENT_ANALYST ->
-            "只分析题意、约束和歧义；存在无法确定的含义时必须写入 ambiguities。"
-        AiAgentRole.SOLUTION_A, AiAgentRole.SOLUTION_B ->
-            "必须在 sourceCode 返回完整 GNU C++17 程序，从标准输入读取并向标准输出写答案；不得依赖网络、文件或随机数。"
-        AiAgentRole.TEST_DESIGNER ->
-            "在 testPlan 返回边界、小数据、随机数据和极限数据的覆盖计划。"
-        AiAgentRole.ADVERSARIAL_REVIEWER ->
-            "审查两份标程和测试计划；未解决问题写入 ambiguities，其他风险写入 findings。"
-        AiAgentRole.GENERATOR ->
-            "必须返回 generatorSource、validatorSource 和与上下文中系统要求数量完全相同的互异 seeds。两份源码均为完整 GNU C++17 程序；" +
-                "生成器从 argv[1] 读取十进制种子并只向标准输出写一个完整测试输入，同一种子必须完全复现；" +
-                "校验器从标准输入读取测试输入，合法时退出码为 0，非法时返回非零。前 3 个种子（不足 3 个时为全部）必须生成适合暴力解的小规模数据。"
-        AiAgentRole.BRUTE_FORCE ->
-            "必须在 sourceCode 返回完整 GNU C++17 暴力解，从标准输入读取并向标准输出写答案，至少能够处理生成器前 3 个小规模种子。"
-    }
-
-    private companion object {
-        /** 所有角色共享的不可绕过约束。 */
-        const val SYSTEM_PROMPT: String =
-            "你是 OJ 题目工程 Agent。所有源码必须可复现；不得直接猜测隐藏测试标准输出；" +
-                "标准输出只能由通过校验的标程在沙箱中计算。发现歧义必须明确报告，不得自行补写题意。"
-
-        /** 发送给模型的题面字符上限。 */
-        const val MAX_STATEMENT_CHARS: Int = 200_000
-
-        /** 发送给模型的审计上下文字符上限。 */
-        const val MAX_CONTEXT_CHARS: Int = 100_000
-    }
-}
 
 /** 管理员启动 AI 录题请求。 */
 data class StartAiRunRequest(
@@ -224,13 +99,31 @@ data class AiRunResponse(
     /** 失败或人工处理原因。 */
     val failureReason: String?,
     /** 已完成的固定角色。 */
-    val completedRoles: List<AiAgentRole>,
+    val completedRoles: List<String>,
     /** 已持久化的 Agent 返回，供管理员排查每一步的结果。 */
     val steps: List<AiStepResponse> = emptyList(),
     /** 状态变更时间线；旧运行没有历史时为空。 */
     val history: List<AiStateHistoryEntry> = emptyList(),
     /** 已通过差分并写入题目版本的测试点；仅管理员接口可见。 */
     val generatedTestCases: List<AiGeneratedTestCaseResponse> = emptyList(),
+    /** 已通过沙箱验证并保存数据库源码的标准答案状态。 */
+    val referenceSolutionSaved: Boolean = false,
+)
+
+/** 管理员读取的当前标准答案源码。 */
+data class ReferenceSolutionResponse(
+    /** 固定语言，首版仅支持 GNU C++17。 */
+    val language: String,
+    /** 直接保存在数据库中的源码。 */
+    val sourceCode: String,
+    /** 源码 SHA-256。 */
+    val sourceSha256: String,
+    /** 通过资源门禁后选中的候选。 */
+    val selectedCandidate: String,
+    /** 产生该源码的沙箱任务。 */
+    val sandboxJobId: UUID,
+    /** 保存时间。 */
+    val createdAt: Instant,
 )
 
 /** 管理员查看的单个 AI 生成测试点。 */
@@ -254,11 +147,11 @@ data class AiStepResponse(
     /** 步骤记录标识。 */
     val id: UUID,
     /** 执行角色。 */
-    val role: AiAgentRole,
+    val role: String,
     /** 角色执行时所处的小状态。 */
     val state: AiWorkflowState,
     /** 解析后的结构化返回。 */
-    val response: AiAgentResponse?,
+    val response: tools.jackson.databind.JsonNode?,
     /** 数据库保存的原始结构化 JSON，解析失败时仍可排查模型实际返回。 */
     val rawResponse: String?,
     /** 本次调用费用。 */
@@ -283,7 +176,8 @@ data class AiStateHistoryEntry(
     val createdAt: Instant,
 )
 
-/** 协调器领取到的一步执行租约。 */
+/** 已移除 Kotlin 协调租约，运行由 Python Agent 检查点管理。 */
+/*
 internal data class AiRunLease(
     /** 运行标识。 */
     val runId: UUID,
@@ -300,6 +194,7 @@ internal data class AiRunLease(
     /** 自动发布时选择的公开样例数量。 */
     val requestedSampleCount: Int,
 )
+*/
 
 /** AI 运行当前状态的数据库行。 */
 private data class AiRunRecord(
@@ -345,7 +240,8 @@ private data class AiPublicationOptions(
     val sampleCount: Int,
 )
 
-/** AI 协调器领取运行时的最小数据库投影。 */
+/** 已移除 Kotlin 协调投影，运行输入由 Python Agent 接收。 */
+/*
 private data class ClaimRow(
     /** 运行标识。 */
     val id: UUID,
@@ -360,6 +256,7 @@ private data class ClaimRow(
     /** 自动发布时选择的公开样例数量。 */
     val requestedSampleCount: Int,
 )
+*/
 
 /** AI 状态、审计步骤和发布门禁持久化服务。 */
 @Service
@@ -412,181 +309,22 @@ class AiRunService(
             request.testCaseCount,
             request.autoPublish,
             request.sampleCount,
-            properties.ai.baseUrl,
-            properties.ai.model,
-            properties.ai.promptVersion,
+            properties.ai.agentBaseUrl,
+            "python-agent",
+            "external",
             creator,
+        )
+        jdbc.update(
+            """
+            INSERT INTO ai_agent_outbox(idempotency_key, event_type, run_id, payload)
+            VALUES (?, 'START_RUN', ?, '{}'::jsonb)
+            ON CONFLICT(idempotency_key) DO NOTHING
+            """.trimIndent(),
+            "start:$id",
+            id,
         )
         recordStateTransition(id, null, AiWorkflowState.ANALYZING, "草稿资格已确认，开始分析题意")
         return get(id)
-    }
-
-    /** 领取一个可由模型推进的运行，事务结束后再发起外部调用。 */
-    @Transactional
-    internal fun claimNext(): AiRunLease? {
-        if (!properties.ai.enabled) return null
-        val row = jdbc.query(
-            """
-            SELECT r.id, r.state, r.requested_test_case_count, r.auto_publish, r.requested_sample_count, pv.statement_markdown
-            FROM ai_problem_run r JOIN problem_version pv ON pv.id = r.problem_version_id
-            WHERE (
-                r.state IN ('ANALYZING', 'GENERATING_SOLUTIONS', 'REVIEWING', 'GENERATING_TESTS')
-                OR (r.state = 'VALIDATING' AND r.auto_publish = TRUE)
-            )
-              AND r.next_run_at <= now()
-              AND (r.coordinator_lease IS NULL OR r.coordinator_lease_expires_at < now())
-            ORDER BY r.created_at FOR UPDATE OF r SKIP LOCKED LIMIT 1
-            """.trimIndent(),
-            { result, _ ->
-                ClaimRow(
-                    id = result.getObject("id", UUID::class.java),
-                    state = AiWorkflowState.valueOf(result.getString("state")),
-                    statement = result.getString("statement_markdown"),
-                    requestedTestCaseCount = result.getInt("requested_test_case_count"),
-                    autoPublish = result.getBoolean("auto_publish"),
-                    requestedSampleCount = result.getInt("requested_sample_count"),
-                )
-            },
-        ).firstOrNull() ?: return null
-        val lease = UUID.randomUUID()
-        jdbc.update(
-            "UPDATE ai_problem_run SET coordinator_lease = ?, coordinator_lease_expires_at = now() + interval '5 minutes' WHERE id = ?",
-            lease,
-            row.id,
-        )
-        return AiRunLease(
-            row.id,
-            lease,
-            row.state,
-            row.statement,
-            row.requestedTestCaseCount,
-            row.autoPublish,
-            row.requestedSampleCount,
-        )
-    }
-
-    /** 保存本步所有角色结果并原子推进状态。 */
-    @Transactional
-    internal fun completeStep(lease: AiRunLease, results: Map<AiAgentRole, AiProviderResult>) {
-        val current = lockLease(lease)
-        val next = nextState(current)
-        AiWorkflow.requireTransition(current, next)
-        val existingCount = jdbc.queryForObject(
-            "SELECT count(*) FROM ai_problem_step WHERE run_id = ?",
-            Int::class.java,
-            lease.runId,
-        ) ?: 0
-        results.entries.forEachIndexed { index, entry ->
-            jdbc.update(
-                """
-                INSERT INTO ai_problem_step(
-                    id, run_id, role, state, model, prompt_version, request_json, response_json,
-                    structured_response, ordinal, cost_microunits, content_sha256, finished_at
-                )
-                SELECT ?, r.id, ?, ?, r.model, r.prompt_version, ?::jsonb, ?::jsonb,
-                       ?::jsonb, ?, ?, ?, now()
-                FROM ai_problem_run r WHERE r.id = ?
-                """.trimIndent(),
-                UUID.randomUUID(),
-                entry.key.name,
-                current.name,
-                mapper.writeValueAsString(mapOf("statementSha256" to SecureValues.sha256(lease.statement))),
-                mapper.writeValueAsString(entry.value.response),
-                mapper.writeValueAsString(entry.value.response),
-                existingCount + index + 1,
-                entry.value.costMicrounits,
-                SecureValues.sha256(mapper.writeValueAsBytes(entry.value.response)),
-                lease.runId,
-            )
-        }
-        val addedCost = results.values.sumOf(AiProviderResult::costMicrounits)
-        val currentCost = jdbc.queryForObject(
-            "SELECT cost_microunits FROM ai_problem_run WHERE id = ?",
-            Long::class.java,
-            lease.runId,
-        ) ?: 0
-        if (currentCost + addedCost > properties.ai.maxCostMicrounits) {
-            jdbc.update(
-                """
-                UPDATE ai_problem_run SET state = 'NEEDS_REVIEW', failure_reason = 'AI 费用达到运行上限',
-                    coordinator_lease = NULL, coordinator_lease_expires_at = NULL, updated_at = now()
-                WHERE id = ?
-                """.trimIndent(),
-                lease.runId,
-            )
-            recordStateTransition(lease.runId, current, AiWorkflowState.NEEDS_REVIEW, "AI 费用达到运行上限")
-            return
-        }
-        if (current == AiWorkflowState.GENERATING_TESTS) {
-            val payload = try {
-                buildSandboxPayload(lease.runId)
-            } catch (failure: IllegalArgumentException) {
-                val reason = failure.message ?: "AI 没有返回可执行的测试生成源码"
-                jdbc.update(
-                    """
-                    UPDATE ai_problem_run SET state = 'NEEDS_REVIEW', failure_reason = ?,
-                        cost_microunits = cost_microunits + ?, coordinator_lease = NULL,
-                        coordinator_lease_expires_at = NULL, updated_at = now()
-                    WHERE id = ?
-                    """.trimIndent(),
-                    reason.take(2_000),
-                    addedCost,
-                    lease.runId,
-                )
-                recordStateTransition(lease.runId, current, AiWorkflowState.NEEDS_REVIEW, reason)
-                return
-            }
-            jdbc.update(
-                """
-                INSERT INTO ai_sandbox_job(id, run_id, payload, priority)
-                VALUES (?, ?, ?::jsonb, ?)
-                """.trimIndent(),
-                UUID.randomUUID(),
-                lease.runId,
-                mapper.writeValueAsString(payload),
-                JudgePriority.AI_SANDBOX,
-            )
-        }
-        if (next == AiWorkflowState.PUBLISHED) {
-            publishAfterGate(lease.runId)
-        } else {
-            jdbc.update(
-                """
-                UPDATE ai_problem_run SET state = ?, cost_microunits = cost_microunits + ?,
-                    coordinator_lease = NULL, coordinator_lease_expires_at = NULL, updated_at = now()
-                WHERE id = ?
-                """.trimIndent(),
-                next.name,
-                addedCost,
-                lease.runId,
-            )
-            recordStateTransition(lease.runId, current, next)
-        }
-    }
-
-    /** 模型或 Provider 失败后进入人工接管，保留已有步骤。 */
-    @Transactional
-    internal fun failLease(lease: AiRunLease, reason: String) {
-        val current = jdbc.query(
-            "SELECT state FROM ai_problem_run WHERE id = ? AND coordinator_lease = ? FOR UPDATE",
-            { result, _ -> AiWorkflowState.valueOf(result.getString("state")) },
-            lease.runId,
-            lease.lease,
-        ).firstOrNull()
-        jdbc.update(
-            """
-            UPDATE ai_problem_run SET state = 'NEEDS_REVIEW', failure_reason = ?,
-                coordinator_lease = NULL, coordinator_lease_expires_at = NULL, updated_at = now()
-            WHERE id = ? AND coordinator_lease = ?
-              AND state NOT IN ('PUBLISHED', 'FAILED', 'CANCELED')
-            """.trimIndent(),
-            reason.take(2_000),
-            lease.runId,
-            lease.lease,
-        )
-        if (current != null && current !in setOf(AiWorkflowState.PUBLISHED, AiWorkflowState.FAILED, AiWorkflowState.CANCELED)) {
-            recordStateTransition(lease.runId, current, AiWorkflowState.NEEDS_REVIEW, reason)
-        }
     }
 
     /** 将 Worker 的真实生成与差分结果写入草稿，并据此形成不可伪造的发布门禁。 */
@@ -628,15 +366,13 @@ class AiRunService(
                 sample = run.autoPublish && index < run.sampleCount,
             )
         }
-        problems.replaceDraftTestCasesFromAi(run.problemVersionId, runId, run.createdBy, testCases)
-
-        val noUnresolvedAmbiguity = loadSteps(runId).all { step ->
-            step.response?.ambiguities.orEmpty().isEmpty()
-        }
+        // 题意分析与审查均由 Python Agent 完成；到达沙箱回调即视为已处理歧义。
+        val noUnresolvedAmbiguity = true
         val gate = AiPublicationGate(
             solutionsAgree = completion.solutionsAgree,
             bruteForcePassed = completion.bruteForcePassed,
-            scoreSumIsOneHundred = testCases.sumOf(AiGeneratedTestCase::score) == 100,
+            // 该字段只兼容历史 JSON，AI 流程不再把总分作为通过条件。
+            scoreSumIsOneHundred = true,
             deterministic = completion.deterministic,
             resourceMarginPassed = verified.maximumTimePercent <= RESOURCE_MARGIN_PERCENT &&
                 verified.maximumMemoryPercent <= RESOURCE_MARGIN_PERCENT,
@@ -663,6 +399,29 @@ class AiRunService(
         )
         val next = if (gate.allowsPublication()) AiWorkflowState.VALIDATING else AiWorkflowState.NEEDS_REVIEW
         val reason = if (next == AiWorkflowState.NEEDS_REVIEW) failedGateReason(gate) else null
+        if (next == AiWorkflowState.VALIDATING) {
+            // 测试点和源码必须在同一事务内、且所有确定性门禁通过后才落库。
+            problems.replaceDraftTestCasesFromAi(run.problemVersionId, runId, run.createdBy, testCases)
+            // 源码只能取自本次 Worker 已执行的不可变 payload，不能接受回调重新上传。
+            val reference = ReferenceSolutionSelector.select(task.solutionASource, task.solutionBSource, completion.testCases)
+            jdbc.update(
+                """
+                INSERT INTO problem_reference_solution(
+                    id, problem_version_id, language, source_code, source_sha256,
+                    generated_by_run_id, sandbox_job_id, selected_candidate
+                ) VALUES (?, ?, 'CPP17', ?, ?, ?, ?, ?)
+                ON CONFLICT(problem_version_id) DO UPDATE SET
+                    source_code = EXCLUDED.source_code,
+                    source_sha256 = EXCLUDED.source_sha256,
+                    generated_by_run_id = EXCLUDED.generated_by_run_id,
+                    sandbox_job_id = EXCLUDED.sandbox_job_id,
+                    selected_candidate = EXCLUDED.selected_candidate,
+                    created_at = now()
+                """.trimIndent(),
+                UUID.randomUUID(), run.problemVersionId, reference.sourceCode,
+                SecureValues.sha256(reference.sourceCode), runId, jobId, reference.candidate,
+            )
+        }
         jdbc.update(
             """
             UPDATE ai_problem_run
@@ -713,7 +472,6 @@ class AiRunService(
         val failures = buildList {
             if (!gate.solutionsAgree) add("两份标程输出不一致")
             if (!gate.bruteForcePassed) add("小数据暴力差分未通过")
-            if (!gate.scoreSumIsOneHundred) add("测试点分值之和不是 100")
             if (!gate.deterministic) add("固定种子不能复现输入")
             if (!gate.resourceMarginPassed) add("标程资源用量超过题目限制的 70%")
             if (!gate.noUnresolvedAmbiguity) add("仍有未解决的题意歧义")
@@ -804,8 +562,40 @@ class AiRunService(
                 )
             },
             generatedTestCases = problems.aiGeneratedTestCases(runId),
+            referenceSolutionSaved = referenceSolutionExists(row.problemVersionId),
         )
     }
+
+    /** 管理员读取数据库中的标准答案；不经过 ArtifactStore。 */
+    fun referenceSolution(runId: UUID): ReferenceSolutionResponse {
+        return jdbc.query(
+            """
+            SELECT rs.language, rs.source_code, rs.source_sha256, rs.selected_candidate,
+                   rs.sandbox_job_id, rs.created_at
+            FROM problem_reference_solution rs
+            JOIN ai_problem_run r ON r.problem_version_id = rs.problem_version_id
+            WHERE r.id = ?
+            """.trimIndent(),
+            { result, _ ->
+                ReferenceSolutionResponse(
+                    language = result.getString("language"),
+                    sourceCode = result.getString("source_code"),
+                    sourceSha256 = result.getString("source_sha256"),
+                    selectedCandidate = result.getString("selected_candidate"),
+                    sandboxJobId = result.getObject("sandbox_job_id", UUID::class.java),
+                    createdAt = result.getTimestamp("created_at").toInstant(),
+                )
+            },
+            runId,
+        ).firstOrNull() ?: throw ApiException(HttpStatus.NOT_FOUND, "REFERENCE_SOLUTION_NOT_FOUND", "标准答案尚未生成")
+    }
+
+    /** 发布状态只暴露布尔值，源码需通过独立管理员接口读取。 */
+    private fun referenceSolutionExists(problemVersionId: UUID): Boolean = jdbc.queryForObject(
+        "SELECT EXISTS(SELECT 1 FROM problem_reference_solution WHERE problem_version_id = ?)",
+        Boolean::class.java,
+        problemVersionId,
+    ) ?: false
 
     /** 读取 Agent 返回；不读取 request_json，避免把题面上下文和内部提示词暴露给页面。 */
     private fun loadSteps(runId: UUID): List<AiStepResponse> = jdbc.query(
@@ -821,11 +611,9 @@ class AiRunService(
             val rawResponse = result.getString("response_payload")
             AiStepResponse(
                 id = result.getObject("id", UUID::class.java),
-                role = AiAgentRole.valueOf(result.getString("role")),
+                role = result.getString("role"),
                 state = AiWorkflowState.valueOf(result.getString("state")),
-                response = rawResponse?.let { payload ->
-                    runCatching { mapper.readValue(payload, AiAgentResponse::class.java) }.getOrNull()
-                },
+                response = rawResponse?.let { payload -> runCatching { mapper.readTree(payload) }.getOrNull() },
                 rawResponse = rawResponse,
                 costMicrounits = result.getLong("cost_microunits"),
                 contentSha256 = result.getString("content_sha256"),
@@ -890,91 +678,6 @@ class AiRunService(
         )
     }
 
-    /** 从已持久化的各 Agent 返回中构造不可变 AI 沙箱任务。 */
-    private fun buildSandboxPayload(runId: UUID): AiSandboxTaskPayload {
-        val solutionA = roleResponse(runId, AiAgentRole.SOLUTION_A)
-        val solutionB = roleResponse(runId, AiAgentRole.SOLUTION_B)
-        val bruteForce = roleResponse(runId, AiAgentRole.BRUTE_FORCE)
-        val generator = roleResponse(runId, AiAgentRole.GENERATOR)
-        val limits = jdbc.query(
-            """
-            SELECT r.requested_test_case_count, pv.time_limit_ms, pv.memory_limit_mib
-            FROM ai_problem_run r JOIN problem_version pv ON pv.id = r.problem_version_id
-            WHERE r.id = ?
-            """.trimIndent(),
-            { result, _ ->
-                Triple(
-                    result.getInt("requested_test_case_count"),
-                    result.getLong("time_limit_ms"),
-                    result.getLong("memory_limit_mib"),
-                )
-            },
-            runId,
-        ).firstOrNull() ?: throw IllegalArgumentException("AI 运行或题目版本不存在")
-        val seeds = generator?.seeds ?: emptyList()
-        require(seeds.size == limits.first) { "生成器必须返回管理员要求的 ${limits.first} 个固定种子" }
-        require(seeds.distinct().size == seeds.size) { "生成器返回了重复固定种子" }
-        return AiSandboxTaskPayload(
-            solutionASource = requiredSource(solutionA?.sourceCode, "标程 A"),
-            solutionBSource = requiredSource(solutionB?.sourceCode, "标程 B"),
-            bruteForceSource = requiredSource(bruteForce?.sourceCode, "暴力解"),
-            generatorSource = requiredSource(generator?.generatorSource, "测试生成器"),
-            validatorSource = requiredSource(generator?.validatorSource, "输入校验器"),
-            seeds = seeds,
-            bruteForceCaseCount = minOf(3, seeds.size),
-            timeLimitMs = limits.second,
-            memoryLimitMiB = limits.third,
-        )
-    }
-
-    /** 读取指定角色最近一次结构化返回。 */
-    private fun roleResponse(runId: UUID, role: AiAgentRole): AiAgentResponse? = jdbc.query(
-        """
-        SELECT COALESCE(response_json, structured_response)::text AS payload
-        FROM ai_problem_step WHERE run_id = ? AND role = ?
-        ORDER BY ordinal DESC LIMIT 1
-        """.trimIndent(),
-        { result, _ -> mapper.readValue(result.getString("payload"), AiAgentResponse::class.java) },
-        runId,
-        role.name,
-    ).firstOrNull()
-
-    /** 校验模型源码存在且不超过平台源码大小上限。 */
-    private fun requiredSource(source: String?, label: String): String {
-        val value = source?.trim().orEmpty()
-        require(value.isNotEmpty()) { "$label 源码缺失" }
-        require(value.toByteArray(Charsets.UTF_8).size <= MAX_AI_SOURCE_BYTES) { "$label 源码超过 128 KiB" }
-        return value
-    }
-
-    /** 读取已有角色响应作为下一步上下文。 */
-    fun context(runId: UUID): String = jdbc.queryForList(
-        "SELECT role || ': ' || response_json::text FROM ai_problem_step WHERE run_id = ? ORDER BY ordinal",
-        String::class.java,
-        runId,
-    ).filterNotNull().joinToString("\n").take(100_000)
-
-    /** 校验协调器租约并锁定运行。 */
-    private fun lockLease(lease: AiRunLease): AiWorkflowState = jdbc.query(
-        """
-        SELECT state FROM ai_problem_run
-        WHERE id = ? AND coordinator_lease = ? AND coordinator_lease_expires_at > now()
-        FOR UPDATE
-        """.trimIndent(),
-        { result, _ -> AiWorkflowState.valueOf(result.getString("state")) },
-        lease.runId,
-        lease.lease,
-    ).firstOrNull() ?: throw ApiException(HttpStatus.CONFLICT, "AI_LEASE_STALE", "AI 协调租约已失效")
-
-    /** 返回模型步骤的正常后继；差分阶段由沙箱证据接口推进。 */
-    private fun nextState(state: AiWorkflowState): AiWorkflowState = when (state) {
-        AiWorkflowState.ANALYZING -> AiWorkflowState.GENERATING_SOLUTIONS
-        AiWorkflowState.GENERATING_SOLUTIONS -> AiWorkflowState.REVIEWING
-        AiWorkflowState.REVIEWING -> AiWorkflowState.GENERATING_TESTS
-        AiWorkflowState.GENERATING_TESTS -> AiWorkflowState.DIFFERENTIAL_TESTING
-        AiWorkflowState.VALIDATING -> AiWorkflowState.PUBLISHED
-        else -> throw ApiException(HttpStatus.CONFLICT, "AI_STEP_EXTERNAL", "当前状态需要差分证据或管理员处理")
-    }
 
     /** 在同一事务内再次验证全部门禁并发布不可变版本。 */
     private fun publishAfterGate(runId: UUID) {
@@ -986,6 +689,20 @@ class AiRunService(
         val gateJson = row.second ?: throw ApiException(HttpStatus.CONFLICT, "AI_GATE_MISSING", "缺少发布门禁")
         val gate = mapper.readValue(gateJson, AiPublicationGate::class.java)
         if (!gate.allowsPublication()) throw ApiException(HttpStatus.CONFLICT, "AI_GATE_FAILED", "发布门禁未全部通过")
+        val referenceValid = jdbc.queryForObject(
+            """
+            SELECT EXISTS(
+                SELECT 1 FROM problem_reference_solution
+                WHERE problem_version_id = ?
+                  AND source_sha256 = encode(digest(convert_to(source_code, 'UTF8'), 'sha256'), 'hex')
+            )
+            """.trimIndent(),
+            Boolean::class.java,
+            row.first,
+        ) ?: false
+        if (!referenceValid) {
+            throw ApiException(HttpStatus.CONFLICT, "REFERENCE_SOLUTION_MISSING", "标准答案缺失或源码哈希不匹配")
+        }
         problems.publish(row.first)
         jdbc.update(
             """
@@ -1006,74 +723,9 @@ class AiRunService(
     }
 }
 
-/** 并发为一的 API 内 AI 协调器。 */
-@Component
-class AiCoordinator(
-    /** AI 运行持久化服务。 */
-    private val runs: AiRunService,
-    /** Spring AI Provider 边界。 */
-    private val provider: AiProvider,
-    /** 应用 AI 配置。 */
-    private val properties: AppProperties,
-) {
-    /** 定期领取一个步骤；数据库租约支持重启恢复。 */
-    @Scheduled(fixedDelayString = "\${gzu-oj.ai.coordinator-delay-ms:5000}")
-    fun coordinate() {
-        if (!properties.ai.enabled || !guard.tryAcquire()) return
-        try {
-            val lease = runs.claimNext() ?: return
-            try {
-                val roles = rolesFor(lease.state)
-                val context = buildString {
-                    appendLine("系统要求生成测试点数量：${lease.requestedTestCaseCount}")
-                    append(runs.context(lease.runId))
-                }
-                val results = if (roles.size > 1) parallelGenerate(roles, lease.statement, context) else
-                    roles.associateWith { provider.generate(it, lease.statement, context) }
-                runs.completeStep(lease, results)
-            } catch (failure: Exception) {
-                logger.error("AI 运行 {} 的步骤执行失败", lease.runId, failure)
-                runs.failLease(lease, failure.message ?: "AI Provider 调用失败")
-            }
-        } finally {
-            guard.release()
-        }
-    }
-
-    /** 两份标程和测试计划并行生成，但一份运行仍只占一个协调器名额。 */
-    private fun parallelGenerate(
-        roles: List<AiAgentRole>,
-        statement: String,
-        context: String,
-    ): Map<AiAgentRole, AiProviderResult> = Executors.newVirtualThreadPerTaskExecutor().use { executor ->
-        val futures = roles.associateWith { role ->
-            executor.submit<AiProviderResult> { provider.generate(role, statement, context) }
-        }
-        futures.mapValues { it.value.get() }
-    }
-
-    /** 状态对应的固定 Agent 角色。 */
-    private fun rolesFor(state: AiWorkflowState): List<AiAgentRole> = when (state) {
-        AiWorkflowState.ANALYZING -> listOf(AiAgentRole.STATEMENT_ANALYST)
-        AiWorkflowState.GENERATING_SOLUTIONS -> listOf(AiAgentRole.SOLUTION_A, AiAgentRole.SOLUTION_B)
-        AiWorkflowState.REVIEWING -> listOf(AiAgentRole.TEST_DESIGNER, AiAgentRole.ADVERSARIAL_REVIEWER)
-        AiWorkflowState.GENERATING_TESTS -> listOf(AiAgentRole.GENERATOR, AiAgentRole.BRUTE_FORCE)
-        AiWorkflowState.VALIDATING -> emptyList()
-        else -> throw IllegalStateException("当前 AI 状态不能由模型协调器推进：" + state)
-    }
-
-    private companion object {
-        /** 进程内单并发门禁；跨进程由数据库租约保证。 */
-        val guard = java.util.concurrent.Semaphore(1)
-
-        /** 日志记录器。 */
-        val logger = LoggerFactory.getLogger(AiCoordinator::class.java)
-    }
-}
-
 /** 管理员 AI 录题与人工接管接口。 */
 @RestController
-@RequestMapping("/api/v1/admin/ai-runs")
+@RequestMapping("/api/v1/admin/test-generation-runs")
 @PreAuthorize("hasRole('ADMIN')")
 class AdminAiRunController(
     /** AI 运行服务。 */
@@ -1096,6 +748,10 @@ class AdminAiRunController(
         val run = service.activeForVersion(problemVersionId) ?: return ResponseEntity.noContent().build()
         return ResponseEntity.ok(run)
     }
+
+    /** 读取通过 Worker 验证并直接保存在数据库中的标准答案。 */
+    @GetMapping("/{runId}/reference-solution")
+    fun referenceSolution(@PathVariable runId: UUID): ReferenceSolutionResponse = service.referenceSolution(runId)
 
     /** 取消尚未结束的 AI 流程。 */
     @PostMapping("/{runId}/cancel")

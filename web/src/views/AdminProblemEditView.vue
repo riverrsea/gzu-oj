@@ -288,7 +288,7 @@ async function cancelAi(): Promise<void> {
 async function save(publish: boolean): Promise<void> {
   if (!detail.value || saving.value || aiLocked.value) return;
   if (publish && totalScore.value !== 100) {
-    toast.error("发布时测试点分值之和必须为 100");
+    toast.error("发布时至少需要一个测试点");
     return;
   }
   if (publish) {
@@ -416,7 +416,7 @@ onUnmounted(() => {
     </section>
 
     <UiAlert v-if="aiLocked" variant="warning" title="该草稿存在进行中的 AI 流程，内容暂时锁定；流程结束或取消后可继续编辑。" />
-    <UiAlert v-else-if="detail && form.testCases.length === 0" variant="info" title="当前草稿还没有测试点；请添加测试点并保存，分值合计 100 后才能发布。" />
+    <UiAlert v-else-if="detail && form.testCases.length === 0" variant="info" title="当前草稿还没有测试点；请添加测试点并保存后才能发布。" />
     <form class="problem-form" @submit.prevent="save(false)">
       <section class="form-section">
         <h2>题目元数据</h2>

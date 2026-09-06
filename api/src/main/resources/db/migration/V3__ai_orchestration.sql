@@ -22,4 +22,4 @@ ALTER TABLE ai_problem_step
     ADD COLUMN ordinal INTEGER NOT NULL DEFAULT 1 CHECK (ordinal > 0);
 
 COMMENT ON COLUMN ai_problem_step.request_json IS '脱敏后的模型输入和上下文审计';
-COMMENT ON COLUMN ai_problem_step.response_json IS 'Spring AI 结构化模型响应';
+COMMENT ON COLUMN ai_problem_step.response_json IS '外部 Python Agent 结构化模型响应审计';

@@ -53,34 +53,12 @@ data class ContestProperties(
     val minimumCreateIntervalMinutes: Long = 10,
 )
 
-/** Spring AI 可选择的聊天模型服务商。 */
-enum class AiChatProvider {
-    /** 不创建聊天模型客户端。 */
-    NONE,
-    /** OpenAI 原生服务或 OpenAI 兼容网关。 */
-    OPENAI,
-    /** DeepSeek 原生 Spring AI Starter。 */
-    DEEPSEEK,
-}
-
-/** 站点统一的 Spring AI 配置。 */
+/** Kotlin 到独立 Python Agent 的连接配置。 */
 data class AiProperties(
-    /** 是否允许自动调用模型。 */
-    val enabled: Boolean = false,
-    /** 当前启用的 Spring AI 聊天模型服务商。 */
-    val provider: AiChatProvider = AiChatProvider.NONE,
-    /** 当前 Spring AI 服务商的服务地址。 */
-    val baseUrl: String = "http://127.0.0.1:11434/v1",
-    /** 只从环境变量读取的 API 密钥。 */
-    val apiKey: String = "",
-    /** 默认模型名称。 */
-    val model: String = "gpt-4.1-mini",
-    /** 提示词版本，变更后用于审计。 */
-    val promptVersion: String = "v1",
-    /** 单次录题运行费用上限，单位微美元。 */
-    val maxCostMicrounits: Long = 1_000_000,
-    /** API 内协调器并发上限。 */
-    val maxConcurrent: Int = 1,
-    /** 模型调用超时秒数。 */
-    val timeoutSeconds: Long = 120,
+    /** 独立 Python Agent 的 HTTP 地址。 */
+    val agentBaseUrl: String = "http://127.0.0.1:8090",
+    /** Kotlin 与 Python Agent 间的内部 Bearer Token。 */
+    val agentInternalToken: String = "",
+    /** Agent 派发和回调 HTTP 超时秒数。 */
+    val agentTimeoutSeconds: Long = 30,
 )

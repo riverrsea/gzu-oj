@@ -42,21 +42,6 @@ spring:
     multipart:
       max-file-size: 64MB
       max-request-size: 64MB
-  # Spring AI 默认关闭；选择的聊天模型由 GZU_OJ_AI_CHAT_PROVIDER 决定。
-  ai:
-    model:
-      chat: ${GZU_OJ_AI_CHAT_PROVIDER:none}
-    openai:
-      base-url: ${GZU_OJ_AI_BASE_URL:http://127.0.0.1:11434/v1}
-      api-key: ${GZU_OJ_AI_API_KEY:disabled}
-      chat:
-        options:
-          model: ${GZU_OJ_AI_MODEL:gpt-4.1-mini}
-    deepseek:
-      base-url: ${GZU_OJ_AI_BASE_URL:https://api.deepseek.com}
-      api-key: ${GZU_OJ_AI_API_KEY:disabled}
-      chat:
-        model: ${GZU_OJ_AI_MODEL:deepseek-chat}
 server:
   port: ${GZU_OJ_API_PORT:8080}
   forward-headers-strategy: framework
@@ -98,15 +83,8 @@ gzu-oj:
     max-active-owned: 3
     minimum-create-interval-minutes: 10
   # 服务端防抖不能只依赖浏览器按钮；同一用户的运行/提交在窗口内只允许一次。
-  submission-cooldown-ms: ${GZU_OJ_SUBMISSION_COOLDOWN_MS:5000}
+  submission-cooldown-ms: ${GZU_OJ_SUBMISSION_COOLDOWN_MS:1000}
   ai:
-    enabled: ${GZU_OJ_AI_ENABLED:false}
-    # 与 Spring AI 的 model.chat 共用取值，只允许 openai、deepseek 和 none。
-    provider: ${GZU_OJ_AI_CHAT_PROVIDER:none}
-    base-url: ${GZU_OJ_AI_BASE_URL:http://127.0.0.1:11434/v1}
-    api-key: ${GZU_OJ_AI_API_KEY:}
-    model: ${GZU_OJ_AI_MODEL:gpt-4.1-mini}
-    prompt-version: ${GZU_OJ_AI_PROMPT_VERSION:v1}
-    max-cost-microunits: ${GZU_OJ_AI_MAX_COST_MICROUNITS:1000000}
-    max-concurrent: ${GZU_OJ_AI_MAX_CONCURRENT:1}
-    timeout-seconds: ${GZU_OJ_AI_TIMEOUT_SECONDS:120}
+    agent-base-url: ${GZU_OJ_AGENT_BASE_URL:http://127.0.0.1:8090}
+    agent-internal-token: ${GZU_OJ_AGENT_INTERNAL_TOKEN:}
+    agent-timeout-seconds: ${GZU_OJ_AGENT_TIMEOUT_SECONDS:30}

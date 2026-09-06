@@ -26,7 +26,7 @@ const loading = ref(false);
 /** 当前展示的 AI 运行。 */
 const run = ref<AiRun>();
 
-/** 启动 Spring AI 多角色录题流程。 */
+/** 启动外部 Python Agent 多角色录题流程。 */
 async function start(): Promise<void> {
   if (!versionId.value.trim()) {
     toast.warning("请输入草稿版本 ID");

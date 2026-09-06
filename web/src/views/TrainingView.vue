@@ -441,7 +441,7 @@ function openContestProblem(contest: Contest, problemId: string, versionId: stri
 
 /** 从比赛详情进入该场比赛的独立排名页面。 */
 function openContestRanking(contest: Contest): void {
-  void router.push({path: "/rankings", query: {contestId: contest.id}});
+  void router.push({path: "/contests/" + contest.id + "/ranking"});
 }
 
 /** 创建个人计时套卷模板。 */

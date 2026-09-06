@@ -90,7 +90,7 @@ watch(() => route.fullPath, () => {
   <div class="app-shell app-shell--modern" :class="{ 'app-shell--workspace': isWorkspace, 'app-shell--admin': isAdmin }">
     <header class="topbar topbar--codex" :class="{ 'topbar--scrolled': topbarScrolled, 'topbar--menu-open': mobileNavOpen }">
       <div class="topbar-inner" :class="{ 'topbar-inner--workspace': isWorkspace }">
-        <button v-if="isWorkspace && workspaceToolbar.active" class="workspace-back-button" type="button" title="返回题库" aria-label="返回题库" @click="workspaceToolbar.back?.()"><ArrowLeft :size="17" /></button>
+        <button v-if="isWorkspace && workspaceToolbar.active" class="workspace-back-button" type="button" title="返回" aria-label="返回" @click="workspaceToolbar.back?.()"><ArrowLeft :size="17" /></button>
         <button v-if="isWorkspace && workspaceToolbar.active" class="workspace-problem-list-button" :class="{ active: workspaceToolbar.problemListOpen }" type="button" title="题目列表" aria-label="题目列表" :aria-expanded="workspaceToolbar.problemListOpen" @click="workspaceToolbar.toggleProblemList?.()"><List :size="17" /></button>
         <RouterLink class="brand topbar-brand" to="/problems" aria-label="GZU_OJ 题库">
           <span>GZU_OJ</span>

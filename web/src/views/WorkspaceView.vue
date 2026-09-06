@@ -1054,7 +1054,7 @@ watchEffect(() => {
   workspaceToolbar.pauseTimedAttempt = () => changeTimedAttemptState("pause");
   workspaceToolbar.resumeTimedAttempt = () => changeTimedAttemptState("resume");
   workspaceToolbar.finishTimedAttempt = requestFinishTimedAttempt;
-  workspaceToolbar.back = () => { void router.push("/problems"); };
+  workspaceToolbar.back = () => { void router.back(); };
   workspaceToolbar.toggleProblemList = toggleProblemList;
   workspaceToolbar.problemListOpen = problemListOpen.value;
   workspaceToolbar.previousProblem = () => moveToProblem(-1);

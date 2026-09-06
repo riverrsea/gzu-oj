@@ -8,7 +8,7 @@ import {APP_TIME_ZONE} from "../lib/time";
 import UiButton from "../components/ui/Button.vue";
 import UiEmptyState from "../components/ui/EmptyState.vue";
 
-/** 当前路由与导航器，用查询参数锁定具体比赛。 */
+/** 当前路由与导航器；排名详情使用训练赛资源路径。 */
 const route = useRoute();
 const router = useRouter();
 /** 未指定比赛时展示的公开比赛摘要。 */
@@ -28,8 +28,10 @@ const now = ref(Date.now());
 let ticker: number | undefined;
 let rankingRefreshTimer: number | undefined;
 
-/** 从查询参数读取唯一比赛标识，数组形式只采用第一个值。 */
+/** 从 RESTful 路径读取比赛标识，并兼容旧版查询参数链接。 */
 const contestId = computed(() => {
+  const pathValue = route.params.contestId;
+  if (typeof pathValue === "string" && pathValue) return pathValue;
   const value = route.query.contestId;
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
 });
@@ -186,12 +188,12 @@ async function load(): Promise<void> {
 
 /** 选择比赛后将比赛标识写入 URL。 */
 function selectContest(value: ContestSummary): void {
-  void router.push({path: "/rankings", query: {contestId: value.id}});
+  void router.push({path: "/contests/" + value.id + "/ranking"});
 }
 
-/** 返回训练页，排名页面不再是顶栏一级入口。 */
+/** 返回浏览器历史中的上一页。 */
 function backToTraining(): void {
-  void router.push("/training");
+  void router.back();
 }
 
 /** 切换比赛题目抽屉。 */
@@ -227,7 +229,7 @@ onBeforeUnmount(() => {
   <section class="content-page content-page--modern oj-page rankings-page" :aria-busy="loading">
     <template v-if="contestId">
       <header class="ranking-page-toolbar">
-        <UiButton variant="ghost" size="sm" @click="backToTraining"><ArrowLeft :size="16"/>返回训练</UiButton>
+        <UiButton variant="ghost" size="sm" @click="backToTraining"><ArrowLeft :size="16"/>返回</UiButton>
         <div class="ranking-page-toolbar-actions">
           <UiButton variant="outline" size="sm" :class="problemSidebarOpen ? 'is-active' : undefined" @click="toggleProblemSidebar"><List :size="15"/>题目</UiButton>
           <UiButton variant="outline" size="sm" :loading="loading || refreshing" @click="loadContest()"><RefreshCw :size="15"/>刷新</UiButton>
@@ -249,7 +251,7 @@ onBeforeUnmount(() => {
 
       <UiEmptyState v-else-if="errorMessage && !contest" :description="errorMessage" class="ranking-empty">
         <template #icon><Trophy :size="24"/></template>
-        <UiButton variant="outline" size="sm" @click="backToTraining">返回训练页</UiButton>
+        <UiButton variant="outline" size="sm" @click="backToTraining">返回</UiButton>
       </UiEmptyState>
 
       <div v-else-if="contest" class="ranking-detail-layout">
@@ -336,7 +338,7 @@ onBeforeUnmount(() => {
     <template v-else>
       <header class="page-heading rankings-heading">
         <div><h1>选择比赛</h1><p>从公开训练赛中选择一场查看排名</p></div>
-        <UiButton variant="ghost" size="sm" @click="backToTraining"><ArrowLeft :size="16"/>返回训练</UiButton>
+        <UiButton variant="ghost" size="sm" @click="backToTraining"><ArrowLeft :size="16"/>返回</UiButton>
       </header>
       <div v-if="loading" class="ranking-contest-card" aria-label="正在加载比赛">
         <div v-for="index in 4" :key="index" class="ranking-contest-skeleton"><i/><span/><b/></div>

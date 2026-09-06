@@ -93,7 +93,7 @@ const contestQuery = reactive({
   visibility: "" as ContestVisibility | "",
 });
 /** 已应用到列表请求的训练赛查询条件。 */
-const appliedContestQuery = ref<{keyword?: string; visibility?: ContestVisibility}>({});
+const appliedContestQuery = ref<{ keyword?: string; visibility?: ContestVisibility }>({});
 
 /** 新建套卷表单。 */
 const paperForm = reactive({title: "", durationMinutes: 120, problemIds: [] as string[]});
@@ -110,6 +110,7 @@ const selectedContestDetail = computed<Contest | undefined>(() => {
 });
 /** 当前列表是否应用了任意查询条件。 */
 const hasContestQuery = computed(() => Boolean(appliedContestQuery.value.keyword || appliedContestQuery.value.visibility));
+
 /** 格式化分钟与秒倒计时。 */
 function formatDuration(seconds: number): string {
   const safeSeconds = Math.max(0, Math.floor(seconds));
@@ -291,7 +292,7 @@ async function load(): Promise<void> {
 }
 
 /** 将查询表单转换成不携带空字符串的接口参数。 */
-function normalizedContestQuery(): {keyword?: string; visibility?: ContestVisibility} {
+function normalizedContestQuery(): { keyword?: string; visibility?: ContestVisibility } {
   const keyword = contestQuery.keyword.trim();
   return {
     keyword: keyword || undefined,
@@ -435,7 +436,7 @@ function toContestSummary(contest: Contest): ContestSummary {
 
 /** 打开比赛锁定版本的做题工作区。 */
 function openContestProblem(contest: Contest, problemId: string, versionId: string): void {
-  void router.push({path: "/problems/" + problemId, query: {versionId, contestId: contest.id}});
+  void router.push({path: "/contests/" + contest.id + "/problems/" + problemId, query: {versionId}});
 }
 
 /** 从比赛详情进入该场比赛的独立排名页面。 */
@@ -469,8 +470,8 @@ async function startPaper(paper: TimedPaper): Promise<void> {
     if (firstProblem && attempt.status === "RUNNING") {
       paperDetailOpen.value = false;
       await router.push({
-        path: "/problems/" + firstProblem.problemId,
-        query: {versionId: firstProblem.versionId, timedPaperAttemptId: attempt.id},
+        path: "/timed-papers/" + attempt.id + "/problems/" + firstProblem.problemId,
+        query: {versionId: firstProblem.versionId},
       });
     }
   } catch (error) {
@@ -493,7 +494,7 @@ function closePaperDetail(): void {
 /** 打开套卷锁定版本的做题工作区。 */
 function openTimedProblem(problemId: string, versionId: string): void {
   if (!selectedAttempt.value || attemptStatus(selectedAttempt.value) !== "RUNNING") return;
-  void router.push({path: "/problems/" + problemId, query: {versionId, timedPaperAttemptId: selectedAttempt.value.id}});
+  void router.push({path: "/timed-papers/" + selectedAttempt.value.id + "/problems/" + problemId, query: {versionId}});
 }
 
 /** 执行暂停或继续并以响应覆盖本地作答状态。 */
@@ -583,22 +584,25 @@ onBeforeUnmount(() => window.clearInterval(ticker));
       <button type="button" role="tab" :aria-selected="tab === 'contest'" :class="{ active: tab === 'contest' }"
               @click="tab = 'contest'; paperDetailOpen = false">
         <Trophy :size="16"/>
-        训练赛</button>
+        训练赛
+      </button>
       <button type="button" role="tab" :aria-selected="tab === 'paper'" :class="{ active: tab === 'paper' }"
               @click="tab = 'paper'; contestDetailOpen = false">
         <Clock3 :size="16"/>
-        个人计时</button>
+        个人计时
+      </button>
     </nav>
 
-    <div v-show="tab === 'contest'" class="training-workbench training-tab-panel training-workbench--contest" :class="{ 'training-workbench--detail-open': contestDetailOpen }">
+    <div v-show="tab === 'contest'" class="training-workbench training-tab-panel training-workbench--contest"
+         :class="{ 'training-workbench--detail-open': contestDetailOpen }">
       <Teleport to="body">
         <Transition name="training-backdrop">
-          <div v-if="contestDetailOpen" class="training-detail-backdrop" @click="closeContestDetail" />
+          <div v-if="contestDetailOpen" class="training-detail-backdrop" @click="closeContestDetail"/>
         </Transition>
       </Teleport>
       <aside class="training-browser" aria-label="训练赛列表">
         <header class="training-browser-header">
-          <div><strong>训练赛</strong><span>查找公开赛或口令赛</span></div>
+          <div><strong>训练赛</strong></div>
         </header>
         <form class="training-contest-filters" role="search" @submit.prevent="queryContests">
           <UiInput v-model="contestQuery.keyword" maxlength="120" aria-label="比赛关键词"
@@ -608,14 +612,17 @@ onBeforeUnmount(() => window.clearInterval(ticker));
             <option value="PASSWORD">口令赛</option>
           </UiSelect>
           <UiButton type="submit" size="sm" :loading="contestLoading">
-            <Search :size="14"/>查询
+            <Search :size="14"/>
+            查询
           </UiButton>
           <UiButton type="button" size="sm" variant="outline" :disabled="contestLoading"
                     @click="resetContestQuery">
-            <RotateCcw :size="14"/>重置
+            <RotateCcw :size="14"/>
+            重置
           </UiButton>
         </form>
-        <div v-if="loading || contestLoading" class="training-browser-list training-browser-list--loading" aria-busy="true">
+        <div v-if="loading || contestLoading" class="training-browser-list training-browser-list--loading"
+             aria-busy="true">
           <div v-for="index in 5" :key="index" class="training-browser-skeleton"><i/><span/><b/></div>
         </div>
         <div v-else-if="contests.length" class="training-browser-list">
@@ -656,83 +663,99 @@ onBeforeUnmount(() => window.clearInterval(ticker));
 
       <Teleport to="body">
         <Transition name="training-drawer">
-          <section v-if="contestDetailOpen && selectedContest" class="training-inspector training-detail-drawer" aria-live="polite" role="dialog" aria-modal="true">
-        <template v-if="selectedContest">
-          <header class="training-inspector-header">
-            <div><span class="training-phase-label"
-                       :class="'training-phase-label--' + liveContestPhase(selectedContest).toLowerCase()"><span
-                class="training-phase-dot"
-                :class="'training-phase-dot--' + liveContestPhase(selectedContest).toLowerCase()"/>{{
-                phaseText(liveContestPhase(selectedContest))
-              }}</span>
-              <h2>{{ selectedContest.title }}</h2>
-              <p>由 {{ selectedContest.ownerUsername }} 创建 · {{ visibilityText(selectedContest.visibility) }}</p>
-            </div>
-            <button class="icon-button training-detail-close" type="button" aria-label="关闭详情" @click="closeContestDetail">×</button>
-            <div class="training-inspector-actions">
-              <UiButton v-if="selectedContestDetail && selectedContest.visibility === 'PUBLIC'" variant="outline"
-                        size="sm" @click="openContestRanking(selectedContestDetail)">
-                <Medal :size="15"/>查看排名
-              </UiButton>
-              <UiButton v-if="selectedContest.visibility === 'PUBLIC' && !selectedContest.joined && liveContestPhase(selectedContest) !== 'FINISHED'" size="sm"
-                        @click="join(selectedContest)">
-                <Trophy :size="15"/>
-                加入比赛
-              </UiButton>
-              <span v-else-if="selectedContest.joined" class="training-joined-badge"><Check :size="14"/>已加入</span>
-            </div>
-          </header>
-          <div class="training-detail-meta"><span><CalendarDays :size="15"/>{{
-              formatDateTime(selectedContest.startsAt)
-            }} - {{ formatDateTime(selectedContest.endsAt) }}</span><span><Users
-              :size="15"/>{{ selectedContest.participantCount }}/{{ selectedContest.maxParticipants }} 人</span><span
-              v-if="selectedContestDetail"><ListChecks :size="15"/>{{ selectedContestDetail.problems.length }} 道题</span></div>
-          <section v-if="selectedContest.visibility === 'PASSWORD' && !selectedContest.joined"
-                   class="training-locked-panel">
-            <span class="training-empty-icon training-empty-icon--locked"><LockKeyhole :size="26"/></span>
-            <strong>这是一场口令赛</strong>
-            <p v-if="liveContestPhase(selectedContest) !== 'FINISHED'">输入创建者提供的邀请码后，才能查看题目、成绩和比赛详情。</p>
-            <p v-else>比赛已经结束，未加入用户无法查看题目、成绩和比赛详情。</p>
-            <UiButton v-if="liveContestPhase(selectedContest) !== 'FINISHED'" @click="join(selectedContest)">
-              <LockKeyhole :size="15"/>输入邀请码加入
-            </UiButton>
-          </section>
-          <div v-else-if="contestDetailLoading" class="training-detail-loading" aria-label="正在加载比赛详情">
-            <span class="loading-spinner"/><span>正在加载比赛详情</span>
-          </div>
-          <section v-else-if="selectedContestDetail" class="training-detail-section">
-            <header class="training-section-heading">
-              <div><h3>题目</h3></div>
-              <span class="training-section-count">{{ selectedContestDetail.problems.length }} 题</span></header>
-            <div class="training-problem-list">
-              <button v-for="problem in selectedContestDetail.problems" :key="problem.versionId" type="button"
-                      :disabled="!selectedContestDetail.joined || liveContestPhase(selectedContestDetail) !== 'RUNNING'"
-                      @click="openContestProblem(selectedContestDetail, problem.problemId, problem.versionId)"><span
-                  class="training-problem-ordinal">{{ formatProblemOrdinal(problem.ordinal) }}</span><span
-                  class="training-problem-copy"><strong>{{
-                  problem.title
-                }}</strong></span><span v-if="selectedContestDetail.joined"
-                  class="training-problem-score">{{ selectedContestDetail.myScores?.[problem.problemId] ?? 0 }} 分</span>
-                <ExternalLink :size="15" aria-hidden="true"/>
-              </button>
-            </div>
-            <p v-if="!selectedContestDetail.joined" class="training-detail-hint">加入比赛后才能打开题目</p>
-            <p v-else-if="liveContestPhase(selectedContestDetail) === 'UPCOMING'" class="training-detail-hint">
-              比赛开始后可以进入题目</p>
-            <p v-else-if="liveContestPhase(selectedContestDetail) === 'FINISHED'" class="training-detail-hint">
-              比赛已经结束</p></section>
-        </template>
-        <div v-else class="training-empty-panel"><span class="training-empty-icon"><Trophy :size="26"/></span><strong>选择一场训练赛</strong>
-          <p>查看比赛题目、参赛人数和排名</p></div>
+          <section v-if="contestDetailOpen && selectedContest" class="training-inspector training-detail-drawer"
+                   aria-live="polite" role="dialog" aria-modal="true">
+            <template v-if="selectedContest">
+              <header class="training-inspector-header">
+                <div><span class="training-phase-label"
+                           :class="'training-phase-label--' + liveContestPhase(selectedContest).toLowerCase()"><span
+                    class="training-phase-dot"
+                    :class="'training-phase-dot--' + liveContestPhase(selectedContest).toLowerCase()"/>{{
+                    phaseText(liveContestPhase(selectedContest))
+                  }}</span>
+                  <h2>{{ selectedContest.title }}</h2>
+                  <p>由 {{ selectedContest.ownerUsername }} 创建 · {{ visibilityText(selectedContest.visibility) }}</p>
+                </div>
+                <button class="icon-button training-detail-close" type="button" aria-label="关闭详情"
+                        @click="closeContestDetail">×
+                </button>
+                <div class="training-inspector-actions">
+                  <UiButton v-if="selectedContestDetail && selectedContest.visibility === 'PUBLIC'" variant="outline"
+                            size="sm" @click="openContestRanking(selectedContestDetail)">
+                    <Medal :size="15"/>
+                    查看排名
+                  </UiButton>
+                  <UiButton
+                      v-if="selectedContest.visibility === 'PUBLIC' && !selectedContest.joined && liveContestPhase(selectedContest) !== 'FINISHED'"
+                      size="sm"
+                      @click="join(selectedContest)">
+                    <Trophy :size="15"/>
+                    加入比赛
+                  </UiButton>
+                  <span v-else-if="selectedContest.joined" class="training-joined-badge"><Check
+                      :size="14"/>已加入</span>
+                </div>
+              </header>
+              <div class="training-detail-meta"><span><CalendarDays :size="15"/>{{
+                  formatDateTime(selectedContest.startsAt)
+                }} - {{ formatDateTime(selectedContest.endsAt) }}</span><span><Users
+                  :size="15"/>{{ selectedContest.participantCount }}/{{
+                  selectedContest.maxParticipants
+                }} 人</span><span
+                  v-if="selectedContestDetail"><ListChecks :size="15"/>{{ selectedContestDetail.problems.length }} 道题</span>
+              </div>
+              <section v-if="selectedContest.visibility === 'PASSWORD' && !selectedContest.joined"
+                       class="training-locked-panel">
+                <span class="training-empty-icon training-empty-icon--locked"><LockKeyhole :size="26"/></span>
+                <strong>这是一场口令赛</strong>
+                <p v-if="liveContestPhase(selectedContest) !== 'FINISHED'">
+                  输入创建者提供的邀请码后，才能查看题目、成绩和比赛详情。</p>
+                <p v-else>比赛已经结束，未加入用户无法查看题目、成绩和比赛详情。</p>
+                <UiButton v-if="liveContestPhase(selectedContest) !== 'FINISHED'" @click="join(selectedContest)">
+                  <LockKeyhole :size="15"/>
+                  输入邀请码加入
+                </UiButton>
+              </section>
+              <div v-else-if="contestDetailLoading" class="training-detail-loading" aria-label="正在加载比赛详情">
+                <span class="loading-spinner"/><span>正在加载比赛详情</span>
+              </div>
+              <section v-else-if="selectedContestDetail" class="training-detail-section">
+                <header class="training-section-heading">
+                  <div><h3>题目</h3></div>
+                  <span class="training-section-count">{{ selectedContestDetail.problems.length }} 题</span></header>
+                <div class="training-problem-list">
+                  <button v-for="problem in selectedContestDetail.problems" :key="problem.versionId" type="button"
+                          :disabled="!selectedContestDetail.joined || liveContestPhase(selectedContestDetail) !== 'RUNNING'"
+                          @click="openContestProblem(selectedContestDetail, problem.problemId, problem.versionId)"><span
+                      class="training-problem-ordinal">{{ formatProblemOrdinal(problem.ordinal) }}</span><span
+                      class="training-problem-copy"><strong>{{
+                      problem.title
+                    }}</strong></span><span v-if="selectedContestDetail.joined"
+                      class="training-problem-score">{{
+                      selectedContestDetail.myScores?.[problem.problemId] ?? 0
+                    }} 分</span>
+                    <ExternalLink :size="15" aria-hidden="true"/>
+                  </button>
+                </div>
+                <p v-if="!selectedContestDetail.joined" class="training-detail-hint">加入比赛后才能打开题目</p>
+                <p v-else-if="liveContestPhase(selectedContestDetail) === 'UPCOMING'" class="training-detail-hint">
+                  比赛开始后可以进入题目</p>
+                <p v-else-if="liveContestPhase(selectedContestDetail) === 'FINISHED'" class="training-detail-hint">
+                  比赛已经结束</p></section>
+            </template>
+            <div v-else class="training-empty-panel"><span class="training-empty-icon"><Trophy
+                :size="26"/></span><strong>选择一场训练赛</strong>
+              <p>查看比赛题目、参赛人数和排名</p></div>
           </section>
         </Transition>
       </Teleport>
     </div>
 
-    <div v-show="tab === 'paper'" class="training-workbench training-tab-panel training-workbench--paper" :class="{ 'training-workbench--detail-open': paperDetailOpen }">
+    <div v-show="tab === 'paper'" class="training-workbench training-tab-panel training-workbench--paper"
+         :class="{ 'training-workbench--detail-open': paperDetailOpen }">
       <Teleport to="body">
         <Transition name="training-backdrop">
-          <div v-if="paperDetailOpen" class="training-detail-backdrop" @click="closePaperDetail" />
+          <div v-if="paperDetailOpen" class="training-detail-backdrop" @click="closePaperDetail"/>
         </Transition>
       </Teleport>
       <aside class="training-browser" aria-label="个人计时套卷列表">
@@ -780,78 +803,94 @@ onBeforeUnmount(() => window.clearInterval(ticker));
 
       <Teleport to="body">
         <Transition name="training-drawer">
-          <section v-if="paperDetailOpen && selectedPaper" class="training-inspector training-detail-drawer" aria-live="polite" role="dialog" aria-modal="true">
-        <template v-if="selectedPaper">
-          <header class="training-inspector-header">
-            <div><span class="training-phase-label training-phase-label--paper"><Clock3 :size="14"/>个人计时</span>
-              <h2>{{ selectedPaper.title }}</h2>
-              <p>{{ selectedPaper.problems.length }} 道题</p></div>
-            <button class="icon-button training-detail-close" type="button" aria-label="关闭详情" @click="closePaperDetail">×</button>
-            <span v-if="selectedAttempt && attemptStatus(selectedAttempt) === 'RUNNING'"
-                  class="training-joined-badge training-joined-badge--active"><span
-                class="training-phase-dot training-phase-dot--running"/>进行中</span><span
-                v-else-if="selectedAttempt && attemptStatus(selectedAttempt) === 'PAUSED'"
-                class="training-joined-badge">已暂停</span><span
-                v-else-if="selectedAttempt && attemptStatus(selectedAttempt) === 'FINISHED'"
-                class="training-joined-badge training-joined-badge--finished">已结束</span>
-          </header>
-          <div class="training-detail-meta"><span><Clock3 :size="15"/>限时 {{
-              selectedPaper.durationMinutes
-            }} 分钟</span><span><ListChecks :size="15"/>{{ selectedPaper.problems.length }} 道题</span><span
-              v-if="selectedAttempt"><Gauge :size="15"/>当前 {{ selectedAttempt.totalScore }}/{{ selectedAttempt.maximumScore }} 分</span></div>
-          <template v-if="selectedAttempt">
-            <section class="training-attempt-status">
-              <div class="training-time-flow training-time-flow--embedded"
-                   :class="'training-time-flow--' + timeTone(attemptRemainingRatio(selectedAttempt))">
-                <header><span><Clock3 :size="14"/>{{ attemptStatus(selectedAttempt) === 'PAUSED' ? '计时已暂停' : attemptStatus(selectedAttempt) === 'FINISHED' ? '作答已结束' : '剩余时间' }}</span><strong>{{ formatDuration(attemptRemainingSeconds(selectedAttempt)) }}</strong></header>
-                <span class="training-time-track"><i :style="{ width: progressWidth(attemptRemainingRatio(selectedAttempt)) }"/></span>
-              </div>
-              <div class="training-attempt-score"><small>当前得分</small><strong>{{ selectedAttempt.totalScore }}<em>/{{ selectedAttempt.maximumScore }}</em></strong>
-              </div>
-              <div class="training-attempt-actions">
-                <UiButton v-if="attemptStatus(selectedAttempt) === 'RUNNING'" variant="outline" size="sm"
-                          :loading="attemptActionLoading" @click="changeAttemptState('pause')"><Pause :size="15"/>暂停</UiButton>
-                <UiButton v-else-if="attemptStatus(selectedAttempt) === 'PAUSED'" variant="outline" size="sm"
-                          :loading="attemptActionLoading" @click="changeAttemptState('resume')"><Play :size="15"/>继续</UiButton>
-                <UiButton v-if="attemptStatus(selectedAttempt) !== 'FINISHED'" variant="destructive" size="sm"
-                          :disabled="attemptActionLoading" @click="requestFinishAttempt"><Square :size="14"/>提前结束</UiButton>
-                <UiButton variant="outline" size="sm" :disabled="attemptActionLoading" @click="shareAttempt">
-                  <Link2 :size="15"/>分享
+          <section v-if="paperDetailOpen && selectedPaper" class="training-inspector training-detail-drawer"
+                   aria-live="polite" role="dialog" aria-modal="true">
+            <template v-if="selectedPaper">
+              <header class="training-inspector-header">
+                <div><span class="training-phase-label training-phase-label--paper"><Clock3 :size="14"/>个人计时</span>
+                  <h2>{{ selectedPaper.title }}</h2>
+                  <p>{{ selectedPaper.problems.length }} 道题</p></div>
+                <button class="icon-button training-detail-close" type="button" aria-label="关闭详情"
+                        @click="closePaperDetail">×
+                </button>
+                <span v-if="selectedAttempt && attemptStatus(selectedAttempt) === 'RUNNING'"
+                      class="training-joined-badge training-joined-badge--active"><span
+                    class="training-phase-dot training-phase-dot--running"/>进行中</span><span
+                    v-else-if="selectedAttempt && attemptStatus(selectedAttempt) === 'PAUSED'"
+                    class="training-joined-badge">已暂停</span><span
+                    v-else-if="selectedAttempt && attemptStatus(selectedAttempt) === 'FINISHED'"
+                    class="training-joined-badge training-joined-badge--finished">已结束</span>
+              </header>
+              <div class="training-detail-meta"><span><Clock3 :size="15"/>限时 {{
+                  selectedPaper.durationMinutes
+                }} 分钟</span><span><ListChecks :size="15"/>{{ selectedPaper.problems.length }} 道题</span><span
+                  v-if="selectedAttempt"><Gauge :size="15"/>当前 {{ selectedAttempt.totalScore }}/{{
+                    selectedAttempt.maximumScore
+                  }} 分</span></div>
+              <template v-if="selectedAttempt">
+                <section class="training-attempt-status">
+                  <div class="training-time-flow training-time-flow--embedded"
+                       :class="'training-time-flow--' + timeTone(attemptRemainingRatio(selectedAttempt))">
+                    <header><span><Clock3 :size="14"/>{{
+                        attemptStatus(selectedAttempt) === 'PAUSED' ? '计时已暂停' : attemptStatus(selectedAttempt) === 'FINISHED' ? '作答已结束' : '剩余时间'
+                      }}</span><strong>{{ formatDuration(attemptRemainingSeconds(selectedAttempt)) }}</strong></header>
+                    <span class="training-time-track"><i
+                        :style="{ width: progressWidth(attemptRemainingRatio(selectedAttempt)) }"/></span>
+                  </div>
+                  <div class="training-attempt-score"><small>当前得分</small><strong>{{
+                      selectedAttempt.totalScore
+                    }}<em>/{{ selectedAttempt.maximumScore }}</em></strong>
+                  </div>
+                  <div class="training-attempt-actions">
+                    <UiButton v-if="attemptStatus(selectedAttempt) === 'RUNNING'" variant="outline" size="sm"
+                              :loading="attemptActionLoading" @click="changeAttemptState('pause')"><Pause
+                        :size="15"/>暂停
+                    </UiButton>
+                    <UiButton v-else-if="attemptStatus(selectedAttempt) === 'PAUSED'" variant="outline" size="sm"
+                              :loading="attemptActionLoading" @click="changeAttemptState('resume')"><Play
+                        :size="15"/>继续
+                    </UiButton>
+                    <UiButton v-if="attemptStatus(selectedAttempt) !== 'FINISHED'" variant="destructive" size="sm"
+                              :disabled="attemptActionLoading" @click="requestFinishAttempt"><Square
+                        :size="14"/>提前结束
+                    </UiButton>
+                    <UiButton variant="outline" size="sm" :disabled="attemptActionLoading" @click="shareAttempt">
+                      <Link2 :size="15"/>分享
+                    </UiButton>
+                  </div>
+                </section>
+                <section class="training-detail-section">
+                  <header class="training-section-heading">
+                    <div><h3>题目</h3><span v-if="attemptFinished(selectedAttempt)">本次作答已经结束</span><span
+                        v-else-if="attemptStatus(selectedAttempt) === 'PAUSED'">继续计时后可以进入题目</span></div>
+                    <span class="training-section-count">{{ selectedAttempt.paper.problems.length }} 题</span></header>
+                  <div class="training-problem-list">
+                    <button v-for="problem in selectedAttempt.paper.problems" :key="problem.versionId" type="button"
+                            :disabled="attemptStatus(selectedAttempt) !== 'RUNNING'"
+                            @click="openTimedProblem(problem.problemId, problem.versionId)"><span
+                        class="training-problem-ordinal">{{ formatProblemOrdinal(problem.ordinal) }}</span><span
+                        class="training-problem-copy"><strong>{{
+                        problem.title
+                      }}</strong><small>{{
+                        selectedAttempt.scores[problem.problemId] ?? 0
+                      }} 分</small></span><span
+                        class="training-problem-score">{{ selectedAttempt.scores[problem.problemId] ?? 0 }} 分</span>
+                      <ExternalLink :size="15" aria-hidden="true"/>
+                    </button>
+                  </div>
+                </section>
+              </template>
+              <div v-else class="training-start-panel"><span class="training-empty-icon training-empty-icon--paper"><Clock3
+                  :size="26"/></span><strong>准备好后开始计时</strong>
+                <UiButton @click="startPaper(selectedPaper)">
+                  <Clock3 :size="15"/>
+                  开始作答
                 </UiButton>
               </div>
-            </section>
-            <section class="training-detail-section">
-              <header class="training-section-heading">
-                <div><h3>题目</h3><span v-if="attemptFinished(selectedAttempt)">本次作答已经结束</span><span
-                    v-else-if="attemptStatus(selectedAttempt) === 'PAUSED'">继续计时后可以进入题目</span></div>
-                <span class="training-section-count">{{ selectedAttempt.paper.problems.length }} 题</span></header>
-              <div class="training-problem-list">
-                <button v-for="problem in selectedAttempt.paper.problems" :key="problem.versionId" type="button"
-                        :disabled="attemptStatus(selectedAttempt) !== 'RUNNING'"
-                        @click="openTimedProblem(problem.problemId, problem.versionId)"><span
-                    class="training-problem-ordinal">{{ formatProblemOrdinal(problem.ordinal) }}</span><span
-                    class="training-problem-copy"><strong>{{
-                    problem.title
-                  }}</strong><small>{{
-                    selectedAttempt.scores[problem.problemId] ?? 0
-                  }} 分</small></span><span
-                    class="training-problem-score">{{ selectedAttempt.scores[problem.problemId] ?? 0 }} 分</span>
-                  <ExternalLink :size="15" aria-hidden="true"/>
-                </button>
-              </div>
-            </section>
-          </template>
-          <div v-else class="training-start-panel"><span class="training-empty-icon training-empty-icon--paper"><Clock3
-              :size="26"/></span><strong>准备好后开始计时</strong>
-            <UiButton @click="startPaper(selectedPaper)">
-              <Clock3 :size="15"/>
-              开始作答
-            </UiButton>
-          </div>
-        </template>
-        <div v-else class="training-empty-panel"><span class="training-empty-icon training-empty-icon--paper"><FileText
-            :size="26"/></span><strong>选择一套计时套卷</strong>
-          <p>从左侧查看套卷内容，开始一段独立练习。</p></div>
+            </template>
+            <div v-else class="training-empty-panel"><span class="training-empty-icon training-empty-icon--paper"><FileText
+                :size="26"/></span><strong>选择一套计时套卷</strong>
+              <p>从左侧查看套卷内容，开始一段独立练习。</p></div>
           </section>
         </Transition>
       </Teleport>

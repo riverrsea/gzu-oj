@@ -33,6 +33,11 @@ interface WorkspaceProblemItem {
   ordinal?: number;
 }
 
+type WorkspaceContext =
+  | { kind: "problem"; problemId: string; versionId?: string }
+  | { kind: "contest"; contestId: string; problemId: string; versionId?: string }
+  | { kind: "timed-paper"; timedPaperAttemptId: string; problemId: string; versionId?: string };
+
 const route = useRoute();
 const router = useRouter();
 const problem = ref<ProblemDetail>();
@@ -100,6 +105,19 @@ const dockPanelKinds: Record<string, WorkspacePanelKind> = {
   history: "history",
 };
 
+/** 从三类做题页路由统一解析逻辑题目、锁定版本和业务上下文。 */
+const workspaceContext = computed<WorkspaceContext>(() => {
+  const problemId = String(route.params.problemId ?? route.params.id ?? "");
+  const versionId = typeof route.query.versionId === "string" ? route.query.versionId : undefined;
+  if (typeof route.params.contestId === "string") {
+    return { kind: "contest", contestId: route.params.contestId, problemId, versionId };
+  }
+  if (typeof route.params.timedPaperAttemptId === "string") {
+    return { kind: "timed-paper", timedPaperAttemptId: route.params.timedPaperAttemptId, problemId, versionId };
+  }
+  return { kind: "problem", problemId, versionId };
+});
+
 /** 当前题目在侧栏序列中的位置。 */
 const navigationIndex = computed(() => navigationItems.value.findIndex((item) => item.problemId === problem.value?.id && item.versionId === problem.value?.versionId));
 /** 是否存在上一道题。 */
@@ -129,7 +147,7 @@ const terminalStatuses = new Set<JudgeStatus>(["AC", "PARTIAL", "WA", "CE", "TLE
 /** 会触发错题本询问的用户代码判题失败状态；基础设施错误和主动取消不计入。 */
 const wrongBookCandidateStatuses = new Set<JudgeStatus>(["PARTIAL", "WA", "CE", "TLE", "MLE", "RE", "OLE"]);
 /** 当前路由中的个人计时作答标识。 */
-const timedAttemptId = computed(() => typeof route.query.timedPaperAttemptId === "string" ? route.query.timedPaperAttemptId : undefined);
+const timedAttemptId = computed(() => workspaceContext.value.kind === "timed-paper" ? workspaceContext.value.timedPaperAttemptId : undefined);
 /** 使用后端剩余秒数和快照时间计算运行状态下的本地倒计时。 */
 const timedAttemptRemainingSeconds = computed(() => {
   const attempt = timedAttempt.value;
@@ -143,6 +161,12 @@ const timedAttemptStatus = computed(() => {
   const status = timedAttempt.value?.status;
   return status === "RUNNING" && timedAttemptRemainingSeconds.value <= 0 ? "FINISHED" : status;
 });
+const contestRemainingSeconds = computed(() => {
+  if (workspaceContext.value.kind !== "contest") return undefined;
+  const contestEndsAt = contestEndAt.value;
+  return contestEndsAt ? Math.max(0, Math.floor((contestEndsAt - timedAttemptNow.value) / 1000)) : undefined;
+});
+const contestEndAt = ref<number>();
 const renderedStatement = computed(() => {
   if (!problem.value) return "";
   return DOMPurify.sanitize(marked.parse(problem.value.statementMarkdown, { async: false }) as string);
@@ -150,7 +174,7 @@ const renderedStatement = computed(() => {
 
 /** 比赛和个人套卷使用独立的锁定题目序列，不直接复用题库的全局已解决状态。 */
 function isScopedPracticeContext(): boolean {
-  return typeof route.query.contestId === "string" || typeof route.query.timedPaperAttemptId === "string";
+  return workspaceContext.value.kind !== "problem";
 }
 
 /** 将后端作答响应保存为新的倒计时基准。 */
@@ -360,26 +384,17 @@ const dockContext = reactive<WorkspacePanelContext>({
 
 /** 当前语言对应的本地草稿键。 */
 function draftKey(selected = language.value): string {
-  const version = problem.value?.versionId ?? (typeof route.query.versionId === "string" ? route.query.versionId : route.params.id);
+  const version = problem.value?.versionId ?? workspaceContext.value.versionId ?? workspaceContext.value.problemId;
   return "gzu-oj.draft." + version + "." + selected;
 }
 
 /** 当前题目的版本书签键。 */
 function versionBookmarkKey(): string {
-  return "gzu-oj.problem-version." + String(route.params.id);
+  return "gzu-oj.problem-version." + workspaceContext.value.problemId;
 }
 
 function saveVersionBookmark(versionId: string): void {
   localStorage.setItem(versionBookmarkKey(), JSON.stringify({ versionId, lastOpenedAt: new Date().toISOString() }));
-}
-
-function bookmarkedVersionId(): string | null {
-  try {
-    const value = JSON.parse(localStorage.getItem(versionBookmarkKey()) ?? "null") as { versionId?: string } | null;
-    return value?.versionId ?? null;
-  } catch {
-    return null;
-  }
 }
 
 /** 把题目摘要转换为侧栏使用的导航项。 */
@@ -399,8 +414,9 @@ function toNavigationItem(problemItem: ProblemSummary, ordinal?: number): Worksp
 async function loadNavigation(): Promise<void> {
   navigationLoading.value = true;
   try {
-    const contestId = typeof route.query.contestId === "string" ? route.query.contestId : undefined;
-    const attemptId = typeof route.query.timedPaperAttemptId === "string" ? route.query.timedPaperAttemptId : undefined;
+    const context = workspaceContext.value;
+    const contestId = context.kind === "contest" ? context.contestId : undefined;
+    const attemptId = context.kind === "timed-paper" ? context.timedPaperAttemptId : undefined;
     if (!attemptId) timedAttempt.value = undefined;
     if (contestId) {
       const contest = await api.contest(contestId);
@@ -453,8 +469,14 @@ function openNavigationProblem(item: WorkspaceProblemItem): void {
   if (navigationLocked.value) return;
   saveCodeDraftNow(code.value, language.value, { notifyFailure: false });
   problemListOpen.value = false;
-  const query = { ...route.query, versionId: item.versionId };
-  void router.push({ path: "/problems/" + item.problemId, query });
+  const context = workspaceContext.value;
+  if (context.kind === "contest") {
+    void router.push({ path: "/contests/" + context.contestId + "/problems/" + item.problemId, query: { versionId: item.versionId } });
+  } else if (context.kind === "timed-paper") {
+    void router.push({ path: "/timed-papers/" + context.timedPaperAttemptId + "/problems/" + item.problemId, query: { versionId: item.versionId } });
+  } else {
+    void router.push({ path: "/problems/" + item.problemId, query: { versionId: item.versionId } });
+  }
 }
 
 /** 切换到相邻题目；边界题目保持禁用，避免产生无效路由。 */
@@ -583,8 +605,9 @@ async function loadSolvedState(problemId: string): Promise<void> {
     return;
   }
   if (isScopedPracticeContext()) {
-    const contestId = typeof route.query.contestId === "string" ? route.query.contestId : undefined;
-    const attemptId = typeof route.query.timedPaperAttemptId === "string" ? route.query.timedPaperAttemptId : undefined;
+    const context = workspaceContext.value;
+    const contestId = context.kind === "contest" ? context.contestId : undefined;
+    const attemptId = context.kind === "timed-paper" ? context.timedPaperAttemptId : undefined;
     isSolved.value = false;
     solvedProblemIds.value = new Set();
     try {
@@ -594,8 +617,9 @@ async function loadSolvedState(problemId: string): Promise<void> {
           ? (await api.timedAttempt(attemptId)).scores
           : {};
       // 请求期间可能已经切换题目或离开比赛，旧响应不能覆盖新工作区状态。
-      const sameContext = (typeof route.query.contestId === "string" ? route.query.contestId : undefined) === contestId
-        && (typeof route.query.timedPaperAttemptId === "string" ? route.query.timedPaperAttemptId : undefined) === attemptId;
+      const currentContext = workspaceContext.value;
+      const sameContext = (currentContext.kind === "contest" ? currentContext.contestId : undefined) === contestId
+        && (currentContext.kind === "timed-paper" ? currentContext.timedPaperAttemptId : undefined) === attemptId;
       if (!sameContext || problem.value?.id !== problemId) return;
       const scopedSolvedIds = new Set(Object.entries(scores).filter(([, score]) => score === 100).map(([id]) => id));
       solvedProblemIds.value = scopedSolvedIds;
@@ -622,7 +646,7 @@ async function favoriteProblem(): Promise<void> {
     await router.push({ path: "/login", query: { redirect: route.fullPath } });
     return;
   }
-  const problemId = problem.value?.id ?? String(route.params.id);
+  const problemId = problem.value?.id ?? workspaceContext.value.problemId;
   if (favoriteLoading.value) return;
   favoriteLoading.value = true;
   try {
@@ -806,11 +830,13 @@ async function runSamples(): Promise<void> {
     return;
   }
   if (!problem.value || running.value || submitting.value || actionCoolingDown.value || (timedAttemptId.value && timedAttemptStatus.value !== "RUNNING")) return;
+  if (workspaceContext.value.kind === "contest" && contestRemainingSeconds.value === 0) return;
   running.value = true;
   submission.value = undefined;
   runSubmission.value = undefined;
   showResultPanel();
   try {
+    const context = workspaceContext.value;
     const result = await api.run({
       problemId: problem.value.id,
       problemVersionId: problem.value.versionId,
@@ -819,6 +845,7 @@ async function runSamples(): Promise<void> {
       inputs: runInputs.value,
       expectedOutputs: runInputs.value.map((_, index) => problem.value?.samples[index]?.output ?? ""),
       timedPaperAttemptId: timedAttemptId.value,
+      contestId: context.kind === "contest" ? context.contestId : undefined,
     });
     submission.value = result;
     runSubmission.value = result;
@@ -836,6 +863,7 @@ async function submit(): Promise<void> {
     return;
   }
   if (!problem.value || running.value || submitting.value || actionCoolingDown.value || (timedAttemptId.value && timedAttemptStatus.value !== "RUNNING")) return;
+  if (workspaceContext.value.kind === "contest" && contestRemainingSeconds.value === 0) return;
   submitting.value = true;
   submission.value = undefined;
   submitSubmission.value = undefined;
@@ -846,7 +874,7 @@ async function submit(): Promise<void> {
       problemVersionId: problem.value.versionId,
       language: language.value,
       sourceCode: code.value,
-      contestId: typeof route.query.contestId === "string" ? route.query.contestId : undefined,
+      contestId: workspaceContext.value.kind === "contest" ? workspaceContext.value.contestId : undefined,
       timedPaperAttemptId: timedAttemptId.value,
     });
     submission.value = result;
@@ -906,27 +934,41 @@ async function loadProblem(): Promise<void> {
   wrongBookPrompt.value = null;
   wrongBookPromptMessage.value = "";
   try {
-    if (typeof route.query.versionId === "string") {
-      const locked = await api.problemVersion(route.query.versionId);
-      if (locked.id !== String(route.params.id)) throw new Error("题目版本与当前题目不匹配");
+    const context = workspaceContext.value;
+    if (context.kind === "contest") {
+      const contest = await api.contest(context.contestId);
+      contestEndAt.value = Date.parse(contest.endsAt);
+      const now = Date.now();
+      if (!contest.joined) throw new Error("无权限访问该训练赛");
+      if (now < Date.parse(contest.startsAt)) {
+        toast.warning("训练赛尚未开始");
+        await router.replace("/problems");
+        return;
+      }
+      if (now >= Date.parse(contest.endsAt)) {
+        toast.warning("训练赛已经结束");
+        await router.replace("/problems");
+        return;
+      }
+      const locked = contest.problems.find((item) => item.problemId === context.problemId);
+      if (!locked || !context.versionId || locked.versionId !== context.versionId) throw new Error("题目不属于该比赛或版本不匹配");
+      const detail = await api.problemVersion(context.versionId);
+      if (detail.id !== context.problemId) throw new Error("题目版本与当前题目不匹配");
+      problem.value = detail;
+    } else if (context.kind === "timed-paper") {
+      const attempt = await api.timedAttempt(context.timedPaperAttemptId);
+      replaceTimedAttempt(attempt);
+      const locked = attempt.paper.problems.find((item) => item.problemId === context.problemId);
+      if (!locked || !context.versionId || locked.versionId !== context.versionId) throw new Error("题目不属于该套卷或版本不匹配");
+      const detail = await api.problemVersion(context.versionId);
+      if (detail.id !== context.problemId) throw new Error("题目版本与当前题目不匹配");
+      problem.value = detail;
+    } else if (context.versionId) {
+      const locked = await api.problemVersion(context.versionId);
+      if (locked.id !== context.problemId) throw new Error("题目版本与当前题目不匹配");
       problem.value = locked;
     } else {
-      const current = await api.problem(String(route.params.id));
-      const bookmarked = bookmarkedVersionId();
-      if (bookmarked && bookmarked !== current.versionId) {
-        try {
-          const previous = await api.problemVersion(bookmarked);
-          if (previous.id !== current.id) throw new Error("本地保存的版本不属于当前题目");
-          problem.value = previous;
-          latestVersion.value = current;
-          resumedPreviousVersion.value = true;
-        } catch {
-          problem.value = current;
-          saveVersionBookmark(current.versionId);
-        }
-      } else {
-        problem.value = current;
-      }
+      problem.value = await api.problem(context.problemId);
     }
     saveVersionBookmark(problem.value.versionId);
     runInputs.value = problem.value.samples.length ? problem.value.samples.map((sample) => sample.input) : [""];
@@ -939,6 +981,7 @@ async function loadProblem(): Promise<void> {
   } catch (error) {
     loadingError.value = error instanceof Error ? error.message : "题目加载失败";
     toast.error(loadingError.value);
+    if (workspaceContext.value.kind !== "problem") await router.replace("/problems");
   } finally {
     loading.value = false;
   }
@@ -1005,6 +1048,7 @@ watchEffect(() => {
   workspaceToolbar.timedAttemptStatus = timedAttemptStatus.value;
   workspaceToolbar.timedAttemptRemainingSeconds = timedAttemptRemainingSeconds.value;
   workspaceToolbar.timedAttemptActionLoading = timedAttemptActionLoading.value;
+  workspaceToolbar.contestRemainingSeconds = contestRemainingSeconds.value;
   workspaceToolbar.run = runSamples;
   workspaceToolbar.submit = submit;
   workspaceToolbar.pauseTimedAttempt = () => changeTimedAttemptState("pause");
@@ -1041,10 +1085,11 @@ watch(() => [session.user?.id, problem.value?.versionId], () => {
   }
 });
 watch(() => [
-  String(route.params.id),
-  typeof route.query.versionId === "string" ? route.query.versionId : "",
-  typeof route.query.contestId === "string" ? route.query.contestId : "",
-  typeof route.query.timedPaperAttemptId === "string" ? route.query.timedPaperAttemptId : "",
+  workspaceContext.value.kind,
+  workspaceContext.value.problemId,
+  workspaceContext.value.versionId ?? "",
+  workspaceContext.value.kind === "contest" ? workspaceContext.value.contestId : "",
+  workspaceContext.value.kind === "timed-paper" ? workspaceContext.value.timedPaperAttemptId : "",
 ], (next, previous) => {
   if (previous && next.join("/") !== previous.join("/")) void loadProblem();
 });

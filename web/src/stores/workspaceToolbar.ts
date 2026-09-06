@@ -19,6 +19,8 @@ export interface WorkspaceToolbarState {
   timedAttemptRemainingSeconds: number;
   /** 个人计时状态操作是否正在请求后端。 */
   timedAttemptActionLoading: boolean;
+  /** 训练赛剩余时间（秒）；普通题库和个人套卷为空。 */
+  contestRemainingSeconds?: number;
   /** 返回题库回调。 */
   back?: () => void | Promise<void>;
   /** 执行公开测试的回调。 */
@@ -54,6 +56,7 @@ export const workspaceToolbar = reactive<WorkspaceToolbarState>({
   coolingDown: false,
   timedAttemptRemainingSeconds: 0,
   timedAttemptActionLoading: false,
+  contestRemainingSeconds: undefined,
   problemListOpen: false,
   canPreviousProblem: false,
   canNextProblem: false,
@@ -69,6 +72,7 @@ export function resetWorkspaceToolbar(): void {
   workspaceToolbar.timedAttemptStatus = undefined;
   workspaceToolbar.timedAttemptRemainingSeconds = 0;
   workspaceToolbar.timedAttemptActionLoading = false;
+  workspaceToolbar.contestRemainingSeconds = undefined;
   workspaceToolbar.back = undefined;
   workspaceToolbar.run = undefined;
   workspaceToolbar.submit = undefined;

@@ -145,7 +145,7 @@ export const api = {
       headers: { "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify(body),
     }),
-  run: (body: { problemId: string; problemVersionId: string; language: JudgeLanguage; sourceCode: string; inputs: string[]; expectedOutputs: string[]; timedPaperAttemptId?: string }) =>
+  run: (body: { problemId: string; problemVersionId: string; language: JudgeLanguage; sourceCode: string; inputs: string[]; expectedOutputs: string[]; contestId?: string; timedPaperAttemptId?: string }) =>
     request<Submission>("/api/v1/runs", {
       method: "POST",
       headers: { "Idempotency-Key": crypto.randomUUID() },

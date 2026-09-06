@@ -4,12 +4,6 @@ plugins {
     id("io.spring.dependency-management")
 }
 
-dependencyManagement {
-    imports {
-        mavenBom("org.springframework.ai:spring-ai-bom:" + rootProject.extra["springAiVersion"])
-    }
-}
-
 dependencies {
     implementation(project(":shared"))
     implementation("org.springframework.boot:spring-boot-starter-actuator")
@@ -24,8 +18,6 @@ dependencies {
     implementation("tools.jackson.module:jackson-module-kotlin")
     implementation("org.bouncycastle:bcprov-jdk18on:1.82")
     implementation("org.apache.commons:commons-csv:1.14.1")
-    implementation("org.springframework.ai:spring-ai-starter-model-openai")
-    implementation("org.springframework.ai:spring-ai-starter-model-deepseek")
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0")
     runtimeOnly("org.postgresql:postgresql")
 

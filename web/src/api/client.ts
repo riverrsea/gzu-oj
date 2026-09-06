@@ -206,16 +206,16 @@ export const api = {
   updateDraftProblem: (versionId: string, body: unknown) => request<CreatedProblemVersion>("/api/v1/admin/problems/versions/" + versionId, { method: "PUT", body: JSON.stringify(body) }),
   publishDraft: (versionId: string) => request<CreatedProblemVersion>("/api/v1/admin/problems/versions/" + versionId + "/publish", { method: "POST" }),
   startAiRun: (problemVersionId: string, testCaseCount: number, autoPublish = false, sampleCount = 0) =>
-    request<AiRun>("/api/v1/admin/ai-runs", {
+    request<AiRun>("/api/v1/admin/test-generation-runs", {
       method: "POST",
       body: JSON.stringify({ problemVersionId, testCaseCount, autoPublish, sampleCount }),
     }),
   /** 查询单次 AI 录题流程的最新状态。 */
-  aiRun: (runId: string) => request<AiRun>("/api/v1/admin/ai-runs/" + runId),
+  aiRun: (runId: string) => request<AiRun>("/api/v1/admin/test-generation-runs/" + runId),
   /** 按题目草稿恢复当前 AI 运行；没有运行时返回空响应。 */
-  activeAiRun: (problemVersionId: string) => request<AiRun | undefined>("/api/v1/admin/ai-runs/by-version/" + problemVersionId),
+  activeAiRun: (problemVersionId: string) => request<AiRun | undefined>("/api/v1/admin/test-generation-runs/by-version/" + problemVersionId),
   /** 取消草稿上的当前 AI 运行。 */
-  cancelAiRun: (runId: string) => request<AiRun>("/api/v1/admin/ai-runs/" + runId + "/cancel", { method: "POST" }),
+  cancelAiRun: (runId: string) => request<AiRun>("/api/v1/admin/test-generation-runs/" + runId + "/cancel", { method: "POST" }),
   createWorker: (body: { name: string; slots: number; aiSlots: number }) =>
     request<CreatedWorker>("/api/v1/admin/workers", { method: "POST", body: JSON.stringify(body) }),
 };

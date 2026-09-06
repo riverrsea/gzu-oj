@@ -7,21 +7,20 @@ import org.springframework.boot.context.properties.bind.Bindable
 import org.springframework.boot.context.properties.bind.Binder
 import org.springframework.mock.env.MockEnvironment
 
-/** 验证环境变量中的聊天服务商名称可以绑定到受支持的 Spring AI 模型。 */
+/** 验证独立 Python Agent 连接配置可以从环境变量绑定。 */
 class AiPropertiesTest {
     @ParameterizedTest
-    @CsvSource(
-        "none,NONE",
-        "openai,OPENAI",
-        "deepseek,DEEPSEEK",
-    )
-    fun `binds supported chat provider`(value: String, expected: AiChatProvider) {
-        val environment = MockEnvironment().withProperty("gzu-oj.ai.provider", value)
+    @CsvSource("http://agent:8090,secret-token")
+    fun `binds agent endpoint`(url: String, token: String) {
+        val environment = MockEnvironment()
+            .withProperty("gzu-oj.ai.agent-base-url", url)
+            .withProperty("gzu-oj.ai.agent-internal-token", token)
 
         val properties = Binder.get(environment)
             .bind("gzu-oj.ai", Bindable.of(AiProperties::class.java))
             .orElseThrow { IllegalStateException("AI 服务商配置绑定失败") }
 
-        assertEquals(expected, properties.provider)
+        assertEquals(url, properties.agentBaseUrl)
+        assertEquals(token, properties.agentInternalToken)
     }
 }

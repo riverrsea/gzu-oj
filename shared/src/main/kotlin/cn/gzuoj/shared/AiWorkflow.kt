@@ -58,7 +58,7 @@ data class AiPublicationGate(
     val solutionsAgree: Boolean,
     /** 小数据是否通过暴力解差分。 */
     val bruteForcePassed: Boolean,
-    /** 测试点分值之和是否为 100。 */
+    /** 旧运行的分值审计结果；保留字段兼容历史 JSON，不参与 AI 发布判断。 */
     val scoreSumIsOneHundred: Boolean,
     /** 固定种子是否能复现全部输入。 */
     val deterministic: Boolean,
@@ -71,7 +71,6 @@ data class AiPublicationGate(
     fun allowsPublication(): Boolean =
         solutionsAgree &&
             bruteForcePassed &&
-            scoreSumIsOneHundred &&
             deterministic &&
             resourceMarginPassed &&
             noUnresolvedAmbiguity

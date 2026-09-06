@@ -101,6 +101,15 @@ object AiWorkflow {
         require(canTransition(from, to)) { "非法 AI 状态转换：$from -> $to" }
     }
 
+    /** 差分失败后的定向修复只允许回到测试生成阶段。 */
+    fun canRepair(from: AiWorkflowState, to: AiWorkflowState): Boolean =
+        from == AiWorkflowState.DIFFERENTIAL_TESTING && to == AiWorkflowState.GENERATING_TESTS
+
+    /** 校验一次差分修复状态回退。 */
+    fun requireRepair(from: AiWorkflowState, to: AiWorkflowState) {
+        require(canRepair(from, to)) { "非法 AI 修复状态转换：$from -> $to" }
+    }
+
     /** 将题目准入标记和运行小状态映射为前端时间线使用的大状态。 */
     fun majorState(state: AiWorkflowState, publicationGatePassed: Boolean = false): AiMajorState = when (state) {
         // DRAFT 仅用于题目准入展示，不会成为新 AI 运行的小状态。

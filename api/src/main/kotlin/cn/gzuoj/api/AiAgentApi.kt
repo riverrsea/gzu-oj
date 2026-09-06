@@ -20,6 +20,8 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 import tools.jackson.databind.ObjectMapper
 import java.util.UUID
+import cn.gzuoj.shared.AiWorkflow
+import cn.gzuoj.shared.AiWorkflowState
 
 /** Python Agent 回传的模型无关进度事件。 */
 data class AiAgentEventRequest(
@@ -75,37 +77,6 @@ data class AiAgentSandboxResultRequest(
     val failureReason: String? = null,
 )
 
-/** Python Agent 的回调客户端；网络失败不回滚 Worker 已接受的结果。 */
-@Component
-class AiAgentNotifier(
-    /** Agent 地址和认证配置。 */
-    private val properties: AppProperties,
-) {
-    /** 回调 LangGraph，重复回调由 Python 以 eventId/runId/round 去重。 */
-    fun sandboxResult(runId: UUID, jobId: UUID, repairRound: Int, status: String, reason: String?) {
-        runCatching {
-            RestClient.builder()
-                .baseUrl(properties.ai.agentBaseUrl)
-                .defaultHeader("Authorization", "Bearer ${properties.ai.agentInternalToken}")
-                .build()
-                .post()
-                .uri("/internal/v1/runs/{runId}/sandbox-results", runId)
-                .body(
-                    AiAgentSandboxResultRequest(
-                        eventId = UUID.nameUUIDFromBytes("sandbox:$jobId:$repairRound:$status".toByteArray()),
-                        runId = runId,
-                        sandboxJobId = jobId,
-                        repairRound = repairRound,
-                        status = status,
-                        failureReason = reason,
-                    )
-                )
-                .retrieve()
-                .toBodilessEntity()
-        }
-    }
-}
-
 /** Python Agent 内部回调接口；仅接受配置的 Bearer Token。 */
 @RestController
 @RequestMapping("/internal/agent/v1")
@@ -125,13 +96,49 @@ class AiAgentController(
         @Valid @RequestBody body: AiAgentEventRequest,
     ) {
         authenticate(authorization)
-        jdbc.update(
+        val inserted = jdbc.update(
             """
             INSERT INTO ai_agent_event(event_id, run_id, stage, status, message, repair_round)
             VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(event_id) DO NOTHING
             """.trimIndent(),
             body.eventId, body.runId, body.stage.take(64), body.status.take(32), body.message.take(2_000), body.repairRound,
+        )
+        if (inserted == 1) advanceState(body)
+    }
+
+    /** 将 Agent 阶段投影到 Kotlin 状态机；乱序或重复事件不会回退状态。 */
+    private fun advanceState(event: AiAgentEventRequest) {
+        val target = when (event.stage) {
+            "ANALYZING" -> AiWorkflowState.ANALYZING
+            "GENERATING_SOLUTIONS" -> AiWorkflowState.GENERATING_SOLUTIONS
+            "TEST_DESIGN", "ADVERSARIAL_REVIEW" -> AiWorkflowState.REVIEWING
+            "GENERATING_ARTIFACTS" -> AiWorkflowState.GENERATING_TESTS
+            "SANDBOX" -> AiWorkflowState.DIFFERENTIAL_TESTING
+            else -> return
+        }
+        val current = jdbc.query(
+            "SELECT state FROM ai_problem_run WHERE id = ? FOR UPDATE",
+            { result, _ -> AiWorkflowState.valueOf(result.getString("state")) },
+            event.runId,
+        ).firstOrNull() ?: return
+        if (current == target || !AiWorkflow.canTransition(current, target)) return
+        jdbc.update(
+            "UPDATE ai_problem_run SET state = ?, updated_at = now() WHERE id = ?",
+            target.name,
+            event.runId,
+        )
+        jdbc.update(
+            """
+            INSERT INTO ai_problem_state_history(id, run_id, from_state, to_state, major_state, message)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """.trimIndent(),
+            UUID.randomUUID(),
+            event.runId,
+            current.name,
+            target.name,
+            AiWorkflow.majorState(target).name,
+            event.message.take(2_000),
         )
     }
 
@@ -205,43 +212,73 @@ class AiAgentDispatcher(
     /** Agent 地址和认证配置。 */
     private val properties: AppProperties,
 ) {
+    /** 待派发的持久化消息。 */
+    private data class OutboxRow(
+        /** 消息标识。 */
+        val id: UUID,
+        /** AI 运行标识。 */
+        val runId: UUID,
+        /** 消息类型。 */
+        val eventType: String,
+        /** 消息 JSON；启动和取消事件为空对象。 */
+        val payload: String,
+    )
+
     /** 扫描持久化 outbox，网络失败时保留待重试状态。 */
     @Scheduled(fixedDelayString = "\${gzu-oj.ai.dispatch-delay-ms:2000}")
     fun dispatch() {
         val row = jdbc.query(
-            "SELECT id, run_id FROM ai_agent_outbox WHERE event_type = 'START_RUN' AND status = 'PENDING' AND available_at <= now() ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1",
-            { result, _ -> result.getObject("id", UUID::class.java) to result.getObject("run_id", UUID::class.java) },
+            "SELECT id, run_id, event_type, payload::text FROM ai_agent_outbox WHERE status = 'PENDING' AND available_at <= now() ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1",
+            { result, _ ->
+                OutboxRow(
+                    id = result.getObject("id", UUID::class.java),
+                    runId = result.getObject("run_id", UUID::class.java),
+                    eventType = result.getString("event_type"),
+                    payload = result.getString("payload"),
+                )
+            },
         ).firstOrNull() ?: return
         try {
-            val payload = jdbc.query(
-                """
-                SELECT r.id AS run_id, r.problem_version_id, r.repair_round, r.requested_test_case_count,
-                       pv.statement_markdown, pv.time_limit_ms, pv.memory_limit_mib
-                FROM ai_problem_run r JOIN problem_version pv ON pv.id = r.problem_version_id WHERE r.id = ?
-                """.trimIndent(),
-                { result, _ ->
-                    mapOf(
-                        "runId" to result.getObject("run_id", UUID::class.java),
-                        "problemVersionId" to result.getObject("problem_version_id", UUID::class.java),
-                        "statementMarkdown" to result.getString("statement_markdown"),
-                        "testCaseCount" to result.getInt("requested_test_case_count"),
-                        "timeLimitMs" to result.getInt("time_limit_ms"),
-                        "memoryLimitMiB" to result.getInt("memory_limit_mib"),
-                        "repairRound" to result.getInt("repair_round"),
-                    )
-                },
-                row.second,
-            ).firstOrNull() ?: return
-            RestClient.builder()
+            val client = RestClient.builder()
                 .baseUrl(properties.ai.agentBaseUrl)
                 .defaultHeader("Authorization", "Bearer ${properties.ai.agentInternalToken}")
                 .build()
-                .post().uri("/internal/v1/runs").body(payload).retrieve().toBodilessEntity()
-            jdbc.update("UPDATE ai_agent_outbox SET status = 'SENT', sent_at = now(), attempts = attempts + 1 WHERE id = ?", row.first)
+            when (row.eventType) {
+                "START_RUN" -> {
+                    val payload = jdbc.query(
+                        """
+                        SELECT r.id AS run_id, r.problem_version_id, r.repair_round, r.requested_test_case_count,
+                               pv.statement_markdown, pv.time_limit_ms, pv.memory_limit_mib
+                        FROM ai_problem_run r JOIN problem_version pv ON pv.id = r.problem_version_id WHERE r.id = ?
+                        """.trimIndent(),
+                        { result, _ ->
+                            mapOf(
+                                "runId" to result.getObject("run_id", UUID::class.java),
+                                "problemVersionId" to result.getObject("problem_version_id", UUID::class.java),
+                                "statementMarkdown" to result.getString("statement_markdown"),
+                                "testCaseCount" to result.getInt("requested_test_case_count"),
+                                "timeLimitMs" to result.getInt("time_limit_ms"),
+                                "memoryLimitMiB" to result.getInt("memory_limit_mib"),
+                                "repairRound" to result.getInt("repair_round"),
+                            )
+                        },
+                        row.runId,
+                    ).firstOrNull() ?: return
+                    client.post().uri("/internal/v1/runs").body(payload).retrieve().toBodilessEntity()
+                }
+                "CANCEL_RUN" -> client.post().uri("/internal/v1/runs/{runId}/cancel", row.runId)
+                    .retrieve().toBodilessEntity()
+                "SANDBOX_RESULT" -> client.post()
+                    .uri("/internal/v1/runs/{runId}/sandbox-results", row.runId)
+                    .body(mapper.readTree(row.payload))
+                    .retrieve().toBodilessEntity()
+                else -> throw IllegalStateException("不支持的 Agent outbox 事件：${row.eventType}")
+            }
+            jdbc.update("UPDATE ai_agent_outbox SET status = 'SENT', sent_at = now(), attempts = attempts + 1 WHERE id = ?", row.id)
         } catch (failure: Exception) {
             jdbc.update(
                 "UPDATE ai_agent_outbox SET attempts = attempts + 1, available_at = now() + interval '10 seconds', last_error = ? WHERE id = ?",
-                failure.message?.take(2_000), row.first,
+                failure.message?.take(2_000), row.id,
             )
         }
     }

@@ -139,8 +139,6 @@ class AiSandboxQueue(
     private val properties: AppProperties,
     /** AI 状态机和测试点落库服务。 */
     private val runs: AiRunService,
-    /** Python Agent 回调客户端。 */
-    private val notifier: AiAgentNotifier,
 ) {
     /** 领取一份低优先级 AI 沙箱任务并立即提交租约事务。 */
     @Transactional
@@ -250,10 +248,11 @@ class AiSandboxQueue(
         }
         when (completion.status) {
             AiSandboxCompletionStatus.PASSED -> runs.acceptSandboxResult(jobId, job.runId, job.payload, completion, verified)
-            AiSandboxCompletionStatus.VALIDATION_FAILED -> runs.failSandboxValidation(
-                job.runId,
-                completion.failureReason ?: "AI 生成数据未通过差分门禁",
-            )
+            AiSandboxCompletionStatus.VALIDATION_FAILED -> {
+                val reason = completion.failureReason ?: "AI 生成数据未通过差分门禁"
+                if (job.repairRound < 2) runs.prepareSandboxRepair(job.runId, reason)
+                else runs.failSandboxValidation(job.runId, reason)
+            }
             AiSandboxCompletionStatus.SYSTEM_ERROR -> runs.failSandboxValidation(
                 job.runId,
                 "AI 沙箱基础设施连续失败：${completion.failureReason ?: "未知错误"}",
@@ -269,12 +268,25 @@ class AiSandboxQueue(
             completion.failureReason?.take(2_000),
             jobId,
         )
-        notifier.sandboxResult(
-            runId = job.runId,
-            jobId = jobId,
-            repairRound = job.repairRound,
-            status = completion.status.name,
-            reason = completion.failureReason,
+        // 结果通知写入 outbox，Agent 不可用时由调度器重试，避免丢失 interrupt 恢复信号。
+        jdbc.update(
+            """
+            INSERT INTO ai_agent_outbox(idempotency_key, event_type, run_id, payload)
+            VALUES (?, 'SANDBOX_RESULT', ?, ?::jsonb)
+            ON CONFLICT(idempotency_key) DO NOTHING
+            """.trimIndent(),
+            "sandbox-result:$jobId:${completion.status.name}",
+            job.runId,
+            mapper.writeValueAsString(
+                AiAgentSandboxResultRequest(
+                    eventId = UUID.nameUUIDFromBytes("sandbox:$jobId:${job.repairRound}:${completion.status.name}".toByteArray()),
+                    runId = job.runId,
+                    sandboxJobId = jobId,
+                    repairRound = job.repairRound,
+                    status = completion.status.name,
+                    failureReason = completion.failureReason,
+                )
+            ),
         )
         return CompleteLeaseResponse(accepted = true, requeued = false)
     }

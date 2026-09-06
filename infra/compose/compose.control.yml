@@ -17,6 +17,23 @@ services:
       retries: 20
     networks: [control]
 
+  # Agent 检查点使用独立数据库，避免 LangGraph 表与 OJ 业务表混用。
+  agent-database:
+    image: postgres:18.4-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${GZU_OJ_AGENT_DB_NAME:-gzu_oj_agent}
+      POSTGRES_USER: ${GZU_OJ_AGENT_DB_USER:-gzu_oj_agent}
+      POSTGRES_PASSWORD: ${GZU_OJ_AGENT_DB_PASSWORD:?请设置 Agent 数据库密码}
+    volumes:
+      - agent-postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [control]
+
   api:
     build:
       context: ../..
@@ -45,18 +62,45 @@ services:
       GZU_OJ_MAIL_TIMEOUT_MS: ${GZU_OJ_MAIL_TIMEOUT_MS:-10000}
       GZU_OJ_MAIL_WRITE_TIMEOUT_MS: ${GZU_OJ_MAIL_WRITE_TIMEOUT_MS:-10000}
       GZU_OJ_SUBMISSION_COOLDOWN_MS: ${GZU_OJ_SUBMISSION_COOLDOWN_MS:-1000}
-      GZU_OJ_AI_ENABLED: ${GZU_OJ_AI_ENABLED:-false}
-      GZU_OJ_AI_CHAT_PROVIDER: ${GZU_OJ_AI_CHAT_PROVIDER:-none}
-      GZU_OJ_AI_BASE_URL: ${GZU_OJ_AI_BASE_URL:-http://127.0.0.1:11434/v1}
-      GZU_OJ_AI_API_KEY: ${GZU_OJ_AI_API_KEY:-}
-      GZU_OJ_AI_MODEL: ${GZU_OJ_AI_MODEL:-gpt-4.1-mini}
-      GZU_OJ_AI_MAX_COST_MICROUNITS: ${GZU_OJ_AI_MAX_COST_MICROUNITS:-1000000}
+      GZU_OJ_AGENT_BASE_URL: http://ai-agent:8090
+      GZU_OJ_AGENT_INTERNAL_TOKEN: ${GZU_OJ_AGENT_INTERNAL_TOKEN:?请设置 Agent 内部 Token}
     volumes:
       - artifact-data:/data/artifacts
     depends_on:
       database:
         condition: service_healthy
+      ai-agent:
+        condition: service_started
     expose: ["8080"]
+    networks: [control]
+
+  ai-agent:
+    build:
+      context: ../..
+      dockerfile: infra/docker/ai-agent.Dockerfile
+    restart: unless-stopped
+    environment:
+      LLM_BASE_URL: ${GZU_OJ_AGENT_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      LLM_API_KEY: ${GZU_OJ_AGENT_LLM_API_KEY:-ollama}
+      LLM_MODEL: ${GZU_OJ_AGENT_LLM_MODEL:-qwen2.5}
+      LLM_STRUCTURED_OUTPUT_MODE: ${GZU_OJ_AGENT_LLM_STRUCTURED_OUTPUT_MODE:-json_schema}
+      LLM_TIMEOUT_SECONDS: ${GZU_OJ_AGENT_LLM_TIMEOUT_SECONDS:-120}
+      LLM_MAX_RETRIES: ${GZU_OJ_AGENT_LLM_MAX_RETRIES:-2}
+      LLM_MAX_CONCURRENT: ${GZU_OJ_AGENT_LLM_MAX_CONCURRENT:-1}
+      AGENT_DATABASE_URL: postgresql://${GZU_OJ_AGENT_DB_USER:-gzu_oj_agent}:${GZU_OJ_AGENT_DB_PASSWORD:?请设置 Agent 数据库密码}@agent-database:5432/${GZU_OJ_AGENT_DB_NAME:-gzu_oj_agent}
+      KOTLIN_API_BASE_URL: http://api:8080
+      AGENT_INTERNAL_TOKEN: ${GZU_OJ_AGENT_INTERNAL_TOKEN:?请设置 Agent 内部 Token}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      agent-database:
+        condition: service_healthy
+    expose: ["8090"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health/live')"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
     networks: [control]
 
   caddy:
@@ -81,6 +125,7 @@ networks:
 
 volumes:
   postgres-data:
+  agent-postgres-data:
   artifact-data:
   caddy-data:
   caddy-config:

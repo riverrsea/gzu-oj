@@ -5,6 +5,7 @@
 ```text
 浏览器 -> Caddy/HTTPS -> Vue + API -> PostgreSQL
                                    -> LocalArtifactStore
+                                   -> Python AI Agent -> Agent PostgreSQL
 
 独立 WSL Worker --出站 HTTPS/任务租约--> API
 独立 WSL Worker -> 内部 REST -> go-judge -> cgroup v2 沙箱
@@ -28,6 +29,6 @@ Worker 启动前真实探测 cgroup v2 的 CPU、memory 和 pids 控制器，并
 
 ## AI 边界
 
-Spring AI 只是 Provider 抽象。业务状态机、角色、审计、费用和发布门禁均由站点控制，不依赖供应商的原生 sub-agent API。每步保存模型、提示词版本、结构化输出、源码、种子、哈希、费用和错误。
+Python Agent 负责模型调用、Prompt、结构化输出和 LangGraph 检查点；Kotlin API 不引入模型 SDK，也不读取 Agent 数据库。API 只通过带 Bearer Token 的内部接口传递题面快照、进度事件和沙箱结果。每步保存模型、提示词版本、结构化输出、源码、种子、哈希、费用和错误。
 
 状态从 `DRAFT` 依次进入分析、双标程、审查、测试生成、差分和验证；任何一步可进入人工处理、失败或取消。AI 数据始终标记为“练习数据，非官方原始数据”。

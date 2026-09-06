@@ -2,7 +2,7 @@
 
 ## 控制端
 
-公网 2 核 2 GB 主机默认只运行 `compose.control.yml`：PostgreSQL、API、Caddy 和静态前端。先复制 `.env.example`，设置域名、数据库强密码，并将 `GZU_OJ_SECURE_COOKIE=true`。
+公网 2 核 2 GB 主机默认只运行 `compose.control.yml`：业务 PostgreSQL、Agent 检查点 PostgreSQL、Python Agent、API、Caddy 和静态前端。先复制 `.env.example`，设置域名、两套数据库强密码、Agent Token，并将 `GZU_OJ_SECURE_COOKIE=true`。
 
 ```bash
 set -a

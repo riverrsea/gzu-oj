@@ -1,10 +1,11 @@
+import json
 from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
 
 from gzu_oj_agent.graph import Workflow, sandbox_payload
-from gzu_oj_agent.models import ArtifactResult, SandboxResult, SandboxStatus, SolutionResult
+from gzu_oj_agent.models import ArtifactResult, SandboxResult, SandboxStatus, SolutionResult, StartRunRequest
 
 
 def base_state() -> dict:
@@ -44,6 +45,14 @@ def test_sandbox_payload_contains_only_validated_sources() -> None:
     assert payload.seeds == [11, 12]
     assert payload.brute_force_case_count == 2
     assert payload.solution_a_source == "int main(){}"
+
+
+def test_kotlin_memory_limit_alias_round_trips() -> None:
+    state = base_state()
+    request = StartRunRequest.model_validate_json(json.dumps(state["request"]))
+    wire = request.model_dump(mode="json", by_alias=True)
+    assert wire["memoryLimitMiB"] == 256
+    assert "memoryLimitMib" not in wire
 
 
 def test_validation_failure_routes_to_at_most_two_repairs() -> None:

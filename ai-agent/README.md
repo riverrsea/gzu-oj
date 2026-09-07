@@ -40,6 +40,18 @@ curl -X POST http://127.0.0.1:8080/api/v1/admin/test-generation-runs \
 
 运行状态通过 `GET /api/v1/admin/test-generation-runs/{runId}` 查询。只有 Worker 返回确定性复现、双标程一致、暴力差分和资源门禁全部通过后，测试点与标准答案源码才会在同一事务中写入数据库。
 
+### Agent 无法请求 API
+
+Agent 到 Kotlin 是服务间 `httpx` 请求，不受浏览器 CORS 限制。若日志出现 401/403，优先检查以下配置：
+
+```bash
+curl http://127.0.0.1:8090/health/live
+curl -i http://127.0.0.1:8080/internal/agent/v1/runs/00000000-0000-0000-0000-000000000000/cancel-ack \
+  -H "Authorization: Bearer $GZU_OJ_AGENT_INTERNAL_TOKEN"
+```
+
+第二个请求返回 204 而不是 401，说明请求已经到达 API 且令牌正确；401 表示令牌不一致。容器模式下 Agent 必须使用 `KOTLIN_API_BASE_URL=http://api:8080`，本地进程模式才使用 `http://127.0.0.1:8080`。内部 Agent 路径已在 API 中绕过 CSRF，但仍由控制器严格校验 Bearer Token。
+
 ## 容器启动
 
 控制端 Compose 会同时启动 `agent-database` 和 `ai-agent`。复制根目录 `.env.example` 为 `.env`，至少修改业务库密码、Agent 数据库密码、Agent Token，并确保 `GZU_OJ_AGENT_LLM_*` 指向可访问的模型服务：

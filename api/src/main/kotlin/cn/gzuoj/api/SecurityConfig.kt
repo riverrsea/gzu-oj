@@ -108,12 +108,13 @@ class SecurityConfig {
         }
         // 同源 JSON 客户端通过响应体取得令牌并放入请求头，统一使用未掩码的原始令牌契约。
         val csrfRequestHandler = CsrfTokenRequestAttributeHandler()
-
         http
             .csrf {
                 it.csrfTokenRepository(csrfRepository)
                     .csrfTokenRequestHandler(csrfRequestHandler)
                     .ignoringRequestMatchers("/internal/worker/v1/**")
+                    // Python Agent 使用服务间 Bearer Token，不具备浏览器 CSRF Cookie。
+                    .ignoringRequestMatchers("/internal/agent/v1/**")
             }
             .authorizeHttpRequests {
                 it.requestMatchers(
@@ -122,7 +123,10 @@ class SecurityConfig {
                     "/api/v1/problems/**",
                     "/api/v1/shares/**",
                     "/v3/api-docs/**",
+                    "/swagger-ui/**",
                     "/internal/worker/v1/**",
+                    // Agent 端点在控制器内使用独立 Bearer Token 鉴权，不走浏览器会话和 CSRF。
+                    "/internal/agent/v1/**",
                     "/actuator/health/**",
                 ).permitAll()
                 it.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")

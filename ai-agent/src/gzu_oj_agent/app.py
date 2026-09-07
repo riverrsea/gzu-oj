@@ -117,6 +117,9 @@ def create_app(settings: Settings | None = None, runtime: AgentRuntime | None = 
         snapshot = await current.graph.aget_state(current.config(run_id))
         if not snapshot.values:
             raise HTTPException(status_code=404, detail="run checkpoint not found")
+        if snapshot.values.get("canceled") is True:
+            # 取消与 Worker 结算并发时，取消优先，旧沙箱结果不能重新唤醒图。
+            return Response(status_code=status.HTTP_202_ACCEPTED)
         expected_round = int(snapshot.values.get("repair_round", 0))
         if body.repair_round != expected_round:
             raise HTTPException(status_code=409, detail="stale repair round")

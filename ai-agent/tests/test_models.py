@@ -55,6 +55,12 @@ def test_kotlin_memory_limit_alias_round_trips() -> None:
     assert "memoryLimitMib" not in wire
 
 
+def test_fastapi_dict_validation_accepts_kotlin_uuid_strings() -> None:
+    state = base_state()
+    request = StartRunRequest.model_validate(state["request"])
+    assert str(request.run_id) == state["request"]["run_id"]
+
+
 def test_validation_failure_routes_to_at_most_two_repairs() -> None:
     state = base_state()
     state["sandbox_result"] = SandboxResult(

@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClient
+import org.springframework.http.client.SimpleClientHttpRequestFactory
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -240,6 +241,12 @@ class AiAgentDispatcher(
         ).firstOrNull() ?: return
         try {
             val client = RestClient.builder()
+                .requestFactory(SimpleClientHttpRequestFactory().apply {
+                    val timeout = (properties.ai.agentTimeoutSeconds.coerceAtLeast(1) * 1_000L)
+                        .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                    setConnectTimeout(timeout)
+                    setReadTimeout(timeout)
+                })
                 .baseUrl(properties.ai.agentBaseUrl)
                 .defaultHeader("Authorization", "Bearer ${properties.ai.agentInternalToken}")
                 .build()
@@ -277,7 +284,14 @@ class AiAgentDispatcher(
             jdbc.update("UPDATE ai_agent_outbox SET status = 'SENT', sent_at = now(), attempts = attempts + 1 WHERE id = ?", row.id)
         } catch (failure: Exception) {
             jdbc.update(
-                "UPDATE ai_agent_outbox SET attempts = attempts + 1, available_at = now() + interval '10 seconds', last_error = ? WHERE id = ?",
+                """
+                UPDATE ai_agent_outbox
+                SET attempts = LEAST(attempts + 1, 20),
+                    status = CASE WHEN attempts >= 19 THEN 'FAILED' ELSE status END,
+                    available_at = now() + interval '10 seconds',
+                    last_error = ?
+                WHERE id = ?
+                """.trimIndent(),
                 failure.message?.take(2_000), row.id,
             )
         }

@@ -17,3 +17,8 @@
   + style: 不影响代码运行的格式调整
 + postgresql 可使用本机的服务。用户为 `riversea` 该用户具有创建数据库的权限，但不是超管。密码为 `1`(仅unix socket连接需要提供)，tcp/ip 连接不需要。也可以使用docker容器启动一个新的 postgresql 容器
 + 添加适合的中文注释，为某些步骤提供注释。配置，字段，函数，类等添加全量的中文注释
++ 不要写入例如下面这样的描述性冗余文字：
+  + 人: 包括男人和女人
+  + 花：这是一个植物
++ gradle 使用 `/home/riversea/.sdkman/candidates/gradle/9.6.1/bin/gradle`
++ python 的包管理使用uv，已经添加进 `path`, 直接使用即可

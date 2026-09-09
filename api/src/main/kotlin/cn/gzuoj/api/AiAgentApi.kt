@@ -244,6 +244,13 @@ class AiAgentController(
                 id, run_id, role, state, model, prompt_version, response_json,
                 content_sha256, cost_microunits, failure_reason, finished_at, ordinal
             ) VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, now(), ?)
+            ON CONFLICT (run_id, role) DO UPDATE SET
+                state = EXCLUDED.state,
+                response_json = EXCLUDED.response_json,
+                content_sha256 = EXCLUDED.content_sha256,
+                cost_microunits = EXCLUDED.cost_microunits,
+                failure_reason = EXCLUDED.failure_reason,
+                finished_at = now()
             """.trimIndent(),
             UUID.randomUUID(), runId, body.role.take(64), body.state.take(32), meta.first, meta.second,
             mapper.writeValueAsString(body.response), contentSha256, body.costMicrounits,

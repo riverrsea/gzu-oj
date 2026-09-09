@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { Bot, CheckCircle2, LoaderCircle, RefreshCw, X, XCircle } from "@lucide/vue";
-import { toast } from "../lib/notify";
 import { formatChinaDateTime } from "../lib/time";
 import type { AiMajorState, AiRun, AiStepResponse } from "../api/types";
 import UiAlert from "./ui/Alert.vue";
+import UiBadge from "./ui/Badge.vue";
 import UiButton from "./ui/Button.vue";
+import UiCard from "./ui/Card.vue";
 import UiCheckbox from "./ui/Checkbox.vue";
+import UiInput from "./ui/Input.vue";
 import UiLabel from "./ui/Label.vue";
 import UiNumberField from "./ui/NumberField.vue";
-import UiTextarea from "./ui/Textarea.vue";
 
 /** 页面时间线中的正常大状态顺序。 */
 const majorStages: AiMajorState[] = [
@@ -47,22 +48,37 @@ const minorLabels: Record<string, string> = {
   FAILED: "流程失败",
   CANCELED: "流程已取消",
 };
+
+/** Agent 角色顺序与中文标签。 */
+const roleOrder = ["analyze", "solutions", "design", "review", "artifacts"] as const;
 const roleLabels: Record<string, string> = {
-  STATEMENT_ANALYST: "题意分析",
-  SOLUTION_A: "标程 A",
-  SOLUTION_B: "标程 B",
-  TEST_DESIGNER: "测试设计",
-  ADVERSARIAL_REVIEWER: "对抗审查",
-  GENERATOR: "测试生成器",
-  BRUTE_FORCE: "暴力校验",
+  analyze: "题意分析",
+  solutions: "标程生成",
+  design: "测试设计",
+  review: "对抗审查",
+  artifacts: "生成器",
+};
+
+/** 步骤返回字段的展示标签。 */
+const fieldLabels: Record<string, string> = {
+  summary: "题意概述",
+  constraints: "约束",
+  ambiguities: "歧义",
+  findings: "审查发现",
+  testPlan: "测试计划",
+  seeds: "固定种子",
+  sourceCode: "候选标程",
+  generatorSource: "生成器源码",
+  validatorSource: "校验器源码",
+  bruteForceSource: "暴力解源码",
+  source_code: "源码",
+  solution_a: "标程 A",
+  solution_b: "标程 B",
 };
 
 const props = defineProps<{
-  /** 是否显示遮罩。 */
   open: boolean;
-  /** 当前 AI 运行；没有运行时为 null。 */
   run: AiRun | null;
-  /** 启动/取消/刷新等操作的加载态。 */
   loading?: boolean;
 }>();
 const emit = defineEmits<{
@@ -112,48 +128,73 @@ watch(run, (value) => {
   }
 });
 
-/** 人工接管修改区的预填内容。 */
-const correction = ref("{}");
+/** 当前正在执行的步骤角色（由运行小状态推断，仅用于运行中提示）。 */
+const currentRole = computed(() => {
+  const state = run.value?.state;
+  if (state === "ANALYZING") return "analyze";
+  if (state === "GENERATING_SOLUTIONS") return "solutions";
+  if (state === "REVIEWING") return "review";
+  if (state === "GENERATING_TESTS") return "artifacts";
+  return null;
+});
+/** 运行是否处于活动状态（非终态且非人工接管）。 */
+const running = computed(() => Boolean(run.value && !isTerminal.value && run.value.state !== "NEEDS_REVIEW"));
 
-/** 预填修改内容时最相关的失败步骤（优先匹配失败阶段，否则取最新一步）。 */
-function failedStep(): AiStepResponse | undefined {
-  const target = run.value?.resumeTarget;
-  if (target && steps.value.length) {
-    const match = [...steps.value].reverse().find((step) => step.state === target);
-    if (match) return match;
-  }
-  return steps.value.length ? steps.value[steps.value.length - 1] : undefined;
+/** 每个角色按 role 取最新一条返回（UPSERT 后通常只有一条）。 */
+function stepForRole(role: string): AiStepResponse | undefined {
+  return steps.value.find((step) => step.role === role);
 }
+const stepTabs = computed(() =>
+  roleOrder.map((role) => ({ role, label: roleLabels[role] ?? role, step: stepForRole(role) })),
+);
+/** 当前选中的步骤角色。 */
+const selectedRole = ref<string>("analyze");
+watch(
+  () => steps.value.length,
+  () => {
+    const last = steps.value.length ? steps.value[steps.value.length - 1] : undefined;
+    if (last) selectedRole.value = last.role;
+  },
+);
+const selectedStep = computed(() => stepTabs.value.find((tab) => tab.role === selectedRole.value)?.step ?? null);
 
-/** 用失败步骤的模型返回预填修改区。 */
-function prefillCorrection(): void {
-  const step = failedStep();
-  if (!step) {
-    correction.value = "{}";
-    return;
-  }
-  if (step.rawResponse) {
-    try {
-      correction.value = JSON.stringify(JSON.parse(step.rawResponse), null, 2);
-      return;
-    } catch {
-      correction.value = step.rawResponse;
-      return;
+/** 是否正在重新执行当前选中的步骤角色。 */
+const selectedRunning = computed(() => running.value && currentRole.value === selectedRole.value);
+
+/** 把一条步骤的结构化返回展开成便于结构化展示的条目。 */
+interface DisplayItem {
+  label: string;
+  kind: "text" | "list" | "code" | "scalar";
+  value: string | string[];
+}
+function isCodeKey(key: string): boolean {
+  return /source|code/i.test(key);
+}
+function fieldLabel(key: string): string {
+  return fieldLabels[key] ?? key;
+}
+function flattenResponse(obj: Record<string, unknown>, prefix = ""): DisplayItem[] {
+  const items: DisplayItem[] = [];
+  for (const [key, value] of Object.entries(obj)) {
+    const label = prefix ? `${prefix} · ${fieldLabel(key)}` : fieldLabel(key);
+    if (typeof value === "string") {
+      items.push({ label, kind: isCodeKey(key) ? "code" : "text", value });
+    } else if (Array.isArray(value)) {
+      items.push({ label, kind: "list", value: value.map(String) });
+    } else if (value && typeof value === "object") {
+      items.push(...flattenResponse(value as Record<string, unknown>, label));
+    } else if (value !== null && value !== undefined) {
+      items.push({ label, kind: "scalar", value: String(value) });
     }
   }
-  if (step.response) {
-    correction.value = JSON.stringify(step.response, null, 2);
-    return;
-  }
-  correction.value = "{}";
+  return items;
+}
+function responseItems(step: AiStepResponse | null): DisplayItem[] {
+  if (!step?.response) return [];
+  return flattenResponse(step.response as unknown as Record<string, unknown>);
 }
 
-// 进入可恢复的人工接管状态时预填修改区。
-watch(resumeAction, (action) => {
-  if (action) prefillCorrection();
-});
-
-/** 步骤点状态：完成/进行中/等待。 */
+/** 进度步骤点状态。 */
 function stepState(stage: AiMajorState): string {
   const stageIndex = majorStages.indexOf(stage);
   if (stageIndex < currentIndex.value) return "done";
@@ -161,34 +202,24 @@ function stepState(stage: AiMajorState): string {
   return "pending";
 }
 
-/** 将原始模型 JSON 格式化，便于排查结构化解析问题。 */
-function formatAiResponse(step: AiStepResponse): string {
-  if (!step.rawResponse) return step.response ? JSON.stringify(step.response, null, 2) : "模型没有返回内容";
-  try {
-    return JSON.stringify(JSON.parse(step.rawResponse), null, 2);
-  } catch {
-    return step.rawResponse;
-  }
+/** 步骤 tab 状态。 */
+function tabState(tab: { role: string; step?: AiStepResponse | undefined }): string {
+  if (running.value && currentRole.value === tab.role) return "running";
+  if (tab.step) return tab.step.failureReason ? "failed" : "done";
+  return "pending";
 }
 
 function submitStart(): void {
   emit("start", { testCaseCount: testCaseCount.value, autoPublish: autoPublish.value, sampleCount: sampleCount.value });
 }
 
+/** 人工澄清说明，普通输入框，提交时包装为 { note }。 */
+const clarification = ref("");
 function submitResume(): void {
   const action = resumeAction.value;
   if (!action) return;
-  let parsed: unknown = {};
-  const text = correction.value.trim();
-  if (text) {
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      toast.error("修改内容不是合法 JSON，请检查格式");
-      return;
-    }
-  }
-  emit("resume", { action, correction: parsed });
+  const note = clarification.value.trim() || "已澄清";
+  emit("resume", { action, correction: { note } });
 }
 
 // 点击遮罩背景：仅人工接管时允许关闭。
@@ -210,18 +241,16 @@ function onBackdrop(): void {
           </div>
         </header>
 
-        <!-- 有运行：状态 + 进度 + 结果 -->
         <template v-if="run">
           <div class="ai-overlay-status">
             <span class="ai-overlay-state">
               {{ majorLabels[run.majorState] }}<template v-if="run.majorState !== run.state"> · {{ minorLabels[run.state] ?? run.state }}</template>
-              <LoaderCircle v-if="!isTerminal && run.state !== 'NEEDS_REVIEW'" class="ai-overlay-spin" :size="15" />
+              <LoaderCircle v-if="running" class="ai-overlay-spin" :size="15" />
             </span>
             <UiAlert v-if="['NEEDS_REVIEW', 'FAILED', 'CANCELED'].includes(run.state)" :variant="run.state === 'NEEDS_REVIEW' ? 'warning' : 'error'" :title="run.failureReason || majorLabels[run.majorState]" />
             <UiAlert v-if="run.state === 'VALIDATING' && !run.autoPublish" variant="success" title="差分已通过，请在下方确认测试点与公开样例后保存/发布。" />
           </div>
 
-          <!-- 进度条 + 步骤点 -->
           <div class="ai-progress">
             <div class="ai-progress-track">
               <template v-for="(stage, i) in majorStages" :key="stage">
@@ -243,50 +272,70 @@ function onBackdrop(): void {
             <header class="ai-overlay-section-head"><strong>生成的测试点</strong><span>{{ generatedTestCases.length }} / {{ run.requestedTestCaseCount }} 个</span></header>
             <p v-if="generatedTestCases.length === 0" class="ai-overlay-empty">尚未生成通过校验的测试点。</p>
             <div v-else class="ai-case-list">
-              <details v-for="tc in generatedTestCases" :key="tc.ordinal" class="ai-overlay-item">
+              <details v-for="tc in generatedTestCases" :key="tc.ordinal" class="ai-overlay-item" :open="tc.sample">
                 <summary><strong>测试点 {{ tc.ordinal }}</strong><small>种子 {{ tc.seed }} · {{ tc.score }} 分<template v-if="tc.sample"> · 公开样例</template></small></summary>
                 <div class="ai-overlay-item-cols"><div><strong>输入</strong><pre>{{ tc.input }}</pre></div><div><strong>标准输出</strong><pre>{{ tc.output }}</pre></div></div>
               </details>
             </div>
           </section>
 
-          <!-- Agent 各角色返回：按角色分开，不挤在一起 -->
+          <!-- Agent 各角色返回：点切换，单步展示 -->
           <section class="ai-overlay-section">
-            <header class="ai-overlay-section-head"><strong>Agent 步骤返回</strong><span>{{ steps.length }} 步</span></header>
-            <p v-if="steps.length === 0" class="ai-overlay-empty">还没有收到 Agent 返回；如果流程失败，请查看上方错误原因。</p>
-            <div v-else class="ai-step-list">
-              <details v-for="(step, index) in steps" :key="step.id" class="ai-overlay-item ai-step-card" :open="index === steps.length - 1">
-                <summary>
-                  <span><strong>{{ roleLabels[step.role] ?? step.role }}</strong><small>{{ minorLabels[step.state] ?? step.state }}</small></span>
-                  <time v-if="step.finishedAt">{{ formatChinaDateTime(step.finishedAt, { dateStyle: "medium", timeStyle: "short" }) }}</time>
-                </summary>
-                <div class="ai-step-body">
-                  <p v-if="step.response?.summary" class="ai-step-summary">{{ step.response.summary }}</p>
-                  <div v-if="step.response?.ambiguities?.length" class="ai-response-box ai-response-box--warning"><strong>题意歧义</strong><ul><li v-for="item in step.response.ambiguities" :key="item">{{ item }}</li></ul></div>
-                  <div v-if="step.response?.findings?.length" class="ai-response-box ai-response-box--warning"><strong>审查发现</strong><ul><li v-for="item in step.response.findings" :key="item">{{ item }}</li></ul></div>
-                  <div v-if="step.response?.testPlan?.length" class="ai-response-box"><strong>测试计划</strong><ul><li v-for="item in step.response.testPlan" :key="item">{{ item }}</li></ul></div>
-                  <div v-if="step.response?.seeds?.length" class="ai-response-box"><strong>固定种子</strong><span>{{ step.response.seeds.join(", ") }}</span></div>
-                  <div v-if="step.response?.sourceCode" class="ai-response-box"><strong>候选标程</strong><pre class="ai-response-code">{{ step.response.sourceCode }}</pre></div>
-                  <div v-if="step.response?.generatorSource" class="ai-response-box"><strong>生成器源码</strong><pre class="ai-response-code">{{ step.response.generatorSource }}</pre></div>
-                  <div v-if="step.response?.validatorSource" class="ai-response-box"><strong>校验器源码</strong><pre class="ai-response-code">{{ step.response.validatorSource }}</pre></div>
-                  <p v-if="step.rawResponse && !step.response" class="ai-response-error">返回没有匹配预期结构，已保留原始模型内容。</p>
-                  <p v-else-if="!step.rawResponse" class="ai-response-error">该步骤没有写入模型返回。</p>
-                  <p v-if="step.failureReason" class="ai-response-error">{{ step.failureReason }}</p>
-                  <details v-if="step.rawResponse" class="ai-response-raw"><summary>查看原始模型返回</summary><pre>{{ formatAiResponse(step) }}</pre></details>
-                  <small v-if="step.contentSha256" class="ai-response-hash">返回哈希：{{ step.contentSha256 }}</small>
-                </div>
-              </details>
+            <header class="ai-overlay-section-head"><strong>Agent 步骤返回</strong><span>点击切换对应步骤</span></header>
+            <div class="ai-step-tabs">
+              <button
+                v-for="tab in stepTabs"
+                :key="tab.role"
+                type="button"
+                :class="['ai-step-tab', `ai-step-tab--${tabState(tab)}`, { 'ai-step-tab--active': selectedRole === tab.role }]"
+                @click="selectedRole = tab.role"
+              >
+                <LoaderCircle v-if="tabState(tab) === 'running'" :size="12" class="ai-step-tab-spin" />
+                <CheckCircle2 v-else-if="tabState(tab) === 'done'" :size="13" />
+                <XCircle v-else-if="tabState(tab) === 'failed'" :size="13" />
+                <span>{{ tab.label }}</span>
+              </button>
             </div>
+
+            <UiCard class="ai-step-detail">
+              <template v-if="selectedRunning">
+                <div class="ai-step-waiting"><LoaderCircle :size="18" class="ai-overlay-spin" /><strong>正在执行「{{ selectedStep ? stepTabs.find((t) => t.role === selectedRole)?.label : roleLabels[selectedRole] ?? selectedRole }}」</strong><span>该步骤正在重新运行，完成后将显示最新返回。</span></div>
+              </template>
+              <template v-else-if="selectedStep">
+                <div class="ai-step-detail-head">
+                  <strong>{{ stepTabs.find((t) => t.role === selectedRole)?.label ?? selectedRole }}</strong>
+                  <UiBadge variant="outline">{{ minorLabels[selectedStep.state] ?? selectedStep.state }}</UiBadge>
+                  <time v-if="selectedStep.finishedAt">{{ formatChinaDateTime(selectedStep.finishedAt, { dateStyle: "medium", timeStyle: "short" }) }}</time>
+                </div>
+                <div v-if="responseItems(selectedStep).length === 0" class="ai-overlay-empty">该步骤没有可展示的结构化返回。</div>
+                <div v-else class="ai-step-fields">
+                  <div v-for="item in responseItems(selectedStep)" :key="item.label" class="ai-step-field" :class="{ 'ai-step-field--warning': item.label.includes('歧义') || item.label.includes('审查') }">
+                    <span class="ai-step-label">{{ item.label }}</span>
+                    <template v-if="item.kind === 'code'"><pre class="ai-step-code">{{ item.value }}</pre></template>
+                    <ul v-else-if="item.kind === 'list'"><li v-for="v in item.value" :key="v">{{ v }}</li></ul>
+                    <p v-else-if="item.kind === 'text'">{{ item.value }}</p>
+                    <span v-else>{{ item.value }}</span>
+                  </div>
+                </div>
+                <p v-if="selectedStep.failureReason" class="ai-response-error">{{ selectedStep.failureReason }}</p>
+                <details v-if="selectedStep.rawResponse" class="ai-step-raw"><summary>查看原始模型返回</summary><pre>{{ selectedStep.rawResponse }}</pre></details>
+                <small v-if="selectedStep.contentSha256" class="ai-response-hash">返回哈希：{{ selectedStep.contentSha256 }}</small>
+              </template>
+              <div v-else class="ai-overlay-empty">该步骤尚未执行。</div>
+            </UiCard>
           </section>
 
-          <!-- 人工接管：修改模型返回并恢复 -->
+          <!-- 人工接管：输入澄清说明并恢复 -->
           <section v-if="run.state === 'NEEDS_REVIEW'" class="ai-overlay-section ai-overlay-resume">
-            <header class="ai-overlay-section-head"><strong>人工接管：修改模型返回并恢复</strong></header>
-            <p v-if="resumeAction" class="ai-overlay-hint">当前失败阶段：<code>{{ run.resumeTarget }}</code>（{{ resumeAction === "reanalyze" ? "重新分析题意" : "重新对抗审查" }}）。下方已预填失败步骤的模型返回，可直接修改后回传重跑。</p>
+            <header class="ai-overlay-section-head"><strong>人工接管：补充澄清并恢复</strong></header>
+            <p v-if="resumeAction" class="ai-overlay-hint">
+              当前失败阶段：<code>{{ run.resumeTarget }}</code>（{{ resumeAction === "reanalyze" ? "重新分析题意" : "重新对抗审查" }}）。
+              填写澄清说明后，会把内容作为上下文回传给 Agent 重新执行对应节点。
+            </p>
             <p v-else class="ai-overlay-hint ai-overlay-hint--blocked">当前失败阶段不支持自动恢复（通常为沙箱校验或基础设施连续失败），需人工处理后重新启动。</p>
             <template v-if="resumeAction">
-              <div class="form-field"><UiLabel>修改后的结构化内容（JSON）</UiLabel><UiTextarea v-model="correction" :rows="8" /></div>
-              <div class="ai-overlay-actions"><UiButton type="button" :loading="loading" @click="submitResume"><Bot :size="16" />保存修改并恢复</UiButton></div>
+              <div class="form-field"><UiLabel>澄清说明</UiLabel><UiInput v-model="clarification" placeholder="例如：d=0 时输出应为 0；数字无需前缀零" /></div>
+              <div class="ai-overlay-actions"><UiButton type="button" :loading="loading" @click="submitResume"><Bot :size="16" />保存并恢复</UiButton></div>
             </template>
           </section>
 
@@ -298,7 +347,6 @@ function onBackdrop(): void {
           </footer>
         </template>
 
-        <!-- 没有运行：启动配置 -->
         <template v-else>
           <section class="ai-overlay-start">
             <header class="ai-overlay-section-head"><strong>生成测试点</strong><span>配置本次 AI 流程</span></header>
@@ -480,8 +528,7 @@ function onBackdrop(): void {
   background: var(--surface-2, #f3f4f6);
   border-radius: 0.5rem;
 }
-.ai-case-list,
-.ai-step-list {
+.ai-case-list {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -516,8 +563,8 @@ function onBackdrop(): void {
   margin-top: 0.5rem;
 }
 .ai-overlay-item-cols pre,
-.ai-response-code,
-.ai-response-raw pre {
+.ai-step-code,
+.ai-step-raw pre {
   margin: 0.25rem 0 0;
   padding: 0.5rem;
   background: var(--surface-2, #f3f4f6);
@@ -528,24 +575,87 @@ function onBackdrop(): void {
   max-height: 12rem;
   overflow: auto;
 }
-.ai-step-body {
-  margin-top: 0.5rem;
+.ai-step-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
 }
-.ai-step-summary {
-  font-size: 0.85rem;
-  margin-bottom: 0.5rem;
+.ai-step-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.7rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-1, #e5e7eb);
+  background: var(--surface-1, #fff);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-2, #6b7280);
+  cursor: pointer;
 }
-.ai-response-box {
-  margin: 0.5rem 0;
+.ai-step-tab--active {
+  border-color: transparent;
+  background: var(--brand, #2563eb);
+  color: #fff;
 }
-.ai-response-box strong {
-  font-size: 0.75rem;
+.ai-step-tab--done {
+  color: var(--success, #16a34a);
+}
+.ai-step-tab--failed {
+  color: var(--danger, #dc2626);
+}
+.ai-step-tab--pending {
+  opacity: 0.55;
+}
+.ai-step-tab-spin {
+  animation: ai-spin 1s linear infinite;
+}
+.ai-step-detail {
+  padding: 0.9rem 1rem;
+}
+.ai-step-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+  flex-wrap: wrap;
+}
+.ai-step-detail-head time {
+  margin-left: auto;
+  font-size: 0.72rem;
   color: var(--text-2, #6b7280);
 }
-.ai-response-box--warning strong {
+.ai-step-waiting {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  color: var(--text-2, #6b7280);
+}
+.ai-step-waiting strong {
+  color: var(--text-1, #111827);
+}
+.ai-step-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.ai-step-field {
+  border-top: 1px solid var(--border-1, #e5e7eb);
+  padding-top: 0.5rem;
+}
+.ai-step-field--warning .ai-step-label {
   color: var(--warning, #d97706);
 }
-.ai-response-box ul {
+.ai-step-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-2, #6b7280);
+  margin-bottom: 0.2rem;
+}
+.ai-step-field ul {
   margin: 0.25rem 0 0;
   padding-left: 1.1rem;
 }
@@ -558,10 +668,10 @@ function onBackdrop(): void {
   color: var(--text-2, #6b7280);
   font-size: 0.7rem;
 }
-.ai-response-raw {
+.ai-step-raw {
   margin-top: 0.5rem;
 }
-.ai-response-raw summary {
+.ai-step-raw summary {
   cursor: pointer;
   font-size: 0.75rem;
   color: var(--text-2, #6b7280);

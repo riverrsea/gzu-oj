@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
+import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import java.util.UUID
 import cn.gzuoj.shared.AiWorkflow
@@ -60,6 +61,25 @@ data class AiAgentFailureRequest(
     /** 可审计的失败原因。 */
     @field:NotBlank
     val reason: String,
+    /** 可恢复的失败阶段目标；为空表示该失败不可人工恢复。 */
+    val resumeTarget: String? = null,
+)
+
+/** Agent 回传的单个角色结构化响应，用于管理员审计与人工接管。 */
+data class AiAgentStepRequest(
+    /** 执行角色。 */
+    @field:NotBlank
+    val role: String,
+    /** 对应的小状态名，如 ANALYZING、REVIEWING。 */
+    @field:NotBlank
+    val state: String,
+    /** 模型返回的结构化响应 JSON。 */
+    val response: JsonNode,
+    /** 本步骤失败原因；为空表示成功。 */
+    val failureReason: String? = null,
+    /** 本次模型调用费用微单位。 */
+    @field:Min(0)
+    val costMicrounits: Long = 0,
 )
 
 /** Worker 结算后通知 Python LangGraph 恢复 interrupt 的最小回调。 */
@@ -178,9 +198,68 @@ class AiAgentController(
         @Valid @RequestBody body: AiAgentFailureRequest,
     ) {
         authenticate(authorization)
+        val current = jdbc.query(
+            "SELECT state FROM ai_problem_run WHERE id = ? FOR UPDATE",
+            { result, _ -> AiWorkflowState.valueOf(result.getString("state")) },
+            runId,
+        ).firstOrNull() ?: return
+        if (current == AiWorkflowState.PUBLISHED || current == AiWorkflowState.CANCELED) return
         jdbc.update(
-            "UPDATE ai_problem_run SET state = 'NEEDS_REVIEW', failure_reason = ?, updated_at = now() WHERE id = ? AND state NOT IN ('PUBLISHED', 'CANCELED')",
-            body.reason.take(2_000), runId,
+            """
+            UPDATE ai_problem_run
+            SET state = 'NEEDS_REVIEW', failure_reason = ?, resume_target = ?, updated_at = now()
+            WHERE id = ? AND state NOT IN ('PUBLISHED', 'CANCELED')
+            """.trimIndent(),
+            body.reason.take(2_000),
+            body.resumeTarget?.take(32),
+            runId,
+        )
+        // 仅首次进入待审查时追加一条时间线，避免重复失败覆盖历史。
+        if (current != AiWorkflowState.NEEDS_REVIEW) recordFailureHistory(runId, current, body.reason)
+    }
+
+    /** 持久化 Agent 单个角色的结构化响应供管理员审计与人工接管。 */
+    @PostMapping("/runs/{runId}/steps")
+    @Transactional
+    fun recordStep(
+        @RequestHeader(HttpHeaders.AUTHORIZATION, required = false) authorization: String?,
+        @PathVariable runId: UUID,
+        @Valid @RequestBody body: AiAgentStepRequest,
+    ) {
+        authenticate(authorization)
+        val meta = jdbc.query(
+            "SELECT model, prompt_version FROM ai_problem_run WHERE id = ?",
+            { result, _ -> result.getString("model") to result.getString("prompt_version") },
+            runId,
+        ).firstOrNull() ?: throw ApiException(HttpStatus.NOT_FOUND, "AI_RUN_NOT_FOUND", "AI 运行不存在")
+        val ordinal = jdbc.queryForObject(
+            "SELECT COALESCE(MAX(ordinal), 0) + 1 FROM ai_problem_step WHERE run_id = ?",
+            Int::class.java,
+            runId,
+        ) ?: 1
+        val contentSha256 = SecureValues.sha256(mapper.writeValueAsBytes(body.response))
+        jdbc.update(
+            """
+            INSERT INTO ai_problem_step(
+                id, run_id, role, state, model, prompt_version, response_json,
+                content_sha256, cost_microunits, failure_reason, finished_at, ordinal
+            ) VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, now(), ?)
+            """.trimIndent(),
+            UUID.randomUUID(), runId, body.role.take(64), body.state.take(32), meta.first, meta.second,
+            mapper.writeValueAsString(body.response), contentSha256, body.costMicrounits,
+            body.failureReason?.take(2_000), ordinal,
+        )
+    }
+
+    /** 追加一条进入人工接管的失败时间线。 */
+    private fun recordFailureHistory(runId: UUID, from: AiWorkflowState, reason: String) {
+        jdbc.update(
+            """
+            INSERT INTO ai_problem_state_history(id, run_id, from_state, to_state, major_state, message)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """.trimIndent(),
+            UUID.randomUUID(), runId, from.name, AiWorkflowState.NEEDS_REVIEW.name,
+            AiWorkflow.majorState(AiWorkflowState.NEEDS_REVIEW).name, reason.take(2_000),
         )
     }
 
@@ -277,6 +356,10 @@ class AiAgentDispatcher(
                     .retrieve().toBodilessEntity()
                 "SANDBOX_RESULT" -> client.post()
                     .uri("/internal/v1/runs/{runId}/sandbox-results", row.runId)
+                    .body(mapper.readTree(row.payload))
+                    .retrieve().toBodilessEntity()
+                "RESUME_RUN" -> client.post()
+                    .uri("/internal/v1/runs/{runId}/resume", row.runId)
                     .body(mapper.readTree(row.payload))
                     .retrieve().toBodilessEntity()
                 else -> throw IllegalStateException("不支持的 Agent outbox 事件：${row.eventType}")

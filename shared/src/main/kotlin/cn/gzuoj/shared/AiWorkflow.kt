@@ -110,6 +110,16 @@ object AiWorkflow {
         require(canRepair(from, to)) { "非法 AI 修复状态转换：$from -> $to" }
     }
 
+    /** 人工接管恢复只允许回到先前失败的题意分析或对抗审查阶段。 */
+    fun canResume(from: AiWorkflowState, to: AiWorkflowState): Boolean =
+        from == AiWorkflowState.NEEDS_REVIEW &&
+            (to == AiWorkflowState.ANALYZING || to == AiWorkflowState.REVIEWING)
+
+    /** 校验一次人工接管恢复的合法性。 */
+    fun requireResume(from: AiWorkflowState, to: AiWorkflowState) {
+        require(canResume(from, to)) { "非法 AI 人工接管恢复转换：$from -> $to" }
+    }
+
     /** 将题目准入标记和运行小状态映射为前端时间线使用的大状态。 */
     fun majorState(state: AiWorkflowState, publicationGatePassed: Boolean = false): AiMajorState = when (state) {
         // DRAFT 仅用于题目准入展示，不会成为新 AI 运行的小状态。

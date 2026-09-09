@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
+import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -44,6 +45,15 @@ data class StartAiRunRequest(
     @field:Min(0)
     @field:Max(200)
     val sampleCount: Int = 0,
+)
+
+/** 管理员对到达 fail 节点、处于人工接管的运行发起恢复。 */
+data class ResumeAiRunRequest(
+    /** 恢复动作：reanalyze 对应题意分析重跑，rereview 对应对抗审查重跑。 */
+    @field:NotBlank
+    val action: String,
+    /** 人工 review 后回传给 Agent、作为重新生成上下文的结构化澄清内容。 */
+    val correction: JsonNode? = null,
 )
 
 /** 差分与资源校验的可审计证据。 */
@@ -98,6 +108,8 @@ data class AiRunResponse(
     val costMicrounits: Long,
     /** 失败或人工处理原因。 */
     val failureReason: String?,
+    /** 处于人工接管时可恢复的失败阶段；为空表示不可人工恢复。 */
+    val resumeTarget: AiWorkflowState? = null,
     /** 已完成的固定角色。 */
     val completedRoles: List<String>,
     /** 已持久化的 Agent 返回，供管理员排查每一步的结果。 */
@@ -200,6 +212,8 @@ private data class AiRunRecord(
     val costMicrounits: Long,
     /** 失败原因。 */
     val failureReason: String?,
+    /** 可恢复的失败阶段目标。 */
+    val resumeTarget: AiWorkflowState?,
     /** 发布门禁 JSON。 */
     val publicationGate: String?,
     /** 创建时间。 */
@@ -498,6 +512,57 @@ class AiRunService(
         return get(runId)
     }
 
+    /** 人工接管后恢复指定的失败阶段，回传澄清内容并唤醒 Agent 重新执行。 */
+    @Transactional
+    fun resume(runId: UUID, request: ResumeAiRunRequest): AiRunResponse {
+        val target = resumeTarget(request.action)
+        val row = jdbc.query(
+            "SELECT state, resume_target FROM ai_problem_run WHERE id = ? FOR UPDATE",
+            { result, _ -> result.getString("state") to result.getString("resume_target") },
+            runId,
+        ).firstOrNull() ?: throw ApiException(HttpStatus.NOT_FOUND, "AI_RUN_NOT_FOUND", "AI 运行不存在")
+        val current = AiWorkflowState.valueOf(row.first)
+        if (current != AiWorkflowState.NEEDS_REVIEW) {
+            throw ApiException(HttpStatus.CONFLICT, "AI_RUN_NOT_NEEDS_REVIEW", "只有处于人工接管的运行可以恢复")
+        }
+        if (row.second != target.name) {
+            throw ApiException(HttpStatus.CONFLICT, "AI_RESUME_TARGET_MISMATCH", "恢复动作与失败阶段不一致")
+        }
+        AiWorkflow.requireResume(current, target)
+        val correctionNode = request.correction?.takeIf { !it.isNull } ?: mapper.createObjectNode()
+        jdbc.update(
+            """
+            UPDATE ai_problem_run
+            SET state = ?, resume_target = NULL, human_correction = ?::jsonb, failure_reason = NULL,
+                next_run_at = now(), coordinator_lease = NULL, coordinator_lease_expires_at = NULL,
+                updated_at = now()
+            WHERE id = ?
+            """.trimIndent(),
+            target.name,
+            mapper.writeValueAsString(correctionNode),
+            runId,
+        )
+        jdbc.update(
+            """
+            INSERT INTO ai_agent_outbox(idempotency_key, event_type, run_id, payload)
+            VALUES (?, 'RESUME_RUN', ?, ?::jsonb)
+            ON CONFLICT(idempotency_key) DO NOTHING
+            """.trimIndent(),
+            "resume:$runId:${target.name}:${UUID.randomUUID()}",
+            runId,
+            mapper.writeValueAsString(mapOf("action" to request.action, "correction" to correctionNode)),
+        )
+        recordStateTransition(runId, AiWorkflowState.NEEDS_REVIEW, target, "管理员已修复，重新执行题意分析或对抗审查")
+        return get(runId)
+    }
+
+    /** 将管理员恢复动作映射到需要重新执行的阶段小状态。 */
+    private fun resumeTarget(action: String): AiWorkflowState = when (action) {
+        "reanalyze" -> AiWorkflowState.ANALYZING
+        "rereview" -> AiWorkflowState.REVIEWING
+        else -> throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_RESUME_ACTION", "不支持的恢复动作：$action")
+    }
+
     /** 读取运行及已完成角色，不返回密钥或完整提示词。 */
     fun get(runId: UUID): AiRunResponse {
         val steps = loadSteps(runId)
@@ -506,7 +571,7 @@ class AiRunService(
             """
             SELECT id, problem_version_id, state, repair_round, requested_test_case_count, auto_publish,
                    requested_sample_count, model, prompt_version,
-                   cost_microunits, failure_reason, publication_gate::text, created_at
+                   cost_microunits, failure_reason, resume_target, publication_gate::text, created_at
             FROM ai_problem_run WHERE id = ?
             """.trimIndent(),
             { result, _ ->
@@ -522,6 +587,7 @@ class AiRunService(
                     promptVersion = result.getString("prompt_version"),
                     costMicrounits = result.getLong("cost_microunits"),
                     failureReason = result.getString("failure_reason"),
+                    resumeTarget = result.getString("resume_target")?.let { AiWorkflowState.valueOf(it) },
                     publicationGate = result.getString("publication_gate"),
                     createdAt = result.getTimestamp("created_at").toInstant(),
                 )
@@ -542,6 +608,7 @@ class AiRunService(
             promptVersion = row.promptVersion,
             costMicrounits = row.costMicrounits,
             failureReason = row.failureReason,
+            resumeTarget = row.resumeTarget,
             completedRoles = completed,
             steps = steps,
             history = loadHistory(runId).ifEmpty {
@@ -749,4 +816,11 @@ class AdminAiRunController(
     /** 取消尚未结束的 AI 流程。 */
     @PostMapping("/{runId}/cancel")
     fun cancel(@PathVariable runId: UUID): AiRunResponse = service.cancel(runId)
+
+    /** 人工接管后恢复指定的失败阶段并回传给 Agent 重新执行。 */
+    @PostMapping("/{runId}/resume")
+    fun resume(
+        @PathVariable runId: UUID,
+        @Valid @RequestBody body: ResumeAiRunRequest,
+    ): AiRunResponse = service.resume(runId, body)
 }

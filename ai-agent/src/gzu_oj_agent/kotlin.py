@@ -1,11 +1,13 @@
 """Python Agent 到 Kotlin API 的内部 HTTP 边界。"""
 
+import sys
+from typing import Any
 from uuid import UUID
 
 import httpx
 
 from .config import Settings
-from .models import ProgressEvent, SandboxTask
+from .models import ProgressEvent, SandboxTask, StepRecord
 
 
 class KotlinClient:
@@ -35,12 +37,40 @@ class KotlinClient:
         response.raise_for_status()
         return UUID(response.json()["sandboxJobId"])
 
-    async def fail(self, run_id: UUID, reason: str) -> None:
-        """通知 Kotlin 进入人工接管。"""
+    async def fail(self, run_id: UUID, reason: str, resume_target: str | None = None) -> None:
+        """通知 Kotlin 进入人工接管；可携带可恢复的失败阶段目标。"""
+        payload: dict[str, Any] = {"reason": reason[:2_000]}
+        if resume_target:
+            payload["resumeTarget"] = resume_target
         response = await self.client.post(
-            f"/internal/agent/v1/runs/{run_id}/fail", json={"reason": reason[:2_000]}
+            f"/internal/agent/v1/runs/{run_id}/fail", json=payload
         )
         response.raise_for_status()
+
+    async def record_step(
+        self,
+        run_id: UUID,
+        role: str,
+        state: str,
+        response: dict[str, Any],
+        failure_reason: str | None = None,
+        cost_microunits: int = 0,
+    ) -> None:
+        """回传单个角色的结构化响应供 Kotlin 审计；失败不应中断主流程。"""
+        try:
+            resp = await self.client.post(
+                f"/internal/agent/v1/runs/{run_id}/steps",
+                json=StepRecord(
+                    role=role,
+                    state=state,
+                    response=response,
+                    failure_reason=failure_reason,
+                    cost_microunits=cost_microunits,
+                ).model_dump(mode="json", by_alias=True),
+            )
+            resp.raise_for_status()
+        except Exception as error:  # 审计步骤属于便利项，失败不阻塞图运行。
+            print(f"record_step failed for run {run_id}: {error}", file=sys.stderr)
 
     async def cancel(self, run_id: UUID) -> None:
         """确认取消通知已被 Agent 接收。"""

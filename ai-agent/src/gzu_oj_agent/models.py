@@ -1,7 +1,7 @@
 """Agent 与 Kotlin API 共用的严格数据模型。"""
 
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BeforeValidator, BaseModel, ConfigDict, Field, field_validator
@@ -144,3 +144,20 @@ class ProgressEvent(StrictModel):
     status: str = Field(min_length=1, max_length=32)
     message: str = Field(min_length=1, max_length=2_000)
     repair_round: int = Field(ge=0, le=2)
+
+
+class StepRecord(StrictModel):
+    """回传给 Kotlin 审计的角色结构化响应。"""
+
+    role: str = Field(min_length=1, max_length=64)
+    state: str = Field(min_length=1, max_length=32)
+    response: dict[str, Any]
+    failure_reason: str | None = Field(default=None, max_length=2_000)
+    cost_microunits: int = Field(default=0, ge=0)
+
+
+class HumanResume(StrictModel):
+    """人工接管后回传给 Agent 的恢复指令。"""
+
+    action: Literal["reanalyze", "rereview"]
+    correction: dict[str, Any] | None = None

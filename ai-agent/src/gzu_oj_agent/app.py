@@ -14,7 +14,7 @@ from .config import Settings
 from .graph import Workflow
 from .kotlin import KotlinClient
 from .llm import ModelClient
-from .models import SandboxResult, StartRunRequest
+from .models import HumanResume, SandboxResult, StartRunRequest
 
 
 class AgentRuntime:
@@ -144,6 +144,24 @@ def create_app(settings: Settings | None = None, runtime: AgentRuntime | None = 
         if snapshot.values:
             await current.graph.aupdate_state(current.config(run_id), {"canceled": True})
         await current.kotlin.cancel(run_id)
+        return Response(status_code=status.HTTP_202_ACCEPTED)
+
+    @app.post(
+        "/internal/v1/runs/{run_id}/resume",
+        status_code=status.HTTP_202_ACCEPTED,
+        dependencies=[Depends(authorize)],
+    )
+    async def resume_run(run_id: UUID, body: HumanResume) -> Response:
+        """唤醒停在人工接管的 fail 节点并按恢复指令重新执行对应节点。"""
+        current: AgentRuntime = app.state.runtime
+        snapshot = await current.graph.aget_state(current.config(run_id))
+        if not snapshot.values:
+            raise HTTPException(status_code=404, detail="run checkpoint not found")
+        if snapshot.values.get("canceled") is True:
+            return Response(status_code=status.HTTP_202_ACCEPTED)
+        if "fail" not in snapshot.next:
+            raise HTTPException(status_code=409, detail="run is not paused at human review")
+        current.run_in_background(run_id, Command(resume=body.model_dump(mode="json")))
         return Response(status_code=status.HTTP_202_ACCEPTED)
 
     return app

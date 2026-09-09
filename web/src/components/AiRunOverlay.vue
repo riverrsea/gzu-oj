@@ -59,21 +59,20 @@ const roleLabels: Record<string, string> = {
   artifacts: "生成器",
 };
 
-/** 步骤返回字段的展示标签。 */
+/** 步骤返回字段的展示标签（Agent 以 model_dump() 回传，键为 snake_case）。 */
 const fieldLabels: Record<string, string> = {
   summary: "题意概述",
   constraints: "约束",
   ambiguities: "歧义",
   findings: "审查发现",
-  testPlan: "测试计划",
+  test_plan: "测试计划",
   seeds: "固定种子",
-  sourceCode: "候选标程",
-  generatorSource: "生成器源码",
-  validatorSource: "校验器源码",
-  bruteForceSource: "暴力解源码",
   source_code: "源码",
   solution_a: "标程 A",
   solution_b: "标程 B",
+  generator_source: "生成器源码",
+  validator_source: "校验器源码",
+  brute_force_source: "暴力解源码",
 };
 
 const props = defineProps<{

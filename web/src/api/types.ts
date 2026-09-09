@@ -322,6 +322,8 @@ export interface AiRun {
   promptVersion: string;
   costMicrounits: number;
   failureReason: string | null;
+  /** 处于人工接管时可恢复的失败阶段小状态；为空表示不可恢复。 */
+  resumeTarget: string | null;
   completedRoles: string[];
   steps: AiStepResponse[];
   history: AiStateHistoryEntry[];

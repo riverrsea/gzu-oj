@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { Bot, RefreshCw } from "@lucide/vue";
 import { toast } from "../lib/notify";
 import { useRoute } from "vue-router";
@@ -54,6 +54,45 @@ function prettyResponse(step: AiStepResponse): string {
   if (step.response) return JSON.stringify(step.response, null, 2);
   return "（无结构化返回）";
 }
+
+/** 预填修改内容时最相关的失败步骤（优先匹配失败阶段，否则取最新一步）。 */
+function failedStep(): AiStepResponse | undefined {
+  const target = run.value?.resumeTarget;
+  const steps = run.value?.steps ?? [];
+  if (target && steps.length) {
+    const match = [...steps].reverse().find((step) => step.state === target);
+    if (match) return match;
+  }
+  return steps.length ? steps[steps.length - 1] : undefined;
+}
+
+/** 用失败步骤的模型返回预填修改区，便于直接编辑结构化内容。 */
+function prefillCorrection(): void {
+  const step = failedStep();
+  if (!step) {
+    correction.value = "{}";
+    return;
+  }
+  if (step.rawResponse) {
+    try {
+      correction.value = JSON.stringify(JSON.parse(step.rawResponse), null, 2);
+      return;
+    } catch {
+      correction.value = step.rawResponse;
+      return;
+    }
+  }
+  if (step.response) {
+    correction.value = JSON.stringify(step.response, null, 2);
+    return;
+  }
+  correction.value = "{}";
+}
+
+// 进入可恢复的人工接管状态时，用失败步骤的模型返回预填修改区。
+watch(resumeAction, (action) => {
+  if (action) prefillCorrection();
+});
 
 /** 启动外部 Python Agent 多角色录题流程。 */
 async function start(): Promise<void> {
@@ -156,7 +195,7 @@ onMounted(async () => {
     <section v-if="run && run.state === 'NEEDS_REVIEW'" class="ai-resume-surface">
       <header><strong>人工接管恢复</strong></header>
       <p v-if="resumeAction" class="ai-resume-hint">
-        当前失败阶段：<code>{{ run.resumeTarget }}</code>（{{ resumeActionLabel }}）。请在下方填写澄清内容，修复后回传给 Agent 重新执行。
+        当前失败阶段：<code>{{ run.resumeTarget }}</code>（{{ resumeActionLabel }}）。下方已预填失败步骤的模型返回，可直接修改其中内容（或补充澄清说明），修改后会作为澄清内容回传给 Agent 重新执行。
       </p>
       <p v-else class="ai-resume-hint ai-resume-hint--blocked">
         该运行处于人工接管，但当前失败阶段不支持自动恢复（通常为沙箱校验或基础设施连续失败），需人工处理后重新启动。

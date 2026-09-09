@@ -72,6 +72,71 @@ const aiCanRestart = computed(() => !aiRun.value || ["NEEDS_REVIEW", "FAILED", "
 const aiSteps = computed(() => aiRun.value?.steps ?? []);
 /** 已通过真实沙箱差分并写入草稿的测试点。 */
 const aiGeneratedTestCases = computed(() => aiRun.value?.generatedTestCases ?? []);
+/** 人工恢复提交状态。 */
+const aiResuming = ref(false);
+/** 人工修改后的结构化内容 JSON 字符串。 */
+const aiCorrection = ref("{}");
+/** 由可恢复失败阶段映射出的恢复动作；不可恢复时为 null。 */
+const aiResumeAction = computed<"reanalyze" | "rereview" | null>(() => {
+  const target = aiRun.value?.resumeTarget;
+  if (target === "ANALYZING") return "reanalyze";
+  if (target === "REVIEWING") return "rereview";
+  return null;
+});
+/** 预填修改内容时最相关的失败步骤（优先匹配失败阶段，否则取最新一步）。 */
+function failedStep(): AiStepResponse | undefined {
+  const target = aiRun.value?.resumeTarget;
+  if (target && aiSteps.value.length) {
+    const match = [...aiSteps.value].reverse().find((step) => step.state === target);
+    if (match) return match;
+  }
+  return aiSteps.value.length ? aiSteps.value[aiSteps.value.length - 1] : undefined;
+}
+/** 用失败步骤的模型返回预填修改区，便于直接编辑结构化内容。 */
+function prefillAiCorrection(): void {
+  const step = failedStep();
+  if (!step) {
+    aiCorrection.value = "{}";
+    return;
+  }
+  if (step.rawResponse) {
+    try {
+      aiCorrection.value = JSON.stringify(JSON.parse(step.rawResponse), null, 2);
+      return;
+    } catch {
+      aiCorrection.value = step.rawResponse;
+      return;
+    }
+  }
+  if (step.response) {
+    aiCorrection.value = JSON.stringify(step.response, null, 2);
+    return;
+  }
+  aiCorrection.value = "{}";
+}
+/** 人工接管：把修改后的结构化内容回传给 Agent 并恢复执行对应失败节点。 */
+async function resumeAi(): Promise<void> {
+  if (!aiRun.value || !aiResumeAction.value || aiLoading.value) return;
+  let parsed: unknown = {};
+  const text = aiCorrection.value.trim();
+  if (text) {
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      toast.error("修改内容不是合法 JSON，请检查格式");
+      return;
+    }
+  }
+  aiResuming.value = true;
+  try {
+    aiRun.value = await api.resumeAiRun(aiRun.value.id, { action: aiResumeAction.value, correction: parsed });
+    toast.success("已把修改内容回传给 Agent，重新执行对应节点");
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "人工恢复失败");
+  } finally {
+    aiResuming.value = false;
+  }
+}
 /** 页面时间线中的正常大状态顺序。 */
 const majorStages: AiMajorState[] = [
   "DRAFT",
@@ -196,6 +261,7 @@ async function loadAiRun(): Promise<void> {
       aiTestCaseCount.value = aiRun.value.requestedTestCaseCount;
       aiAutoPublish.value = aiRun.value.autoPublish;
       aiSampleCount.value = aiRun.value.requestedSampleCount;
+      if (aiRun.value.state === "NEEDS_REVIEW") prefillAiCorrection();
     }
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "AI 状态加载失败");
@@ -211,11 +277,13 @@ async function refreshAi(): Promise<void> {
       ? await api.aiRun(aiRun.value.id)
       : await api.activeAiRun(detail.value.versionId);
     const previousGeneratedCount = aiGeneratedTestCases.value.length;
+    const previousState = aiRun.value?.state;
     aiRun.value = next;
     if (next) {
       aiTestCaseCount.value = next.requestedTestCaseCount;
       aiAutoPublish.value = next.autoPublish;
       aiSampleCount.value = next.requestedSampleCount;
+      if (next.state === "NEEDS_REVIEW" && previousState !== "NEEDS_REVIEW") prefillAiCorrection();
     }
     if (!next || ["PUBLISHED", "FAILED", "CANCELED"].includes(next.state)) detail.value.activeAiRun = false;
     // AI 写入测试点会改变草稿内容哈希；人工接管前重新加载，避免后续保存覆盖新数据。
@@ -415,6 +483,23 @@ onUnmounted(() => {
       </div>
     </section>
 
+    <section v-if="aiRun && aiRun.state === 'NEEDS_REVIEW'" class="ai-response-panel ai-resume-surface">
+      <header class="ai-response-header">
+        <div><h2>人工接管：修改模型返回并恢复</h2></div>
+      </header>
+      <p v-if="aiResumeAction" class="ai-resume-hint">
+        当前失败阶段：<code>{{ aiRun.resumeTarget }}</code>（{{ aiResumeAction === "reanalyze" ? "重新分析题意" : "重新对抗审查" }}）。
+        下方已预填失败步骤的模型返回，可直接修改其中内容（或补充澄清说明），修改后会作为澄清内容回传给 Agent 重新执行对应节点。
+      </p>
+      <p v-else class="ai-resume-hint ai-resume-hint--blocked">
+        该运行处于人工接管，但当前失败阶段不支持自动恢复（通常为沙箱校验或基础设施连续失败），需人工处理后重新启动流程。
+      </p>
+      <template v-if="aiResumeAction">
+        <div class="form-field"><UiLabel>修改后的结构化内容（JSON）</UiLabel><UiTextarea v-model="aiCorrection" :rows="10" /></div>
+        <div class="form-actions"><UiButton type="button" :loading="aiResuming" @click="resumeAi">保存修改并恢复</UiButton></div>
+      </template>
+    </section>
+
     <UiAlert v-if="aiLocked" variant="warning" title="该草稿存在进行中的 AI 流程，内容暂时锁定；流程结束或取消后可继续编辑。" />
     <UiAlert v-else-if="detail && form.testCases.length === 0" variant="info" title="当前草稿还没有测试点；请添加测试点并保存后才能发布。" />
     <form class="problem-form" @submit.prevent="save(false)">
@@ -460,3 +545,21 @@ onUnmounted(() => {
     </form>
   </section>
 </template>
+
+<style scoped>
+.ai-resume-surface {
+  margin-top: 1.25rem;
+}
+.ai-resume-hint {
+  margin: 0.25rem 0 0.75rem;
+  color: var(--text-2, #6b7280);
+}
+.ai-resume-hint code {
+  background: var(--surface-2, #f3f4f6);
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+}
+.ai-resume-hint--blocked {
+  color: var(--danger, #dc2626);
+}
+</style>

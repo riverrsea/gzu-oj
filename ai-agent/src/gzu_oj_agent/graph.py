@@ -23,9 +23,36 @@ from .models import (
     TestDesignResult,
 )
 
-SYSTEM_PROMPT = (
-    "你是 OJ 题目工程 Agent。所有源码必须是完整 GNU C++17 程序并可复现；"
-    "不得猜测标准输出，标准输出只能由 Kotlin 管理的 Worker 沙箱计算。发现题意歧义必须报告。"
+# 通用守则：绝不猜测标准输出、输入与源码必须确定性可复现。
+_NEVER_GUESS_OUTPUT = "不得猜测标准输出：标准输出只能由后续 Worker 沙箱计算。"
+_DETERMINISTIC_SOURCE = "所有源码必须是完整、可编译且确定性可复现的 GNU C++17 程序。"
+
+# 题意分析角色：只归纳题面约束与歧义。
+SYSTEM_ANALYZE = (
+    f"你是 OJ 题目的题意分析者。只分析题面，归纳影响解法选择的数据范围、约束与边界；"
+    f"{_NEVER_GUESS_OUTPUT} 凡题面未明确、又会影响解法的点都应列为歧义，而不是自行推测。"
+)
+
+# 标程生成角色：输出一份正确、高效、可读的标准解法。
+SYSTEM_SOLUTIONS = (
+    f"你是 OJ 题目的标程编写者。{_DETERMINISTIC_SOURCE} 输出一份正确、高效、可读且不依赖未定义行为的标准解法。"
+)
+
+# 测试设计角色：围绕边界、极端与对抗反例设计测试计划。
+SYSTEM_DESIGN = (
+    f"你是 OJ 题目的测试设计者。围绕边界值、极端规模与对抗反例设计测试计划，{_NEVER_GUESS_OUTPUT}"
+)
+
+# 对抗审查角色：交叉核对分析、标程与测试计划。
+SYSTEM_REVIEW = (
+    f"你是 OJ 题目的对抗审查者。交叉核对题意分析、两份标程与测试计划，指出矛盾、漏洞与未解决的歧义；"
+    f"{_NEVER_GUESS_OUTPUT}"
+)
+
+# 测试数据生成角色：可复现生成器、校验器与暴力解。
+SYSTEM_ARTIFACTS = (
+    f"你是 OJ 题目的测试数据生成者。{_DETERMINISTIC_SOURCE} 生成确定性的输入生成器、输入校验器与小数据暴力解，"
+    "并给出互异固定种子，种子数量必须与题面要求一致。"
 )
 
 
@@ -125,7 +152,7 @@ class Workflow:
         resume = state.get("resume", {})
         if resume.get("action") == "reanalyze":
             prompt += "\n\n人工澄清内容：" + json.dumps(resume.get("correction"), ensure_ascii=False)
-        result = await self.model.generate(AnalysisResult, SYSTEM_PROMPT, prompt)
+        result = await self.model.generate(AnalysisResult, SYSTEM_ANALYZE, prompt)
         response = result.model_dump()
         failure = result.ambiguities and "题意存在未解决歧义" or None
         await self._step(state, "analyze", "ANALYZING", response, failure_reason=failure)
@@ -138,8 +165,8 @@ class Workflow:
         request = validate_checkpoint(StartRunRequest, state["request"])
         context = str(state["analysis"])
         a, b = await asyncio.gather(
-            self.model.generate(SolutionResult, SYSTEM_PROMPT, request.statement_markdown + "\n分析：" + context),
-            self.model.generate(SolutionResult, SYSTEM_PROMPT, request.statement_markdown + "\n请独立求解，不参考另一候选。\n分析：" + context),
+            self.model.generate(SolutionResult, SYSTEM_SOLUTIONS, request.statement_markdown + "\n分析：" + context),
+            self.model.generate(SolutionResult, SYSTEM_SOLUTIONS, request.statement_markdown + "\n请独立求解，不参考另一候选。\n分析：" + context),
         )
         a_dump, b_dump = a.model_dump(), b.model_dump()
         await self._step(state, "solutions", "GENERATING_SOLUTIONS", {"solution_a": a_dump, "solution_b": b_dump})
@@ -148,7 +175,7 @@ class Workflow:
     async def design(self, state: AgentState) -> AgentState:
         await self._progress(state, "TEST_DESIGN", "RUNNING", "正在设计边界和对抗测试")
         request = validate_checkpoint(StartRunRequest, state["request"])
-        result = await self.model.generate(TestDesignResult, SYSTEM_PROMPT, request.statement_markdown + str(state["analysis"]))
+        result = await self.model.generate(TestDesignResult, SYSTEM_DESIGN, request.statement_markdown + str(state["analysis"]))
         response = result.model_dump()
         await self._step(state, "design", "REVIEWING", response)
         return {"test_design": response}
@@ -159,7 +186,7 @@ class Workflow:
         resume = state.get("resume", {})
         if resume.get("action") == "rereview":
             prompt += "\n\n人工澄清内容：" + json.dumps(resume.get("correction"), ensure_ascii=False)
-        result = await self.model.generate(ReviewResult, SYSTEM_PROMPT, prompt)
+        result = await self.model.generate(ReviewResult, SYSTEM_REVIEW, prompt)
         response = result.model_dump()
         failure = result.ambiguities and "对抗审查发现未解决歧义" or None
         await self._step(state, "review", "REVIEWING", response, failure_reason=failure)
@@ -177,7 +204,7 @@ class Workflow:
             f"当前修复轮次 {repair}，上轮沙箱失败原因：{failure}\n"
             + str({key: state[key] for key in ("analysis", "test_design", "review")})
         )
-        result = await self.model.generate(ArtifactResult, SYSTEM_PROMPT, prompt)
+        result = await self.model.generate(ArtifactResult, SYSTEM_ARTIFACTS, prompt)
         response = result.model_dump()
         await self._step(state, "artifacts", "GENERATING_TESTS", response)
         return {"artifacts": response, "failure_reason": ""}

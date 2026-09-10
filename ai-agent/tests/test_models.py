@@ -70,3 +70,20 @@ def test_validation_failure_routes_to_at_most_two_repairs() -> None:
     assert Workflow.after_sandbox(state) == "repair"
     state["repair_round"] = 2
     assert Workflow.after_sandbox(state) == "fail"
+
+
+def test_sandbox_result_accepts_kotlin_camel_json_status() -> None:
+    """Kotlin 以 camelCase 字符串发送状态；strict 模型必须能解析，避免 422。"""
+    payload = {
+        "eventId": str(uuid4()),
+        "runId": str(uuid4()),
+        "sandboxJobId": str(uuid4()),
+        "repairRound": 0,
+        "status": "PASSED",
+        "failureReason": None,
+    }
+    result = SandboxResult.model_validate(payload)
+    assert result.status is SandboxStatus.PASSED
+    # 非法状态名仍必须被拒绝。
+    with pytest.raises(ValidationError):
+        SandboxResult.model_validate({**payload, "status": "NOT_A_STATUS"})

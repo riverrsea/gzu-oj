@@ -134,6 +134,14 @@ class SandboxResult(StrictModel):
     status: SandboxStatus
     failure_reason: str | None = Field(default=None, max_length=2_000)
 
+    @field_validator("status", mode="before")
+    @classmethod
+    def accept_status_name(cls, value: object) -> object:
+        """strict 模式下枚举字段只接受枚举实例，需先把 JSON 状态字符串转成枚举。"""
+        if isinstance(value, str):
+            return SandboxStatus(value)
+        return value
+
 
 class ProgressEvent(StrictModel):
     """不包含模型原文的通用进度事件。"""

@@ -1,5 +1,6 @@
 """Agent 与 Kotlin API 共用的严格数据模型。"""
 
+import re
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -31,7 +32,32 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True, alias_generator=to_camel)
 
 
-Source = Annotated[str, Field(min_length=1, max_length=131_072)]
+# 匹配整段被 Markdown 代码围栏包裹的源码，例如 ```cpp\n...\n```。
+_CODE_FENCE_RE = re.compile(r"^\s*`{3,}[^\n]*\n(.*?)\n?\s*`{3,}\s*$", re.DOTALL)
+
+
+def strip_markdown_fence(value: object) -> object:
+    """去掉模型返回源码可能附带的 Markdown 代码围栏。
+
+    模型常把 C++ 源码包在 ```cpp 围栏里；若原样送入 Worker 会因围栏导致编译失败，
+    因此在校验阶段就把围栏剥掉，同时兼容只有起始或结束围栏的畸形输出。
+    """
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    fenced = _CODE_FENCE_RE.match(text)
+    if fenced:
+        return fenced.group(1).strip("\n")
+    lines = text.splitlines()
+    if lines and lines[0].lstrip().startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip().startswith("```"):
+        lines = lines[:-1]
+    return "\n".join(lines).strip("\n")
+
+
+Source = Annotated[str, BeforeValidator(strip_markdown_fence), Field(min_length=1, max_length=131_072)]
+
 
 
 class AnalysisResult(StrictModel):

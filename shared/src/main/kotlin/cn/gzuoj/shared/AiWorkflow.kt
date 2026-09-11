@@ -55,9 +55,9 @@ object AiWorkflow {
     /** 正常主流程中每个状态的后继状态。 */
     private val normalTransitions = mapOf(
         AiWorkflowState.ANALYZING to AiWorkflowState.GENERATING_SOLUTIONS,
-        AiWorkflowState.GENERATING_SOLUTIONS to AiWorkflowState.REVIEWING,
-        AiWorkflowState.REVIEWING to AiWorkflowState.GENERATING_TESTS,
-        AiWorkflowState.GENERATING_TESTS to AiWorkflowState.DIFFERENTIAL_TESTING,
+        AiWorkflowState.GENERATING_SOLUTIONS to AiWorkflowState.GENERATING_TESTS,
+        AiWorkflowState.GENERATING_TESTS to AiWorkflowState.REVIEWING,
+        AiWorkflowState.REVIEWING to AiWorkflowState.DIFFERENTIAL_TESTING,
         AiWorkflowState.DIFFERENTIAL_TESTING to AiWorkflowState.VALIDATING,
         AiWorkflowState.VALIDATING to AiWorkflowState.PUBLISHED,
     )

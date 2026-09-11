@@ -11,16 +11,15 @@ from gzu_oj_agent.models import (
     ReviewResult,
     SolutionResult,
     StartRunRequest,
-    TestDesignResult as DesignResult,
 )
 
 
 class FakeModel:
-    """按预设序列返回 review 结果，并记录 design 提示词。"""
+    """按预设序列返回 review 结果，并记录生成测试数据的提示词。"""
 
     def __init__(self, reviews: list[ReviewResult]) -> None:
         self.reviews = reviews
-        self.design_prompts: list[str] = []
+        self.artifact_prompts: list[str] = []
         self.review_calls = 0
 
     async def generate(self, schema, system, prompt):
@@ -28,13 +27,11 @@ class FakeModel:
             return AnalysisResult(summary="s", constraints=[], ambiguities=[])
         if schema is SolutionResult:
             return SolutionResult(summary="s", source_code="int main(){}")
-        if schema is DesignResult:
-            self.design_prompts.append(prompt)
-            return DesignResult(test_plan=["t"])
         if schema is ReviewResult:
             self.review_calls += 1
             return self.reviews[min(self.review_calls - 1, len(self.reviews) - 1)]
         if schema is ArtifactResult:
+            self.artifact_prompts.append(prompt)
             return ArtifactResult(
                 generator_source="int main(){}",
                 validator_source="int main(){}",
@@ -79,8 +76,8 @@ def request_dict(run_id) -> dict:
     ).model_dump(mode="json")
 
 
-async def test_findings_trigger_redesign_then_continue() -> None:
-    """首轮 review 返回 findings（无歧义）→ 回退 design 重生成 → 次轮无 findings → 继续到 submit。"""
+async def test_findings_trigger_regeneration_then_continue() -> None:
+    """首轮 review 返回 findings（无歧义）→ 回退重新生成测试数据 → 次轮无 findings → 继续到 submit。"""
     model = FakeModel(
         [ReviewResult(findings=["缺少负数用例"], ambiguities=[]), ReviewResult(findings=[], ambiguities=[])]
     )
@@ -92,9 +89,9 @@ async def test_findings_trigger_redesign_then_continue() -> None:
     snap = await graph.aget_state(config)
     assert snap.next == ("submit",)
     assert model.review_calls == 2
-    assert len(model.design_prompts) == 2
-    # 第二次测试设计必须带上上一轮 findings。
-    assert "缺少负数用例" in model.design_prompts[1]
+    assert len(model.artifact_prompts) == 2
+    # 第二次生成测试数据必须带上上一轮 findings。
+    assert "缺少负数用例" in model.artifact_prompts[1]
 
 
 async def test_review_ambiguities_go_to_human_review() -> None:

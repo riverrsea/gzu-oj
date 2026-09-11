@@ -17,8 +17,8 @@ const majorStages: AiMajorState[] = [
   "DRAFT",
   "ANALYZING",
   "GENERATING_SOLUTIONS",
-  "REVIEWING",
   "TESTS_GENERATING",
+  "REVIEWING",
   "VALIDATING",
   "PASSING",
   "PUBLISHED",
@@ -50,13 +50,12 @@ const minorLabels: Record<string, string> = {
 };
 
 /** Agent 角色顺序与中文标签。 */
-const roleOrder = ["analyze", "solutions", "design", "review", "artifacts"] as const;
+const roleOrder = ["analyze", "solutions", "artifacts", "review"] as const;
 const roleLabels: Record<string, string> = {
   analyze: "题意分析",
   solutions: "标程生成",
-  design: "测试设计",
+  artifacts: "测试数据生成",
   review: "对抗审查",
-  artifacts: "生成器",
 };
 
 /** 步骤返回字段的展示标签（Agent 以 model_dump() 回传，键为 snake_case）。 */

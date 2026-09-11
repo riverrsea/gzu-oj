@@ -133,7 +133,7 @@ class AiAgentController(
         val target = when (event.stage) {
             "ANALYZING" -> AiWorkflowState.ANALYZING
             "GENERATING_SOLUTIONS" -> AiWorkflowState.GENERATING_SOLUTIONS
-            "TEST_DESIGN", "ADVERSARIAL_REVIEW" -> AiWorkflowState.REVIEWING
+            "ADVERSARIAL_REVIEW" -> AiWorkflowState.REVIEWING
             "GENERATING_ARTIFACTS" -> AiWorkflowState.GENERATING_TESTS
             "SANDBOX" -> AiWorkflowState.DIFFERENTIAL_TESTING
             else -> return

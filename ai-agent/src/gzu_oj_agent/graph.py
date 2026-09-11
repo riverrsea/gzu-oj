@@ -20,7 +20,6 @@ from .models import (
 	SandboxTask,
 	SolutionResult,
 	StartRunRequest,
-	TestDesignResult,
 )
 
 # 通用守则：绝不猜测标准输出、输入与源码必须确定性可复现。
@@ -53,32 +52,27 @@ SYSTEM_SOLUTIONS = (
 	f"你是 OJ 题目的标程编写者。{_DETERMINISTIC_SOURCE} 输出一份正确、高效、可读且不依赖未定义行为的标准解法。"
 )
 
-# 测试设计角色：围绕边界、极端与对抗反例设计测试计划。
-SYSTEM_DESIGN = (
-	f"你是 OJ 题目的测试设计者。围绕边界值、极端规模与对抗反例设计测试计划，{_NEVER_GUESS_OUTPUT}"
-)
-
 # 对抗审查角色：交叉核对分析、标程与测试计划。
-SYSTEM_REVIEW = """你是 OJ 题目的对抗审查者。交叉核对题意分析、两份标程与测试计划，按下面两类分别返回：
+SYSTEM_REVIEW = """你是 OJ 题目的对抗审查者。交叉核对题意分析、两份标程与已生成的测试数据程序（生成器、校验器、暴力解），按下面两类分别返回：
 
-- findings（记录性，不阻断）：可通过重新设计测试计划或生成数据规避的问题。例如：两份标程之间、或标程与题意分析/测试计划相矛盾；某份标程边界处理不一致；测试计划遗漏某类极端数据；最大规模下可能超时。
+- findings（记录性，不阻断）：可通过重新生成测试数据程序规避的问题。例如：生成器产出的数据可能越界或退化（恒为最小 n、缺少最大规模、分布单一）；校验器漏查某类非法输入；两份标程之间、或标程与题意分析相矛盾；某份标程边界处理不一致；暴力解不足以覆盖小数据。
 - ambiguities（阻断性）：题面确实缺失、必须由人工定夺、否则会导致测试数据错误的点。只要无法确定“标准答案到底是什么”，就放进这里；非空即进入人工接管。
 
-判别要点：能靠“重新设计测试计划或生成数据”解决的，算 findings；需要改题意或由人拍板的，算 ambiguities。同一条问题只写一次，不要两类都写；不要因为实现风格把非阻断问题塞进 ambiguities。
+判别要点：能靠“重新生成测试数据程序”解决的，算 findings；需要改题意或由人拍板的，算 ambiguities。同一条问题只写一次，不要两类都写；不要因为实现风格把非阻断问题塞进 ambiguities。
 
 示例（one-shot）：
 题目：输入 n 个整数，输出其中位数（1≤n≤10^5）。
-分析/两份标程/测试计划：两份标程都排序后取中间元素，但都未明确 n 为偶数时的取法；测试计划只覆盖奇数 n。
+两份标程均排序取中间元素；生成器总是只产出 n=1 的输入。
 应输出：
-findings：["测试计划只覆盖奇数 n，缺少偶数 n 的用例", "两份标程都未明确 n 为偶数时取哪个中间元素"]
+findings：["生成器只产出 n=1 的数据，未覆盖偶数 n 与最大规模", "校验器未校验 n 是否落在 1 到 10^5"]
 ambiguities：["n 为偶数时中位数取哪个值（较小中间值 / 较大中间值 / 两者平均）题面未说明，不同取法结果不同"]
 
 输出：严格按 ReviewResult 的 findings/ambiguities 返回；没有就返回空列表。"""
 
-# 测试数据生成角色：可复现生成器、校验器与暴力解。
+# 测试数据设计与生成角色：自行设计覆盖并产出可执行程序（已合并原测试设计职责）。
 SYSTEM_ARTIFACTS = (
-	f"你是 OJ 题目的测试数据生成者。{_DETERMINISTIC_SOURCE} 生成确定性的输入生成器、输入校验器与小数据暴力解，"
-	"并给出互异固定种子，种子数量必须与题面要求一致。"
+	f"你是 OJ 题目的测试数据设计与生成者。{_DETERMINISTIC_SOURCE} 基于题意分析自行设计覆盖面（边界、极端规模、对抗反例），"
+	"并生成确定性的输入生成器、输入校验器与小数据暴力解，给出互异固定种子，种子数量必须与题面要求一致。"
 )
 
 
@@ -89,8 +83,8 @@ def validate_checkpoint(model: type[Any], value: Any) -> Any:
 	return model.model_validate_json(json.dumps(value, ensure_ascii=False))
 
 
-# 对抗审查发现非阻断问题时，最多回退重新设计测试计划的次数。
-REVIEW_REDESIGN_LIMIT = 2
+# 对抗审查发现非阻断问题时，最多回退重新生成测试数据程序的次数。
+REVIEW_REGENERATE_LIMIT = 2
 
 
 class AgentState(TypedDict, total=False):
@@ -100,15 +94,14 @@ class AgentState(TypedDict, total=False):
 	analysis: dict[str, Any]
 	solution_a: dict[str, Any]
 	solution_b: dict[str, Any]
-	test_design: dict[str, Any]
 	review: dict[str, Any]
 	artifacts: dict[str, Any]
 	sandbox_job_id: str
 	sandbox_result: dict[str, Any]
 	repair_round: int
 	resume_attempt: int
-	design_round: int
-	redesign_requested: bool
+	artifact_round: int
+	regenerate_requested: bool
 	failure_reason: str
 	failure_target: str
 	resume: dict[str, Any]
@@ -257,35 +250,16 @@ class Workflow:
 		)
 		return {"solution_a": a_dump, "solution_b": b_dump}
 
-	async def design(self, state: AgentState) -> AgentState:
-		await self._progress(
-			state,
-			"TEST_DESIGN",
-			"RUNNING",
-			"正在设计边界和对抗测试"
-		)
-		request = validate_checkpoint(StartRunRequest, state["request"])
-		prompt = request.statement_markdown + str(state["analysis"])
-		if state.get("redesign_requested"):
-			prompt += "\n\n上一轮对抗审查发现（请在新测试计划中修正）：" + json.dumps(
-				state.get("review", {}).get("findings", []),
-				ensure_ascii=False,
-			)
-		result = await self.model.generate(TestDesignResult, SYSTEM_DESIGN, prompt)
-		response = result.model_dump()
-		await self._step(state, "design", "REVIEWING", response)
-		return {"test_design": response}
-
 	async def review(self, state: AgentState) -> AgentState:
 		await self._progress(
 			state,
 			"ADVERSARIAL_REVIEW",
 			"RUNNING",
-			"正在审查两份标程和测试计划"
+			"正在审查两份标程与生成的测试数据程序"
 		)
 		prompt = str(
 			{key: state[key] for key in
-			 ("analysis", "solution_a", "solution_b", "test_design")}
+			 ("analysis", "solution_a", "solution_b", "artifacts")}
 		)
 		resume = state.get("resume", {})
 		if resume.get("action") == "rereview":
@@ -309,23 +283,23 @@ class Workflow:
 				"review": response,
 				"failure_reason": failure,
 				"failure_target": "REVIEWING",
-				"redesign_requested": False,
+				"regenerate_requested": False,
 			}
-		round_ = state.get("design_round", 0)
-		if result.findings and round_ < REVIEW_REDESIGN_LIMIT:
-			# 非阻断发现：回到测试设计，带 findings 重新生成测试计划。
+		round_ = state.get("artifact_round", 0)
+		if result.findings and round_ < REVIEW_REGENERATE_LIMIT:
+			# 非阻断发现：回到测试数据生成，带 findings 重新生成程序。
 			return {
 				"review": response,
 				"failure_reason": "",
 				"failure_target": "",
-				"design_round": round_ + 1,
-				"redesign_requested": True,
+				"artifact_round": round_ + 1,
+				"regenerate_requested": True,
 			}
 		return {
 			"review": response,
 			"failure_reason": "",
 			"failure_target": "",
-			"redesign_requested": False,
+			"regenerate_requested": False,
 		}
 
 	async def artifacts(self, state: AgentState) -> AgentState:
@@ -339,12 +313,15 @@ class Workflow:
 		repair = state.get("repair_round", request.repair_round)
 		failure = state.get("failure_reason", "")
 		prompt = (
-				f"生成 {request.test_case_count} 个互异固定种子；前 3 个为适合暴力解的小数据。"
-				f"当前修复轮次 {repair}，上轮沙箱失败原因：{failure}\n"
-				+ str(
-			{key: state[key] for key in ("analysis", "test_design", "review")}
+			f"生成 {request.test_case_count} 个互异固定种子；前 3 个为适合暴力解的小数据。"
+			f"当前修复轮次 {repair}，上轮失败原因：{failure}\n"
+			+ str({"analysis": state.get("analysis", {})})
 		)
-		)
+		if state.get("regenerate_requested"):
+			prompt += "\n\n上一轮对抗审查发现（请在新生成器中修正）：" + json.dumps(
+				state.get("review", {}).get("findings", []),
+				ensure_ascii=False,
+			)
 		result = await self.model.generate(
 			ArtifactResult,
 			SYSTEM_ARTIFACTS,
@@ -408,11 +385,11 @@ class Workflow:
 		return "fail" if state.get("failure_reason") else "solutions"
 
 	@staticmethod
-	def after_review(state: AgentState) -> Literal["artifacts", "design", "fail"]:
-		"""歧义交人工接管；非阻断发现回退测试设计；否则继续生成测试数据。"""
+	def after_review(state: AgentState) -> Literal["submit", "artifacts", "fail"]:
+		"""歧义交人工接管；非阻断发现回退重新生成测试数据；否则提交沙箱。"""
 		if state.get("failure_reason"):
 			return "fail"
-		return "design" if state.get("redesign_requested") else "artifacts"
+		return "artifacts" if state.get("regenerate_requested") else "submit"
 
 	@staticmethod
 	def after_sandbox(state: AgentState) -> Literal["finish", "repair", "fail"]:
@@ -449,7 +426,6 @@ class Workflow:
 		graph = StateGraph(AgentState)
 		graph.add_node("analyze", self.analyze)
 		graph.add_node("solutions", self.solutions)
-		graph.add_node("design", self.design)
 		graph.add_node("review", self.review)
 		graph.add_node("artifacts", self.artifacts)
 		graph.add_node("submit", self.submit)
@@ -458,14 +434,13 @@ class Workflow:
 		graph.add_node("fail", self.fail)
 		graph.add_edge(START, "analyze")
 		graph.add_conditional_edges("analyze", self.after_analysis)
-		graph.add_edge("solutions", "design")
-		graph.add_edge("design", "review")
+		graph.add_edge("solutions", "artifacts")
+		graph.add_edge("artifacts", "review")
 		graph.add_conditional_edges(
 			"review",
 			self.after_review,
-			{"fail": "fail", "design": "design", "artifacts": "artifacts"},
+			{"fail": "fail", "artifacts": "artifacts", "submit": "submit"},
 		)
-		graph.add_edge("artifacts", "submit")
 		graph.add_conditional_edges("submit", self.after_sandbox)
 		graph.add_edge("repair", "artifacts")
 		graph.add_conditional_edges(

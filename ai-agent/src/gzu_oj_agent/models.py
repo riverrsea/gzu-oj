@@ -83,12 +83,6 @@ class SolutionResult(StrictModel):
         return value
 
 
-class TestDesignResult(StrictModel):
-    """测试类别与边界覆盖计划。"""
-
-    test_plan: list[str] = Field(min_length=1, max_length=200)
-
-
 class ReviewResult(StrictModel):
     """对抗审查结果。"""
 

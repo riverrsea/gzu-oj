@@ -11,7 +11,8 @@ class AiWorkflowTest {
     fun `accepts only declared transitions`() {
         assertFalse(AiWorkflow.canTransition(AiWorkflowState.DRAFT, AiWorkflowState.ANALYZING))
         assertTrue(AiWorkflow.canTransition(AiWorkflowState.ANALYZING, AiWorkflowState.GENERATING_SOLUTIONS))
-        assertTrue(AiWorkflow.canTransition(AiWorkflowState.GENERATING_SOLUTIONS, AiWorkflowState.REVIEWING))
+        assertTrue(AiWorkflow.canTransition(AiWorkflowState.GENERATING_SOLUTIONS, AiWorkflowState.GENERATING_TESTS))
+        assertTrue(AiWorkflow.canTransition(AiWorkflowState.GENERATING_TESTS, AiWorkflowState.REVIEWING))
         assertTrue(AiWorkflow.canTransition(AiWorkflowState.REVIEWING, AiWorkflowState.NEEDS_REVIEW))
         assertFalse(AiWorkflow.canTransition(AiWorkflowState.DRAFT, AiWorkflowState.PUBLISHED))
         assertFalse(AiWorkflow.canTransition(AiWorkflowState.PUBLISHED, AiWorkflowState.CANCELED))

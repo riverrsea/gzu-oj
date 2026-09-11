@@ -13,7 +13,6 @@ from gzu_oj_agent.models import (
     ReviewResult,
     SolutionResult,
     StartRunRequest,
-    TestDesignResult as DesignResult,
 )
 
 
@@ -31,8 +30,6 @@ class FakeModel:
             return AnalysisResult(summary="原始分析", constraints=["c"], ambiguities=["题面歧义"])
         if schema is SolutionResult:
             return SolutionResult(summary="s", source_code="int main(){}")
-        if schema is DesignResult:
-            return DesignResult(test_plan=["t"])
         if schema is ReviewResult:
             return ReviewResult(findings=["f"], ambiguities=[])
         if schema is ArtifactResult:

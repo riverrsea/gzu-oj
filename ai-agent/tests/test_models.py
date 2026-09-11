@@ -113,12 +113,12 @@ def test_source_fields_strip_markdown_fences() -> None:
     assert sandbox_payload(state).solution_a_source.startswith("#include")
 
 
-def test_after_review_routes_findings_back_to_design() -> None:
-    """findings 非阻断 → 回退测试设计；ambiguities 阻断 → 人工接管。"""
+def test_after_review_routes_findings_back_to_artifacts() -> None:
+    """findings 非阻断 → 回退重新生成测试数据；ambiguities 阻断 → 人工接管。"""
     state = base_state()
     state["failure_reason"] = ""
+    assert Workflow.after_review(state) == "submit"
+    state["regenerate_requested"] = True
     assert Workflow.after_review(state) == "artifacts"
-    state["redesign_requested"] = True
-    assert Workflow.after_review(state) == "design"
     state["failure_reason"] = "对抗审查发现未解决歧义"
     assert Workflow.after_review(state) == "fail"

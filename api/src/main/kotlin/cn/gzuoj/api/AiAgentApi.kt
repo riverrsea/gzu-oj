@@ -132,9 +132,8 @@ class AiAgentController(
     private fun advanceState(event: AiAgentEventRequest) {
         val target = when (event.stage) {
             "ANALYZING" -> AiWorkflowState.ANALYZING
-            "GENERATING_SOLUTIONS" -> AiWorkflowState.GENERATING_SOLUTIONS
-            "ADVERSARIAL_REVIEW" -> AiWorkflowState.REVIEWING
-            "GENERATING_ARTIFACTS" -> AiWorkflowState.GENERATING_TESTS
+            "GENERATING_TEST_DATA" -> AiWorkflowState.GENERATING_TESTS
+            "GENERATING_SOLUTIONS", "GENERATING_BRUTE_FORCE" -> AiWorkflowState.GENERATING_SOLUTIONS
             "SANDBOX" -> AiWorkflowState.DIFFERENTIAL_TESTING
             else -> return
         }

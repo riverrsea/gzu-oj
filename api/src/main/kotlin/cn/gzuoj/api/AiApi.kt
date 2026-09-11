@@ -48,7 +48,7 @@ data class StartAiRunRequest(
 
 /** 管理员对到达 fail 节点、处于人工接管的运行发起恢复。 */
 data class ResumeAiRunRequest(
-    /** 恢复动作：reanalyze 对应题意分析重跑，rereview 对应对抗审查重跑。 */
+    /** 恢复动作：reanalyze 表示重跑题意分析。 */
     @field:NotBlank
     val action: String,
     /** 人工 review 后回传给 Agent、作为重新生成上下文的结构化澄清内容。 */
@@ -564,7 +564,6 @@ class AiRunService(
     /** 将管理员恢复动作映射到需要重新执行的阶段小状态。 */
     private fun resumeTarget(action: String): AiWorkflowState = when (action) {
         "reanalyze" -> AiWorkflowState.ANALYZING
-        "rereview" -> AiWorkflowState.REVIEWING
         else -> throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_RESUME_ACTION", "不支持的恢复动作：$action")
     }
 

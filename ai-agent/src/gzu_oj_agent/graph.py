@@ -12,14 +12,13 @@ from .kotlin import KotlinClient
 from .llm import ModelClient
 from .models import (
 	AnalysisResult,
-	ArtifactResult,
 	ProgressEvent,
-	ReviewResult,
 	SandboxResult,
 	SandboxStatus,
 	SandboxTask,
 	SolutionResult,
 	StartRunRequest,
+	TestDataResult,
 )
 
 # 通用守则：绝不猜测标准输出、输入与源码必须确定性可复现。
@@ -52,27 +51,23 @@ SYSTEM_SOLUTIONS = (
 	f"你是 OJ 题目的标程编写者。{_DETERMINISTIC_SOURCE} 输出一份正确、高效、可读且不依赖未定义行为的标准解法。"
 )
 
-# 对抗审查角色：交叉核对分析、标程与测试计划。
-SYSTEM_REVIEW = """你是 OJ 题目的对抗审查者。交叉核对题意分析、两份标程与已生成的测试数据程序（生成器、校验器、暴力解），按下面两类分别返回：
+# 暴力解角色：正确性优先、允许低效，用于小数据差分。
+SYSTEM_BRUTE_FORCE = (
+	f"你是 OJ 题目的暴力解编写者。{_DETERMINISTIC_SOURCE} "
+	"输出一份正确性优先、允许低效的暴力解法，用于在中小规模数据上与标程差分；"
+	"它必须独立于标程的算法思路，按题意朴素直接实现。"
+)
 
-- findings（记录性，不阻断）：可通过重新生成测试数据程序规避的问题。例如：生成器产出的数据可能越界或退化（恒为最小 n、缺少最大规模、分布单一）；校验器漏查某类非法输入；两份标程之间、或标程与题意分析相矛盾；某份标程边界处理不一致；暴力解不足以覆盖小数据。
-- ambiguities（阻断性）：题面确实缺失、必须由人工定夺、否则会导致测试数据错误的点。只要无法确定“标准答案到底是什么”，就放进这里；非空即进入人工接管。
-
-判别要点：能靠“重新生成测试数据程序”解决的，算 findings；需要改题意或由人拍板的，算 ambiguities。同一条问题只写一次，不要两类都写；不要因为实现风格把非阻断问题塞进 ambiguities。
-
-示例（one-shot）：
-题目：输入 n 个整数，输出其中位数（1≤n≤10^5）。
-两份标程均排序取中间元素；生成器总是只产出 n=1 的输入。
-应输出：
-findings：["生成器只产出 n=1 的数据，未覆盖偶数 n 与最大规模", "校验器未校验 n 是否落在 1 到 10^5"]
-ambiguities：["n 为偶数时中位数取哪个值（较小中间值 / 较大中间值 / 两者平均）题面未说明，不同取法结果不同"]
-
-输出：严格按 ReviewResult 的 findings/ambiguities 返回；没有就返回空列表。"""
-
-# 测试数据设计与生成角色：自行设计覆盖并产出可执行程序（已合并原测试设计职责）。
-SYSTEM_ARTIFACTS = (
-	f"你是 OJ 题目的测试数据设计与生成者。{_DETERMINISTIC_SOURCE} 基于题意分析自行设计覆盖面（边界、极端规模、对抗反例），"
-	"并生成确定性的输入生成器、输入校验器与小数据暴力解，给出互异固定种子，种子数量必须与题面要求一致。"
+# 测试数据设计与生成角色：产出确定性输入生成器与输入校验器；覆盖清单直接写进提示词。
+SYSTEM_TEST_DATA = (
+	f"你是 OJ 题目的测试数据设计与生成者。{_DETERMINISTIC_SOURCE}\n"
+	"生成两个程序：①输入生成器——以十进制命令行参数 seed 为输入，向 stdout 输出一份完整测试输入；"
+	"②输入校验器——从 stdin 读取一份输入，用退出码表示是否合法（0=合法，非 0=非法）。\n"
+	"生成器必须确定性：同一 seed 两次运行输出完全一致，不同 seed 输出不同；"
+	"校验器必须严格按题面约束检查输入规模、值域与格式。\n"
+	"种子固定为 1..N（N 为本题要求的测试点数量，见用户消息）。生成器必须按 seed 依次覆盖下列类别："
+	"①最小规模（如 n=1）②最大规模（贴合题面上限）③退化/全相等 ④负数或极端值（题面允许时）⑤随机中规模 ⑥对抗反例（专卡常见错误解法）；"
+	"其中 seed 1..3 必须是小规模数据，便于暴力解验证。"
 )
 
 
@@ -83,25 +78,20 @@ def validate_checkpoint(model: type[Any], value: Any) -> Any:
 	return model.model_validate_json(json.dumps(value, ensure_ascii=False))
 
 
-# 对抗审查发现非阻断问题时，最多回退重新生成测试数据程序的次数。
-REVIEW_REGENERATE_LIMIT = 2
-
 
 class AgentState(TypedDict, total=False):
 	"""写入 PostgreSQL 检查点的完整运行状态。"""
 
 	request: dict[str, Any]
 	analysis: dict[str, Any]
+	test_data: dict[str, Any]
 	solution_a: dict[str, Any]
 	solution_b: dict[str, Any]
-	review: dict[str, Any]
-	artifacts: dict[str, Any]
+	brute_force: dict[str, Any]
 	sandbox_job_id: str
 	sandbox_result: dict[str, Any]
 	repair_round: int
 	resume_attempt: int
-	artifact_round: int
-	regenerate_requested: bool
 	failure_reason: str
 	failure_target: str
 	resume: dict[str, Any]
@@ -109,22 +99,22 @@ class AgentState(TypedDict, total=False):
 
 
 def sandbox_payload(state: AgentState) -> SandboxTask:
-	"""只从 Pydantic 已校验结果构造 Worker 任务。"""
+	"""只从 Pydantic 已校验结果构造 Worker 任务；测试种子固定为 1..N。"""
 	request = validate_checkpoint(StartRunRequest, state["request"])
 	solution_a = validate_checkpoint(SolutionResult, state["solution_a"])
 	solution_b = validate_checkpoint(SolutionResult, state["solution_b"])
-	artifacts = validate_checkpoint(ArtifactResult, state["artifacts"])
-	if len(artifacts.seeds) != request.test_case_count:
-		raise ValueError(f"生成器必须返回 {request.test_case_count} 个固定种子")
+	brute_force = validate_checkpoint(SolutionResult, state["brute_force"])
+	test_data = validate_checkpoint(TestDataResult, state["test_data"])
+	seeds = list(range(1, request.test_case_count + 1))
 	return SandboxTask(
 		repair_round=state.get("repair_round", request.repair_round),
 		solution_a_source=solution_a.source_code,
 		solution_b_source=solution_b.source_code,
-		brute_force_source=artifacts.brute_force_source,
-		generator_source=artifacts.generator_source,
-		validator_source=artifacts.validator_source,
-		seeds=artifacts.seeds,
-		brute_force_case_count=min(3, len(artifacts.seeds)),
+		brute_force_source=brute_force.source_code,
+		generator_source=test_data.generator_source,
+		validator_source=test_data.validator_source,
+		seeds=seeds,
+		brute_force_case_count=min(3, len(seeds)),
 		time_limit_ms=request.time_limit_ms,
 		memory_limit_mib=request.memory_limit_mib,
 	)
@@ -250,86 +240,43 @@ class Workflow:
 		)
 		return {"solution_a": a_dump, "solution_b": b_dump}
 
-	async def review(self, state: AgentState) -> AgentState:
+	async def test_data(self, state: AgentState) -> AgentState:
 		await self._progress(
 			state,
-			"ADVERSARIAL_REVIEW",
+			"GENERATING_TEST_DATA",
 			"RUNNING",
-			"正在审查两份标程与生成的测试数据程序"
-		)
-		prompt = str(
-			{key: state[key] for key in
-			 ("analysis", "solution_a", "solution_b", "artifacts")}
-		)
-		resume = state.get("resume", {})
-		if resume.get("action") == "rereview":
-			prompt += "\n\n人工澄清内容：" + json.dumps(
-				resume.get("correction"),
-				ensure_ascii=False
-			)
-		result = await self.model.generate(ReviewResult, SYSTEM_REVIEW, prompt)
-		response = result.model_dump()
-		failure = result.ambiguities and "对抗审查发现未解决歧义" or None
-		await self._step(
-			state,
-			"review",
-			"REVIEWING",
-			response,
-			failure_reason=failure
-		)
-		if result.ambiguities:
-			# 阻断性歧义：交给人工定夺。
-			return {
-				"review": response,
-				"failure_reason": failure,
-				"failure_target": "REVIEWING",
-				"regenerate_requested": False,
-			}
-		round_ = state.get("artifact_round", 0)
-		if result.findings and round_ < REVIEW_REGENERATE_LIMIT:
-			# 非阻断发现：回到测试数据生成，带 findings 重新生成程序。
-			return {
-				"review": response,
-				"failure_reason": "",
-				"failure_target": "",
-				"artifact_round": round_ + 1,
-				"regenerate_requested": True,
-			}
-		return {
-			"review": response,
-			"failure_reason": "",
-			"failure_target": "",
-			"regenerate_requested": False,
-		}
-
-	async def artifacts(self, state: AgentState) -> AgentState:
-		await self._progress(
-			state,
-			"GENERATING_ARTIFACTS",
-			"RUNNING",
-			"正在生成确定性生成器、校验器和暴力解"
+			"正在生成测试数据生成器与输入校验器"
 		)
 		request = validate_checkpoint(StartRunRequest, state["request"])
 		repair = state.get("repair_round", request.repair_round)
 		failure = state.get("failure_reason", "")
 		prompt = (
-			f"生成 {request.test_case_count} 个互异固定种子；前 3 个为适合暴力解的小数据。"
+			f"本题需要 {request.test_case_count} 个测试点，种子固定为 1..{request.test_case_count}。"
 			f"当前修复轮次 {repair}，上轮失败原因：{failure}\n"
 			+ str({"analysis": state.get("analysis", {})})
 		)
-		if state.get("regenerate_requested"):
-			prompt += "\n\n上一轮对抗审查发现（请在新生成器中修正）：" + json.dumps(
-				state.get("review", {}).get("findings", []),
-				ensure_ascii=False,
-			)
-		result = await self.model.generate(
-			ArtifactResult,
-			SYSTEM_ARTIFACTS,
-			prompt
-		)
+		result = await self.model.generate(TestDataResult, SYSTEM_TEST_DATA, prompt)
 		response = result.model_dump()
-		await self._step(state, "artifacts", "GENERATING_TESTS", response)
-		return {"artifacts": response, "failure_reason": ""}
+		await self._step(state, "test_data", "GENERATING_TESTS", response)
+		return {"test_data": response, "failure_reason": ""}
+
+	async def brute_force(self, state: AgentState) -> AgentState:
+		await self._progress(
+			state,
+			"GENERATING_BRUTE_FORCE",
+			"RUNNING",
+			"正在生成小数据暴力解"
+		)
+		request = validate_checkpoint(StartRunRequest, state["request"])
+		failure = state.get("failure_reason", "")
+		prompt = (
+			f"当前修复轮次 {state.get('repair_round', request.repair_round)}，上轮失败原因：{failure}\n"
+			+ str({"analysis": state.get("analysis", {})})
+		)
+		result = await self.model.generate(SolutionResult, SYSTEM_BRUTE_FORCE, prompt)
+		response = result.model_dump()
+		await self._step(state, "brute_force", "GENERATING_SOLUTIONS", response)
+		return {"brute_force": response}
 
 	async def submit(self, state: AgentState) -> AgentState:
 		request = validate_checkpoint(StartRunRequest, state["request"])
@@ -381,15 +328,8 @@ class Workflow:
 		}
 
 	@staticmethod
-	def after_analysis(state: AgentState) -> Literal["solutions", "fail"]:
-		return "fail" if state.get("failure_reason") else "solutions"
-
-	@staticmethod
-	def after_review(state: AgentState) -> Literal["submit", "artifacts", "fail"]:
-		"""歧义交人工接管；非阻断发现回退重新生成测试数据；否则提交沙箱。"""
-		if state.get("failure_reason"):
-			return "fail"
-		return "artifacts" if state.get("regenerate_requested") else "submit"
+	def after_analysis(state: AgentState) -> Literal["test_data", "fail"]:
+		return "fail" if state.get("failure_reason") else "test_data"
 
 	@staticmethod
 	def after_sandbox(state: AgentState) -> Literal["finish", "repair", "fail"]:
@@ -404,13 +344,11 @@ class Workflow:
 		return "fail"
 
 	@staticmethod
-	def after_fail(state: AgentState) -> Literal["analyze", "review", "finish"]:
-		"""根据人工恢复指令决定重新执行的节点；无恢复指令时结束。"""
+	def after_fail(state: AgentState) -> Literal["analyze", "finish"]:
+		"""根据人工恢复指令重跑题意分析；无恢复指令时结束。"""
 		action = state.get("resume", {}).get("action")
 		if action == "reanalyze":
 			return "analyze"
-		if action == "rereview":
-			return "review"
 		return "finish"
 
 	@staticmethod
@@ -425,28 +363,20 @@ class Workflow:
 		"""构造固定拓扑；沙箱节点通过 interrupt 持久化暂停。"""
 		graph = StateGraph(AgentState)
 		graph.add_node("analyze", self.analyze)
+		graph.add_node("test_data", self.test_data)
 		graph.add_node("solutions", self.solutions)
-		graph.add_node("review", self.review)
-		graph.add_node("artifacts", self.artifacts)
+		graph.add_node("brute_force", self.brute_force)
 		graph.add_node("submit", self.submit)
 		graph.add_node("repair", self.prepare_repair)
 		graph.add_node("finish", self.finish)
 		graph.add_node("fail", self.fail)
 		graph.add_edge(START, "analyze")
 		graph.add_conditional_edges("analyze", self.after_analysis)
-		graph.add_edge("solutions", "artifacts")
-		graph.add_edge("artifacts", "review")
-		graph.add_conditional_edges(
-			"review",
-			self.after_review,
-			{"fail": "fail", "artifacts": "artifacts", "submit": "submit"},
-		)
+		graph.add_edge("test_data", "solutions")
+		graph.add_edge("solutions", "brute_force")
+		graph.add_edge("brute_force", "submit")
 		graph.add_conditional_edges("submit", self.after_sandbox)
-		graph.add_edge("repair", "artifacts")
-		graph.add_conditional_edges(
-			"fail",
-			self.after_fail,
-			{"analyze": "analyze", "review": "review", "finish": END}
-		)
+		graph.add_edge("repair", "test_data")
+		graph.add_conditional_edges("fail", self.after_fail, {"analyze": "analyze", "finish": END})
 		graph.add_edge("finish", END)
 		return graph.compile(checkpointer=checkpointer)

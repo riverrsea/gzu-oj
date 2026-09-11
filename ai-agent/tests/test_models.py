@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from gzu_oj_agent.graph import Workflow, sandbox_payload
-from gzu_oj_agent.models import ArtifactResult, SandboxResult, SandboxStatus, SolutionResult, StartRunRequest
+from gzu_oj_agent.models import SandboxResult, SandboxStatus, SolutionResult, StartRunRequest, TestDataResult as DataResult
 
 
 def base_state() -> dict:
@@ -19,32 +19,32 @@ def base_state() -> dict:
             "memory_limit_mib": 256,
             "repair_round": 0,
         },
-        "solution_a": {"summary": "A", "source_code": "int main(){}"},
-        "solution_b": {"summary": "B", "source_code": "int main(){}"},
-        "artifacts": {
+        "test_data": {
             "generator_source": "int main(){}",
             "validator_source": "int main(){}",
-            "brute_force_source": "int main(){}",
-            "seeds": [11, 12],
         },
+        "solution_a": {"summary": "A", "source_code": "int main(){}"},
+        "solution_b": {"summary": "B", "source_code": "int main(){}"},
+        "brute_force": {"summary": "BF", "source_code": "int main(){}"},
         "repair_round": 0,
     }
 
 
-def test_structured_models_reject_unknown_fields_and_duplicate_seeds() -> None:
+def test_structured_models_reject_unknown_fields() -> None:
     with pytest.raises(ValidationError):
         SolutionResult.model_validate({"summary": "x", "source_code": "x", "raw": "secret"})
     with pytest.raises(ValidationError):
-        ArtifactResult.model_validate(
-            {"generator_source": "x", "validator_source": "x", "brute_force_source": "x", "seeds": [1, 1]}
-        )
+        DataResult.model_validate({"generator_source": "x", "validator_source": "x", "seeds": [1]})
 
 
-def test_sandbox_payload_contains_only_validated_sources() -> None:
+def test_sandbox_payload_uses_fixed_seeds() -> None:
+    """测试种子固定为 1..N，数据/标程/暴力解源码全部来自已校验状态。"""
     payload = sandbox_payload(base_state())
-    assert payload.seeds == [11, 12]
+    assert payload.seeds == [1, 2]
     assert payload.brute_force_case_count == 2
     assert payload.solution_a_source == "int main(){}"
+    assert payload.generator_source == "int main(){}"
+    assert payload.brute_force_source == "int main(){}"
 
 
 def test_kotlin_memory_limit_alias_round_trips() -> None:
@@ -97,28 +97,14 @@ def test_source_fields_strip_markdown_fences() -> None:
     # 未加围栏的源码不受影响。
     assert SolutionResult(summary="s", source_code="int main(){}").source_code == "int main(){}"
 
-    artifacts = ArtifactResult(
+    data = DataResult(
         generator_source="```cpp\nint g(){}\n```",
-        validator_source="int v(){}",
-        brute_force_source="```\nint b(){}\n```",
-        seeds=[1, 2],
+        validator_source="```\nint v(){}\n```",
     )
-    assert artifacts.generator_source == "int g(){}"
-    assert artifacts.validator_source == "int v(){}"
-    assert artifacts.brute_force_source == "int b(){}"
+    assert data.generator_source == "int g(){}"
+    assert data.validator_source == "int v(){}"
 
     # sandbox_payload 重新校验状态时也应得到干净源码。
     state = base_state()
     state["solution_a"] = {"summary": "A", "source_code": fenced}
     assert sandbox_payload(state).solution_a_source.startswith("#include")
-
-
-def test_after_review_routes_findings_back_to_artifacts() -> None:
-    """findings 非阻断 → 回退重新生成测试数据；ambiguities 阻断 → 人工接管。"""
-    state = base_state()
-    state["failure_reason"] = ""
-    assert Workflow.after_review(state) == "submit"
-    state["regenerate_requested"] = True
-    assert Workflow.after_review(state) == "artifacts"
-    state["failure_reason"] = "对抗审查发现未解决歧义"
-    assert Workflow.after_review(state) == "fail"

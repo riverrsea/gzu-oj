@@ -54,10 +54,9 @@ data class AiPublicationGate(
 object AiWorkflow {
     /** 正常主流程中每个状态的后继状态。 */
     private val normalTransitions = mapOf(
-        AiWorkflowState.ANALYZING to AiWorkflowState.GENERATING_SOLUTIONS,
-        AiWorkflowState.GENERATING_SOLUTIONS to AiWorkflowState.GENERATING_TESTS,
-        AiWorkflowState.GENERATING_TESTS to AiWorkflowState.REVIEWING,
-        AiWorkflowState.REVIEWING to AiWorkflowState.DIFFERENTIAL_TESTING,
+        AiWorkflowState.ANALYZING to AiWorkflowState.GENERATING_TESTS,
+        AiWorkflowState.GENERATING_TESTS to AiWorkflowState.GENERATING_SOLUTIONS,
+        AiWorkflowState.GENERATING_SOLUTIONS to AiWorkflowState.DIFFERENTIAL_TESTING,
         AiWorkflowState.DIFFERENTIAL_TESTING to AiWorkflowState.VALIDATING,
         AiWorkflowState.VALIDATING to AiWorkflowState.PUBLISHED,
     )
@@ -84,10 +83,9 @@ object AiWorkflow {
         require(canRepair(from, to)) { "非法 AI 修复状态转换：$from -> $to" }
     }
 
-    /** 人工接管恢复只允许回到先前失败的题意分析或对抗审查阶段。 */
+    /** 人工接管恢复只允许回到先前失败的题意分析阶段。 */
     fun canResume(from: AiWorkflowState, to: AiWorkflowState): Boolean =
-        from == AiWorkflowState.NEEDS_REVIEW &&
-            (to == AiWorkflowState.ANALYZING || to == AiWorkflowState.REVIEWING)
+        from == AiWorkflowState.NEEDS_REVIEW && to == AiWorkflowState.ANALYZING
 
     /** 校验一次人工接管恢复的合法性。 */
     fun requireResume(from: AiWorkflowState, to: AiWorkflowState) {

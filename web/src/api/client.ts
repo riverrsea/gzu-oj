@@ -217,7 +217,7 @@ export const api = {
   /** 取消草稿上的当前 AI 运行。 */
   cancelAiRun: (runId: string) => request<AiRun>("/api/v1/admin/test-generation-runs/" + runId + "/cancel", { method: "POST" }),
   /** 人工接管后恢复指定的失败阶段并回传给 Agent 重新执行。 */
-  resumeAiRun: (runId: string, body: { action: "reanalyze" | "rereview"; correction?: unknown }) =>
+  resumeAiRun: (runId: string, body: { action: "reanalyze"; correction?: unknown }) =>
     request<AiRun>("/api/v1/admin/test-generation-runs/" + runId + "/resume", {
       method: "POST",
       body: JSON.stringify(body),

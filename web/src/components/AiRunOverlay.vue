@@ -16,9 +16,8 @@ import UiNumberField from "./ui/NumberField.vue";
 const majorStages: AiMajorState[] = [
   "DRAFT",
   "ANALYZING",
-  "GENERATING_SOLUTIONS",
   "TESTS_GENERATING",
-  "REVIEWING",
+  "GENERATING_SOLUTIONS",
   "VALIDATING",
   "PASSING",
   "PUBLISHED",
@@ -38,9 +37,9 @@ const majorLabels: Record<AiMajorState, string> = {
 };
 const minorLabels: Record<string, string> = {
   ANALYZING: "分析题意",
-  GENERATING_SOLUTIONS: "生成独立标程",
+  GENERATING_SOLUTIONS: "生成标程/暴力解",
   REVIEWING: "对抗审查",
-  GENERATING_TESTS: "生成测试生成器",
+  GENERATING_TESTS: "生成测试数据",
   DIFFERENTIAL_TESTING: "差分测试",
   VALIDATING: "校验发布门禁",
   PUBLISHED: "已发布",
@@ -50,12 +49,12 @@ const minorLabels: Record<string, string> = {
 };
 
 /** Agent 角色顺序与中文标签。 */
-const roleOrder = ["analyze", "solutions", "artifacts", "review"] as const;
+const roleOrder = ["analyze", "test_data", "solutions", "brute_force"] as const;
 const roleLabels: Record<string, string> = {
   analyze: "题意分析",
-  solutions: "标程生成",
-  artifacts: "测试数据生成",
-  review: "对抗审查",
+  test_data: "测试数据",
+  solutions: "标程",
+  brute_force: "暴力解",
 };
 
 /** 步骤返回字段的展示标签（Agent 以 model_dump() 回传，键为 snake_case）。 */
@@ -84,7 +83,7 @@ const emit = defineEmits<{
   (e: "start", config: { testCaseCount: number; autoPublish: boolean; sampleCount: number }): void;
   (e: "cancel"): void;
   (e: "refresh"): void;
-  (e: "resume", payload: { action: "reanalyze" | "rereview"; correction: unknown }): void;
+  (e: "resume", payload: { action: "reanalyze"; correction: unknown }): void;
 }>();
 
 const steps = computed(() => props.run?.steps ?? []);
@@ -99,11 +98,9 @@ const canRestart = computed(() => !run.value || ["NEEDS_REVIEW", "FAILED", "CANC
 const canCloseForDraft = computed(() => run.value?.state === "NEEDS_REVIEW");
 
 /** 由可恢复失败阶段映射出的恢复动作；不可恢复时为 null。 */
-const resumeAction = computed<"reanalyze" | "rereview" | null>(() => {
+const resumeAction = computed<"reanalyze" | null>(() => {
   const target = run.value?.resumeTarget;
-  if (target === "ANALYZING") return "reanalyze";
-  if (target === "REVIEWING") return "rereview";
-  return null;
+  return target === "ANALYZING" ? "reanalyze" : null;
 });
 
 const currentMajor = computed<AiMajorState>(() => run.value?.majorState ?? "DRAFT");
@@ -130,9 +127,8 @@ watch(run, (value) => {
 const currentRole = computed(() => {
   const state = run.value?.state;
   if (state === "ANALYZING") return "analyze";
+  if (state === "GENERATING_TESTS") return "test_data";
   if (state === "GENERATING_SOLUTIONS") return "solutions";
-  if (state === "REVIEWING") return "review";
-  if (state === "GENERATING_TESTS") return "artifacts";
   return null;
 });
 /** 运行是否处于活动状态（非终态且非人工接管）。 */
@@ -327,7 +323,7 @@ function onBackdrop(): void {
           <section v-if="run.state === 'NEEDS_REVIEW'" class="ai-overlay-section ai-overlay-resume">
             <header class="ai-overlay-section-head"><strong>人工接管：补充澄清并恢复</strong></header>
             <p v-if="resumeAction" class="ai-overlay-hint">
-              当前失败阶段：<code>{{ run.resumeTarget }}</code>（{{ resumeAction === "reanalyze" ? "重新分析题意" : "重新对抗审查" }}）。
+              当前失败阶段：<code>{{ run.resumeTarget }}</code>（重新分析题意）。
               填写澄清说明后，会把内容作为上下文回传给 Agent 重新执行对应节点。
             </p>
             <p v-else class="ai-overlay-hint ai-overlay-hint--blocked">当前失败阶段不支持自动恢复（通常为沙箱校验或基础设施连续失败），需人工处理后重新启动。</p>

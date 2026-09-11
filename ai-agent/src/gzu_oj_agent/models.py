@@ -83,28 +83,11 @@ class SolutionResult(StrictModel):
         return value
 
 
-class ReviewResult(StrictModel):
-    """对抗审查结果。"""
-
-    findings: list[str] = Field(default_factory=list, max_length=200)
-    ambiguities: list[str] = Field(default_factory=list, max_length=100)
-
-
-class ArtifactResult(StrictModel):
-    """可由 Worker 编译执行的生成器、校验器和暴力解。"""
+class TestDataResult(StrictModel):
+    """可由 Worker 编译执行的确定性测试数据生成器与输入校验器；种子由链路固定为 1..N。"""
 
     generator_source: Source
     validator_source: Source
-    brute_force_source: Source
-    seeds: list[int] = Field(min_length=1, max_length=200)
-
-    @field_validator("seeds")
-    @classmethod
-    def unique_seeds(cls, value: list[int]) -> list[int]:
-        """固定种子必须互异，才能形成可审计测试点。"""
-        if len(value) != len(set(value)):
-            raise ValueError("固定种子不能重复")
-        return value
 
 
 class StartRunRequest(StrictModel):
@@ -185,7 +168,7 @@ class StepRecord(StrictModel):
 
 
 class HumanResume(StrictModel):
-    """人工接管后回传给 Agent 的恢复指令。"""
+    """人工接管后回传给 Agent 的恢复指令；当前仅支持重跑题意分析。"""
 
-    action: Literal["reanalyze", "rereview"]
+    action: Literal["reanalyze"]
     correction: dict[str, Any] | None = None

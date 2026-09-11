@@ -9,10 +9,9 @@ from langgraph.types import Command
 from gzu_oj_agent.graph import Workflow
 from gzu_oj_agent.models import (
     AnalysisResult,
-    ArtifactResult,
-    ReviewResult,
     SolutionResult,
     StartRunRequest,
+    TestDataResult as DataResult,
 )
 
 
@@ -28,17 +27,10 @@ class FakeModel:
             if "人工澄清内容" in prompt:
                 return AnalysisResult(summary="已解决", constraints=["a"], ambiguities=[])
             return AnalysisResult(summary="原始分析", constraints=["c"], ambiguities=["题面歧义"])
+        if schema is DataResult:
+            return DataResult(generator_source="int main(){}", validator_source="int main(){}")
         if schema is SolutionResult:
             return SolutionResult(summary="s", source_code="int main(){}")
-        if schema is ReviewResult:
-            return ReviewResult(findings=["f"], ambiguities=[])
-        if schema is ArtifactResult:
-            return ArtifactResult(
-                generator_source="int main(){}",
-                validator_source="int main(){}",
-                brute_force_source="int main(){}",
-                seeds=[11, 12],
-            )
         raise AssertionError(f"unexpected schema {schema}")
 
 

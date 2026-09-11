@@ -206,7 +206,7 @@ async function cancelAi(): Promise<void> {
 }
 
 /** 人工接管：把修改后的结构化内容回传给 Agent 并恢复执行对应失败节点。 */
-async function resumeAi(payload: { action: "reanalyze" | "rereview"; correction: unknown }): Promise<void> {
+async function resumeAi(payload: { action: "reanalyze"; correction: unknown }): Promise<void> {
   if (!aiRun.value || aiLoading.value) return;
   aiLoading.value = true;
   try {

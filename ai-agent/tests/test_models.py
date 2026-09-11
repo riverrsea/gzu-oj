@@ -87,3 +87,14 @@ def test_sandbox_result_accepts_kotlin_camel_json_status() -> None:
     # 非法状态名仍必须被拒绝。
     with pytest.raises(ValidationError):
         SandboxResult.model_validate({**payload, "status": "NOT_A_STATUS"})
+
+
+def test_after_review_routes_findings_back_to_design() -> None:
+    """findings 非阻断 → 回退测试设计；ambiguities 阻断 → 人工接管。"""
+    state = base_state()
+    state["failure_reason"] = ""
+    assert Workflow.after_review(state) == "artifacts"
+    state["redesign_requested"] = True
+    assert Workflow.after_review(state) == "design"
+    state["failure_reason"] = "对抗审查发现未解决歧义"
+    assert Workflow.after_review(state) == "fail"

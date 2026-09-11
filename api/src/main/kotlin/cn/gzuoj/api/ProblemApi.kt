@@ -1028,21 +1028,20 @@ class ProblemService(
             jdbc.update(
                 """
                 UPDATE ai_problem_run
-                SET state = 'PUBLISHED', coordinator_lease = NULL,
-                    coordinator_lease_expires_at = NULL, updated_at = now()
+                SET state = 'PUBLISHED', updated_at = now()
                 WHERE id = ?
                 """.trimIndent(),
                 runId,
             )
             jdbc.update(
                 """
-                INSERT INTO ai_problem_state_history(id, run_id, from_state, to_state, major_state, message)
-                VALUES (?, ?, ?, 'PUBLISHED', 'PUBLISHED', ?)
+                INSERT INTO ai_run_log(id, run_id, kind, message, from_state, to_state)
+                VALUES (?, ?, 'TRANSITION', ?, ?, 'PUBLISHED')
                 """.trimIndent(),
                 UUID.randomUUID(),
                 runId,
-                fromState,
                 "管理员检查测试点并手动发布题目版本",
+                fromState,
             )
         }
     }

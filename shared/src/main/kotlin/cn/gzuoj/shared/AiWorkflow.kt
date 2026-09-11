@@ -26,32 +26,6 @@ enum class AiWorkflowState {
     CANCELED,
 }
 
-/** AI 录题页面展示的聚合大状态；数据库仍保存 [AiWorkflowState] 小状态。 */
-enum class AiMajorState {
-    /** 录题起始草稿。 */
-    DRAFT,
-    /** 题意分析阶段。 */
-    ANALYZING,
-    /** 标程生成阶段。 */
-    GENERATING_SOLUTIONS,
-    /** 标程和测试计划审查阶段。 */
-    REVIEWING,
-    /** 测试数据生成和差分阶段。 */
-    TESTS_GENERATING,
-    /** 发布门禁校验阶段。 */
-    VALIDATING,
-    /** 全部发布门禁通过，等待最终发布。 */
-    PASSING,
-    /** 已发布。 */
-    PUBLISHED,
-    /** 需要人工接管。 */
-    NEEDS_REVIEW,
-    /** 不可恢复失败。 */
-    FAILED,
-    /** 已取消。 */
-    CANCELED,
-}
-
 /** AI 自动发布所需的确定性校验结果。 */
 data class AiPublicationGate(
     /** 两份独立标程是否在全部数据上输出一致。 */
@@ -118,23 +92,6 @@ object AiWorkflow {
     /** 校验一次人工接管恢复的合法性。 */
     fun requireResume(from: AiWorkflowState, to: AiWorkflowState) {
         require(canResume(from, to)) { "非法 AI 人工接管恢复转换：$from -> $to" }
-    }
-
-    /** 将题目准入标记和运行小状态映射为前端时间线使用的大状态。 */
-    fun majorState(state: AiWorkflowState, publicationGatePassed: Boolean = false): AiMajorState = when (state) {
-        // DRAFT 仅用于题目准入展示，不会成为新 AI 运行的小状态。
-        AiWorkflowState.DRAFT -> AiMajorState.DRAFT
-        AiWorkflowState.ANALYZING -> AiMajorState.ANALYZING
-        AiWorkflowState.GENERATING_SOLUTIONS -> AiMajorState.GENERATING_SOLUTIONS
-        AiWorkflowState.REVIEWING -> AiMajorState.REVIEWING
-        AiWorkflowState.GENERATING_TESTS,
-        AiWorkflowState.DIFFERENTIAL_TESTING,
-        -> AiMajorState.TESTS_GENERATING
-        AiWorkflowState.VALIDATING -> if (publicationGatePassed) AiMajorState.PASSING else AiMajorState.VALIDATING
-        AiWorkflowState.PUBLISHED -> AiMajorState.PUBLISHED
-        AiWorkflowState.NEEDS_REVIEW -> AiMajorState.NEEDS_REVIEW
-        AiWorkflowState.FAILED -> AiMajorState.FAILED
-        AiWorkflowState.CANCELED -> AiMajorState.CANCELED
     }
 
     /** 不允许继续流转的终态。 */

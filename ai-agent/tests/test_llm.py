@@ -29,3 +29,31 @@ async def test_prompt_json_retries_then_validates() -> None:
     result = await ModelClient(settings, model=model).generate(AnalysisResult, "system", "prompt")
     assert result.summary == "ok"
     assert model.calls == 2
+
+
+class RecordingJsonModel:
+    """记录收到的消息，并返回被 Markdown 围栏包裹的 JSON。"""
+
+    def __init__(self) -> None:
+        self.messages = None
+
+    def bind(self, **_kwargs):
+        return self
+
+    async def ainvoke(self, messages):
+        self.messages = messages
+        return SimpleNamespace(content='```json\n{"summary":"ok","constraints":[],"ambiguities":[]}\n```')
+
+
+@pytest.mark.asyncio
+async def test_json_object_mode_sends_json_hint_and_strips_fence() -> None:
+    """json_object 模式必须让 messages 里出现 "json"（否则网关 400），并能剥离围栏。"""
+    settings = Settings(
+        agent_internal_token="test-token",
+        llm_structured_output_mode=StructuredOutputMode.JSON_OBJECT,
+    )
+    model = RecordingJsonModel()
+    result = await ModelClient(settings, model=model).generate(AnalysisResult, "system", "prompt")
+    assert result.summary == "ok"
+    assert model.messages is not None
+    assert any("json" in str(message.content).lower() for message in model.messages)

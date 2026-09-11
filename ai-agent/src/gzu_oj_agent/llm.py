@@ -12,6 +12,19 @@ from .config import Settings, StructuredOutputMode
 
 T = TypeVar("T", bound=BaseModel)
 
+# 部分 OpenAI 兼容网关（如 DashScope/Qwen）在 json_object 结构化输出下要求 messages 里
+# 必须出现 "json"，否则直接返回 400；这里统一补一句，并抑制模型附加的 Markdown 围栏。
+_JSON_OUTPUT_HINT = "只返回一个合法的 json 对象，不要包含解释或 Markdown 代码围栏。"
+
+
+def _strip_outer_fence(content: str) -> str:
+    """去掉模型整体输出外层的 Markdown 代码围栏，便于直接按 JSON 解析。"""
+    text = content.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else ""
+        text = text.rsplit("```", 1)[0]
+    return text.strip()
+
 
 class ModelClient:
     """统一处理并发、重试和三种结构化输出模式。"""
@@ -46,7 +59,12 @@ class ModelClient:
         raise last_error
 
     async def _generate_once(self, schema: type[T], system: str, prompt: str) -> T:
-        messages = [SystemMessage(content=system), HumanMessage(content=prompt)]
+        # 结构化输出统一附带一句提到 "json" 的指令，兼容要求该关键词的网关。
+        messages = [
+            SystemMessage(content=system),
+            HumanMessage(content=prompt),
+            HumanMessage(content=_JSON_OUTPUT_HINT),
+        ]
         mode = self.settings.llm_structured_output_mode
         if mode is StructuredOutputMode.JSON_SCHEMA:
             runnable = self.model.with_structured_output(schema, method="json_schema", strict=True)
@@ -54,7 +72,7 @@ class ModelClient:
             return result if isinstance(result, schema) else schema.model_validate(result)
         if mode is StructuredOutputMode.JSON_OBJECT:
             result = await self.model.bind(response_format={"type": "json_object"}).ainvoke(messages)
-            return schema.model_validate_json(str(result.content))
+            return schema.model_validate_json(_strip_outer_fence(str(result.content)))
         result = await self.model.ainvoke(
             messages
             + [
@@ -64,7 +82,4 @@ class ModelClient:
                 )
             ]
         )
-        content = str(result.content).strip()
-        if content.startswith("```"):
-            content = content.split("\n", 1)[1].rsplit("```", 1)[0]
-        return schema.model_validate_json(content)
+        return schema.model_validate_json(_strip_outer_fence(str(result.content)))

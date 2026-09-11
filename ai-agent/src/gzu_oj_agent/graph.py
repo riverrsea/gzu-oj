@@ -59,10 +59,21 @@ SYSTEM_DESIGN = (
 )
 
 # 对抗审查角色：交叉核对分析、标程与测试计划。
-SYSTEM_REVIEW = (
-	f"你是 OJ 题目的对抗审查者。交叉核对题意分析、两份标程与测试计划，指出矛盾、漏洞与未解决的歧义；"
-	f"{_NEVER_GUESS_OUTPUT}"
-)
+SYSTEM_REVIEW = """你是 OJ 题目的对抗审查者。交叉核对题意分析、两份标程与测试计划，按下面两类分别返回：
+
+- findings（记录性，不阻断）：可通过重新设计测试计划或生成数据规避的问题。例如：两份标程之间、或标程与题意分析/测试计划相矛盾；某份标程边界处理不一致；测试计划遗漏某类极端数据；最大规模下可能超时。
+- ambiguities（阻断性）：题面确实缺失、必须由人工定夺、否则会导致测试数据错误的点。只要无法确定“标准答案到底是什么”，就放进这里；非空即进入人工接管。
+
+判别要点：能靠“重新设计测试计划或生成数据”解决的，算 findings；需要改题意或由人拍板的，算 ambiguities。同一条问题只写一次，不要两类都写；不要因为实现风格把非阻断问题塞进 ambiguities。
+
+示例（one-shot）：
+题目：输入 n 个整数，输出其中位数（1≤n≤10^5）。
+分析/两份标程/测试计划：两份标程都排序后取中间元素，但都未明确 n 为偶数时的取法；测试计划只覆盖奇数 n。
+应输出：
+findings：["测试计划只覆盖奇数 n，缺少偶数 n 的用例", "两份标程都未明确 n 为偶数时取哪个中间元素"]
+ambiguities：["n 为偶数时中位数取哪个值（较小中间值 / 较大中间值 / 两者平均）题面未说明，不同取法结果不同"]
+
+输出：严格按 ReviewResult 的 findings/ambiguities 返回；没有就返回空列表。"""
 
 # 测试数据生成角色：可复现生成器、校验器与暴力解。
 SYSTEM_ARTIFACTS = (
@@ -76,6 +87,10 @@ def validate_checkpoint(model: type[Any], value: Any) -> Any:
 	if isinstance(value, model):
 		return value
 	return model.model_validate_json(json.dumps(value, ensure_ascii=False))
+
+
+# 对抗审查发现非阻断问题时，最多回退重新设计测试计划的次数。
+REVIEW_REDESIGN_LIMIT = 2
 
 
 class AgentState(TypedDict, total=False):
@@ -92,6 +107,8 @@ class AgentState(TypedDict, total=False):
 	sandbox_result: dict[str, Any]
 	repair_round: int
 	resume_attempt: int
+	design_round: int
+	redesign_requested: bool
 	failure_reason: str
 	failure_target: str
 	resume: dict[str, Any]
@@ -248,11 +265,13 @@ class Workflow:
 			"正在设计边界和对抗测试"
 		)
 		request = validate_checkpoint(StartRunRequest, state["request"])
-		result = await self.model.generate(
-			TestDesignResult,
-			SYSTEM_DESIGN,
-			request.statement_markdown + str(state["analysis"])
-		)
+		prompt = request.statement_markdown + str(state["analysis"])
+		if state.get("redesign_requested"):
+			prompt += "\n\n上一轮对抗审查发现（请在新测试计划中修正）：" + json.dumps(
+				state.get("review", {}).get("findings", []),
+				ensure_ascii=False,
+			)
+		result = await self.model.generate(TestDesignResult, SYSTEM_DESIGN, prompt)
 		response = result.model_dump()
 		await self._step(state, "design", "REVIEWING", response)
 		return {"test_design": response}
@@ -285,12 +304,29 @@ class Workflow:
 			failure_reason=failure
 		)
 		if result.ambiguities:
+			# 阻断性歧义：交给人工定夺。
 			return {
 				"review": response,
 				"failure_reason": failure,
-				"failure_target": "REVIEWING"
+				"failure_target": "REVIEWING",
+				"redesign_requested": False,
 			}
-		return {"review": response, "failure_reason": "", "failure_target": ""}
+		round_ = state.get("design_round", 0)
+		if result.findings and round_ < REVIEW_REDESIGN_LIMIT:
+			# 非阻断发现：回到测试设计，带 findings 重新生成测试计划。
+			return {
+				"review": response,
+				"failure_reason": "",
+				"failure_target": "",
+				"design_round": round_ + 1,
+				"redesign_requested": True,
+			}
+		return {
+			"review": response,
+			"failure_reason": "",
+			"failure_target": "",
+			"redesign_requested": False,
+		}
 
 	async def artifacts(self, state: AgentState) -> AgentState:
 		await self._progress(
@@ -372,8 +408,11 @@ class Workflow:
 		return "fail" if state.get("failure_reason") else "solutions"
 
 	@staticmethod
-	def after_review(state: AgentState) -> Literal["artifacts", "fail"]:
-		return "fail" if state.get("failure_reason") else "artifacts"
+	def after_review(state: AgentState) -> Literal["artifacts", "design", "fail"]:
+		"""歧义交人工接管；非阻断发现回退测试设计；否则继续生成测试数据。"""
+		if state.get("failure_reason"):
+			return "fail"
+		return "design" if state.get("redesign_requested") else "artifacts"
 
 	@staticmethod
 	def after_sandbox(state: AgentState) -> Literal["finish", "repair", "fail"]:
@@ -421,7 +460,11 @@ class Workflow:
 		graph.add_conditional_edges("analyze", self.after_analysis)
 		graph.add_edge("solutions", "design")
 		graph.add_edge("design", "review")
-		graph.add_conditional_edges("review", self.after_review)
+		graph.add_conditional_edges(
+			"review",
+			self.after_review,
+			{"fail": "fail", "design": "design", "artifacts": "artifacts"},
+		)
 		graph.add_edge("artifacts", "submit")
 		graph.add_conditional_edges("submit", self.after_sandbox)
 		graph.add_edge("repair", "artifacts")

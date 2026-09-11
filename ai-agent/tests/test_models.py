@@ -87,3 +87,27 @@ def test_sandbox_result_accepts_kotlin_camel_json_status() -> None:
     # 非法状态名仍必须被拒绝。
     with pytest.raises(ValidationError):
         SandboxResult.model_validate({**payload, "status": "NOT_A_STATUS"})
+
+
+def test_source_fields_strip_markdown_fences() -> None:
+    """模型带 ``` 围栏的源码必须在进入沙箱前被剥掉，否则 Worker 编译失败。"""
+    fenced = "```cpp\n#include <bits/stdc++.h>\nint main() { return 0; }\n```"
+    solution = SolutionResult(summary="s", source_code=fenced)
+    assert solution.source_code == "#include <bits/stdc++.h>\nint main() { return 0; }"
+    # 未加围栏的源码不受影响。
+    assert SolutionResult(summary="s", source_code="int main(){}").source_code == "int main(){}"
+
+    artifacts = ArtifactResult(
+        generator_source="```cpp\nint g(){}\n```",
+        validator_source="int v(){}",
+        brute_force_source="```\nint b(){}\n```",
+        seeds=[1, 2],
+    )
+    assert artifacts.generator_source == "int g(){}"
+    assert artifacts.validator_source == "int v(){}"
+    assert artifacts.brute_force_source == "int b(){}"
+
+    # sandbox_payload 重新校验状态时也应得到干净源码。
+    state = base_state()
+    state["solution_a"] = {"summary": "A", "source_code": fenced}
+    assert sandbox_payload(state).solution_a_source.startswith("#include")

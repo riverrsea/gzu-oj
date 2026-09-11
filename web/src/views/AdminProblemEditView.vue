@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ArrowLeft, Bot, Plus, Save, Send, Trash2 } from "@lucide/vue";
+import { ArrowLeft, BookOpen, Bot, FileText, ListChecks, Plus, Save, Send, Trash2 } from "@lucide/vue";
 import { confirmAction, toast } from "../lib/notify";
 import { api } from "../api/client";
 import type { AdminProblemVersionDetail, AiRun, Difficulty } from "../api/types";
@@ -10,6 +10,7 @@ import AiRunOverlay from "../components/AiRunOverlay.vue";
 import UiAlert from "../components/ui/Alert.vue";
 import UiButton from "../components/ui/Button.vue";
 import UiCheckbox from "../components/ui/Checkbox.vue";
+import UiEmptyState from "../components/ui/EmptyState.vue";
 import UiInput from "../components/ui/Input.vue";
 import UiNumberField from "../components/ui/NumberField.vue";
 import UiSelect from "../components/ui/Select.vue";
@@ -266,11 +267,14 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="content-page content-page--modern oj-page admin-problem-page loading-shell" :aria-busy="loading">
+  <section class="admin-page admin-page--narrow loading-shell" :aria-busy="loading">
     <div v-if="loading" class="loading-overlay"><span class="loading-spinner" aria-label="加载中" /></div>
-    <div class="page-heading">
-      <h1>编辑题目草稿</h1>
-      <div class="page-heading-actions">
+    <div class="admin-page-head">
+      <div>
+        <h1>编辑题目草稿</h1>
+        <p v-if="detail">版本 v{{ detail.versionNumber }} · {{ detail.title }}</p>
+      </div>
+      <div class="admin-page-actions">
         <UiButton @click="overlayOpen = true"><Bot :size="16" />AI 生成测试点</UiButton>
         <UiButton variant="ghost" @click="router.push('/admin/problems')"><ArrowLeft :size="16" />返回题库</UiButton>
       </div>
@@ -278,45 +282,77 @@ onMounted(async () => {
 
     <UiAlert v-if="aiLocked" variant="warning" title="该草稿存在进行中的 AI 流程，内容暂时锁定；流程结束或取消后可继续编辑。" />
     <UiAlert v-else-if="detail && form.testCases.length === 0" variant="info" title="当前草稿还没有测试点；请添加测试点并保存后才能发布。" />
-    <form class="problem-form" @submit.prevent="save(false)">
-      <section class="form-section">
-        <h2>题目元数据</h2>
-        <div class="form-grid form-grid--three">
-          <div class="form-field"><UiLabel>学校</UiLabel><UiInput v-model="form.school" maxlength="200" :disabled="aiLocked" /></div>
-          <div class="form-field"><UiLabel>年份</UiLabel><UiNumberField v-model="form.year" :min="1900" :max="2200" :disabled="aiLocked" /></div>
-        </div>
-        <div class="form-field"><UiLabel>标题</UiLabel><UiInput v-model="form.title" maxlength="200" :disabled="aiLocked" /></div>
-        <div class="form-grid form-grid--three">
-          <div class="form-field"><UiLabel>难度</UiLabel><UiSelect v-model="form.difficulty" placeholder="" :disabled="aiLocked"><option value="EASY">基础</option><option value="MEDIUM">综合</option><option value="HARD">高难</option></UiSelect></div>
-          <div class="form-field"><UiLabel>标签（逗号分隔）</UiLabel><UiInput v-model="tagText" :disabled="aiLocked" /></div>
-          <div class="form-field"><UiLabel>来源链接</UiLabel><UiInput v-model="form.sourceUrl" placeholder="https://..." :disabled="aiLocked" /></div>
-        </div>
-      </section>
-
-      <section class="form-section">
-        <h2>题面与限制</h2>
-        <div class="form-field statement-form-item"><UiLabel>题面内容</UiLabel><ProblemStatementEditor v-model="form.statementMarkdown" :disabled="aiLocked" /></div>
-        <div class="form-grid form-grid--three">
-          <div class="form-field"><UiLabel>基准时间限制（ms）</UiLabel><UiNumberField v-model="form.timeLimitMs" :min="100" :max="60000" :step="100" :disabled="aiLocked" /></div>
-          <div class="form-field"><UiLabel>基准内存限制（MiB）</UiLabel><UiNumberField v-model="form.memoryLimitMiB" :min="16" :max="2048" :step="16" :disabled="aiLocked" /></div>
-          <div class="form-field"><UiLabel>数据声明</UiLabel><UiInput v-model="form.dataNotice" maxlength="200" :disabled="aiLocked" /></div>
+    <form class="admin-form" @submit.prevent="save(false)">
+      <section class="admin-panel">
+        <header class="admin-panel-head">
+          <span class="admin-panel-icon"><FileText :size="17" /></span>
+          <div class="admin-panel-titles"><h2>题目元数据</h2><p>标题、来源与难度等基础信息</p></div>
+        </header>
+        <div class="admin-panel-body">
+          <div class="admin-form-grid">
+            <div class="form-field"><UiLabel>学校</UiLabel><UiInput v-model="form.school" maxlength="200" :disabled="aiLocked" /></div>
+            <div class="form-field"><UiLabel>年份</UiLabel><UiNumberField v-model="form.year" :min="1900" :max="2200" :disabled="aiLocked" /></div>
+          </div>
+          <div class="form-field"><UiLabel>标题</UiLabel><UiInput v-model="form.title" maxlength="200" :disabled="aiLocked" /></div>
+          <div class="admin-form-grid admin-form-grid--three">
+            <div class="form-field"><UiLabel>难度</UiLabel><UiSelect v-model="form.difficulty" placeholder="" :disabled="aiLocked"><option value="EASY">基础</option><option value="MEDIUM">综合</option><option value="HARD">高难</option></UiSelect></div>
+            <div class="form-field"><UiLabel>标签（逗号分隔）</UiLabel><UiInput v-model="tagText" :disabled="aiLocked" /></div>
+            <div class="form-field"><UiLabel>来源链接</UiLabel><UiInput v-model="form.sourceUrl" placeholder="https://..." :disabled="aiLocked" /></div>
+          </div>
         </div>
       </section>
 
-      <section class="form-section">
-        <header class="section-heading"><div><h2>测试点</h2><p :class="{ 'score-invalid': totalScore !== 100 }">总分 {{ totalScore }} / 100</p></div><UiButton :disabled="aiLocked" @click="addCase"><Plus :size="16" />添加测试点</UiButton></header>
-        <div class="test-case-editor">
-          <article v-for="(item, index) in form.testCases" :key="index" class="test-case-card">
-            <header><strong>测试点 {{ index + 1 }}</strong><button class="icon-button" type="button" title="删除测试点" :disabled="aiLocked" @click="removeCase(index)"><Trash2 :size="17" /></button></header>
-            <div class="test-case-columns"><div class="form-field"><UiLabel>输入</UiLabel><UiTextarea v-model="item.input" :rows="5" :disabled="aiLocked" /></div><div class="form-field"><UiLabel>标准输出</UiLabel><UiTextarea v-model="item.output" :rows="5" :disabled="aiLocked" /></div></div>
-            <footer><label class="checkbox-field"><UiCheckbox v-model="item.sample" :disabled="aiLocked" />公开样例</label><div class="form-field"><UiLabel>分值</UiLabel><UiNumberField v-model="item.score" :min="0" :max="100" :disabled="aiLocked" /></div></footer>
-          </article>
+      <section class="admin-panel">
+        <header class="admin-panel-head">
+          <span class="admin-panel-icon"><BookOpen :size="17" /></span>
+          <div class="admin-panel-titles"><h2>题面与限制</h2><p>结构化题面内容与基准资源限制</p></div>
+        </header>
+        <div class="admin-panel-body">
+          <div class="form-field statement-form-item"><UiLabel>题面内容</UiLabel><ProblemStatementEditor v-model="form.statementMarkdown" :disabled="aiLocked" /></div>
+          <div class="admin-form-grid admin-form-grid--three">
+            <div class="form-field"><UiLabel>基准时间限制（ms）</UiLabel><UiNumberField v-model="form.timeLimitMs" :min="100" :max="60000" :step="100" :disabled="aiLocked" /></div>
+            <div class="form-field"><UiLabel>基准内存限制（MiB）</UiLabel><UiNumberField v-model="form.memoryLimitMiB" :min="16" :max="2048" :step="16" :disabled="aiLocked" /></div>
+            <div class="form-field"><UiLabel>数据声明</UiLabel><UiInput v-model="form.dataNotice" maxlength="200" :disabled="aiLocked" /></div>
+          </div>
         </div>
       </section>
 
-      <footer class="form-actions">
-        <UiButton :disabled="aiLocked" :loading="saving" @click="save(false)"><Save :size="16" />保存草稿</UiButton>
-        <UiButton :disabled="aiLocked" :loading="saving" @click="save(true)"><Send :size="16" />保存并发布</UiButton>
+      <section class="admin-panel">
+        <header class="admin-panel-head">
+          <span class="admin-panel-icon"><ListChecks :size="17" /></span>
+          <div class="admin-panel-titles"><h2>测试点</h2><p>输入输出成对出现，发布前总分须为 100</p></div>
+          <div class="admin-panel-head-actions">
+            <span class="admin-score-chip" :class="{ 'admin-score-chip--invalid': totalScore !== 100 }">总分 {{ totalScore }} / 100</span>
+            <UiButton variant="outline" size="sm" :disabled="aiLocked" @click="addCase"><Plus :size="15" />添加测试点</UiButton>
+          </div>
+        </header>
+        <div class="admin-panel-body">
+          <div class="admin-case-grid">
+            <article v-for="(item, index) in form.testCases" :key="index" class="admin-case-card">
+              <header class="admin-case-card-head">
+                <span class="admin-case-ordinal"><i>{{ index + 1 }}</i>测试点 {{ index + 1 }}</span>
+                <button class="icon-button" type="button" title="删除测试点" :disabled="aiLocked" @click="removeCase(index)"><Trash2 :size="16" /></button>
+              </header>
+              <div class="admin-case-io">
+                <div class="form-field"><UiLabel>输入</UiLabel><UiTextarea v-model="item.input" :rows="5" :disabled="aiLocked" /></div>
+                <div class="form-field"><UiLabel>标准输出</UiLabel><UiTextarea v-model="item.output" :rows="5" :disabled="aiLocked" /></div>
+              </div>
+              <footer class="admin-case-foot">
+                <label class="checkbox-field"><UiCheckbox v-model="item.sample" :disabled="aiLocked" />公开样例</label>
+                <div class="form-field admin-case-score"><UiLabel>分值</UiLabel><UiNumberField v-model="item.score" :min="0" :max="100" :disabled="aiLocked" /></div>
+              </footer>
+            </article>
+          </div>
+          <UiEmptyState v-if="form.testCases.length === 0" description="还没有测试点，点击右上角“添加测试点”开始录入" />
+        </div>
+      </section>
+
+      <footer class="admin-form-bar">
+        <p class="admin-panel-hint">{{ totalScore === 100 ? '总分已满足发布要求' : '发布前请将测试点总分调整为 100' }}</p>
+        <div class="admin-form-bar-actions">
+          <UiButton variant="outline" :disabled="aiLocked" :loading="saving" @click="save(false)"><Save :size="16" />保存草稿</UiButton>
+          <UiButton :disabled="aiLocked" :loading="saving" @click="save(true)"><Send :size="16" />保存并发布</UiButton>
+        </div>
       </footer>
     </form>
 

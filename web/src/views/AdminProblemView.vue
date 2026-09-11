@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { Save } from "@lucide/vue";
+import { ArrowLeft, BookOpen, FileText, Save } from "@lucide/vue";
 import { toast } from "../lib/notify";
 import { useRoute, useRouter } from "vue-router";
 import { api } from "../api/client";
@@ -96,40 +96,59 @@ onMounted(() => void loadBaseVersion());
 </script>
 
 <template>
-  <section class="content-page content-page--modern oj-page admin-problem-page loading-shell" :aria-busy="loading">
+  <section class="admin-page admin-page--narrow loading-shell" :aria-busy="loading">
     <div v-if="loading" class="loading-overlay"><span class="loading-spinner" aria-label="加载中" /></div>
-    <div class="page-heading">
-      <h1>{{ creatingNextVersion ? '新建题目版本草稿' : '新建题目草稿' }}</h1>
+    <div class="admin-page-head">
+      <div>
+        <h1>{{ creatingNextVersion ? '新建题目版本草稿' : '新建题目草稿' }}</h1>
+        <p>{{ creatingNextVersion ? '已复制原版本的元数据与题面，保存后成为同一题目的新草稿。' : '先创建草稿并录入元数据与题面，测试点在下一步单独维护。' }}</p>
+      </div>
+      <div class="admin-page-actions">
+        <UiButton variant="ghost" @click="router.push('/admin/problems')"><ArrowLeft :size="16" />返回题库</UiButton>
+      </div>
     </div>
 
-    <form class="problem-form" @submit.prevent="save">
-      <section class="form-section">
-        <h2>题目元数据</h2>
-        <div class="form-grid form-grid--three">
-          <div class="form-field"><UiLabel>外部题目标识（可选）</UiLabel><UiInput v-model="form.externalKey" maxlength="128" placeholder="外部题号或来源标识" :disabled="creatingNextVersion" /></div>
-          <div class="form-field"><UiLabel>学校</UiLabel><UiInput v-model="form.school" maxlength="200" /></div>
-          <div class="form-field"><UiLabel>年份</UiLabel><UiNumberField v-model="form.year" :min="1900" :max="2200" /></div>
-        </div>
-        <div class="form-field"><UiLabel>标题</UiLabel><UiInput v-model="form.title" maxlength="200" /></div>
-        <div class="form-grid form-grid--three">
-          <div class="form-field"><UiLabel>难度</UiLabel><UiSelect v-model="form.difficulty" placeholder=""><option value="EASY">基础</option><option value="MEDIUM">综合</option><option value="HARD">高难</option></UiSelect></div>
-          <div class="form-field"><UiLabel>标签（逗号分隔）</UiLabel><UiInput v-model="tagText" placeholder="动态规划, 图论" /></div>
-          <div class="form-field"><UiLabel>来源链接</UiLabel><UiInput v-model="form.sourceUrl" placeholder="https://..." /></div>
-        </div>
-      </section>
-
-      <section class="form-section">
-        <h2>题面与限制</h2>
-        <div class="form-field statement-form-item"><UiLabel>题面内容</UiLabel><ProblemStatementEditor v-model="form.statementMarkdown" /></div>
-        <div class="form-grid form-grid--three">
-          <div class="form-field"><UiLabel>基准时间限制（ms）</UiLabel><UiNumberField v-model="form.timeLimitMs" :min="100" :max="60000" :step="100" /></div>
-          <div class="form-field"><UiLabel>基准内存限制（MiB）</UiLabel><UiNumberField v-model="form.memoryLimitMiB" :min="16" :max="2048" :step="16" /></div>
-          <div class="form-field"><UiLabel>数据声明</UiLabel><UiInput v-model="form.dataNotice" maxlength="200" placeholder="AI 数据请注明非官方" /></div>
+    <form class="admin-form" @submit.prevent="save">
+      <section class="admin-panel">
+        <header class="admin-panel-head">
+          <span class="admin-panel-icon"><FileText :size="17" /></span>
+          <div class="admin-panel-titles"><h2>题目元数据</h2><p>标题、来源与难度等基础信息</p></div>
+        </header>
+        <div class="admin-panel-body">
+          <div class="admin-form-grid admin-form-grid--three">
+            <div class="form-field"><UiLabel>外部题目标识（可选）</UiLabel><UiInput v-model="form.externalKey" maxlength="128" placeholder="外部题号或来源标识" :disabled="creatingNextVersion" /></div>
+            <div class="form-field"><UiLabel>学校</UiLabel><UiInput v-model="form.school" maxlength="200" /></div>
+            <div class="form-field"><UiLabel>年份</UiLabel><UiNumberField v-model="form.year" :min="1900" :max="2200" /></div>
+          </div>
+          <div class="form-field"><UiLabel>标题</UiLabel><UiInput v-model="form.title" maxlength="200" /></div>
+          <div class="admin-form-grid admin-form-grid--three">
+            <div class="form-field"><UiLabel>难度</UiLabel><UiSelect v-model="form.difficulty" placeholder=""><option value="EASY">基础</option><option value="MEDIUM">综合</option><option value="HARD">高难</option></UiSelect></div>
+            <div class="form-field"><UiLabel>标签（逗号分隔）</UiLabel><UiInput v-model="tagText" placeholder="动态规划, 图论" /></div>
+            <div class="form-field"><UiLabel>来源链接</UiLabel><UiInput v-model="form.sourceUrl" placeholder="https://..." /></div>
+          </div>
         </div>
       </section>
 
-      <footer class="form-actions">
-        <UiButton type="submit" :loading="saving"><Save :size="16" />创建草稿并继续</UiButton>
+      <section class="admin-panel">
+        <header class="admin-panel-head">
+          <span class="admin-panel-icon"><BookOpen :size="17" /></span>
+          <div class="admin-panel-titles"><h2>题面与限制</h2><p>结构化题面内容与基准资源限制</p></div>
+        </header>
+        <div class="admin-panel-body">
+          <div class="form-field statement-form-item"><UiLabel>题面内容</UiLabel><ProblemStatementEditor v-model="form.statementMarkdown" /></div>
+          <div class="admin-form-grid admin-form-grid--three">
+            <div class="form-field"><UiLabel>基准时间限制（ms）</UiLabel><UiNumberField v-model="form.timeLimitMs" :min="100" :max="60000" :step="100" /></div>
+            <div class="form-field"><UiLabel>基准内存限制（MiB）</UiLabel><UiNumberField v-model="form.memoryLimitMiB" :min="16" :max="2048" :step="16" /></div>
+            <div class="form-field"><UiLabel>数据声明</UiLabel><UiInput v-model="form.dataNotice" maxlength="200" placeholder="AI 数据请注明非官方" /></div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="admin-form-bar">
+        <p class="admin-panel-hint">创建草稿后将进入编辑页录入测试点</p>
+        <div class="admin-form-bar-actions">
+          <UiButton type="submit" :loading="saving"><Save :size="16" />创建草稿并继续</UiButton>
+        </div>
       </footer>
     </form>
   </section>

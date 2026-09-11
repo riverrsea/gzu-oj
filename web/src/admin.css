@@ -1,0 +1,843 @@
+/*
+ * 管理端控制台样式。
+ *
+ * 管理端是独立于选手页面的工作台：左侧固定分组导航 + 右侧内容区。
+ * 所有颜色取自全局 CSS 变量，明暗主题随 :root / [data-theme="dark"] 自动切换。
+ */
+
+/* ===== 布局骨架 ===== */
+
+/* 管理端整体：240px 固定侧栏 + 自适应内容区。 */
+.admin-shell {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  align-items: start;
+  min-height: calc(100vh - 64px);
+  background: var(--bg);
+}
+
+/* 侧栏吸顶并独立滚动，长列表导航不会推高内容区。 */
+.admin-sidebar {
+  position: sticky;
+  top: 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  height: calc(100vh - 64px);
+  padding: 22px 14px 16px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.admin-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 0 10px;
+}
+
+.admin-sidebar-brand-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.admin-sidebar-brand-text {
+  display: grid;
+  gap: 2px;
+}
+
+.admin-sidebar-brand-text strong {
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+
+.admin-sidebar-brand-text span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.admin-nav {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-nav-group {
+  display: grid;
+  gap: 2px;
+}
+
+/* 分组标题：小号大写字母式标签，与可点击项区分层级。 */
+.admin-nav-label {
+  margin: 0;
+  padding: 0 10px 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.admin-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.admin-nav-link svg {
+  flex: 0 0 auto;
+}
+
+.admin-nav-link:hover {
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
+/* 激活项使用强调色浅底 + 左侧色条，跨子路由保持一致高亮。 */
+.admin-nav-link--active,
+.admin-nav-link--active:hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--accent-foreground);
+  box-shadow: inset 2.5px 0 var(--accent);
+}
+
+.admin-sidebar-footer {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.admin-content {
+  min-width: 0;
+  padding: 34px 40px 72px;
+}
+
+/* ===== 页面骨架 ===== */
+
+.admin-page {
+  display: grid;
+  min-width: 0;
+  gap: 18px;
+  align-content: start;
+}
+
+/* 表单类页面限制内容宽度，宽屏下字段不会被拉得过长。 */
+.admin-page--narrow {
+  max-width: 1080px;
+}
+
+.admin-page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px 18px;
+  flex-wrap: wrap;
+}
+
+.admin-page-head h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.admin-page-head p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* 标题区左上角的小型分类标签。 */
+.admin-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 7px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.admin-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* 版本总数等计数徽标。 */
+.admin-count-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ===== 通用面板 ===== */
+
+.admin-panel {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+/* 强调边框变体，用于一次性凭据等重点卡片。 */
+.admin-panel--accent {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+}
+
+.admin-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-panel-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent-foreground);
+}
+
+.admin-panel-titles {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.admin-panel-titles h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+}
+
+.admin-panel-titles p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.admin-panel-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.admin-panel-body {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  padding: 20px;
+}
+
+.admin-panel-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  padding: 13px 20px;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.admin-panel-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ===== 题库管理页 ===== */
+
+/* 筛选区：12 列网格，字段按重要度分配跨度。 */
+.admin-filters-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-filter-field {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  grid-column: span 2;
+}
+
+.admin-filter-field label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.admin-filter-field--keyword {
+  grid-column: span 3;
+}
+
+.admin-filter-field--year {
+  grid-column: span 1;
+}
+
+.admin-filters-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* 表格面板：表头吸顶式分组行 + 悬停行高亮。 */
+.admin-table-card {
+  overflow: hidden;
+}
+
+.admin-table-scroll {
+  overflow-x: auto;
+}
+
+.admin-table {
+  width: 100%;
+  min-width: 1060px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+
+.admin-table th {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.admin-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.admin-table tbody tr {
+  transition: background-color 140ms ease;
+}
+
+.admin-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.admin-table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+}
+
+/* 题目单元格：标题 + 外部标识 / 标签的副信息行。 */
+.admin-cell-title {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.admin-cell-title strong {
+  min-width: 0;
+  font-size: 13.5px;
+  overflow-wrap: anywhere;
+}
+
+.admin-cell-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.admin-cell-key {
+  color: var(--muted);
+  font: 11px ui-monospace, monospace;
+}
+
+.admin-tag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.admin-table-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: nowrap;
+}
+
+.admin-table-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.admin-table-total {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 状态徽标：圆点 + 语义色。 */
+.admin-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 23px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.admin-status::before {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+}
+
+.admin-status--published,
+.admin-status--valid,
+.admin-status--imported {
+  border-color: color-mix(in srgb, var(--success) 32%, var(--border));
+  background: color-mix(in srgb, var(--success) 10%, var(--surface));
+  color: var(--success);
+}
+
+.admin-status--draft,
+.admin-status--validated {
+  border-color: color-mix(in srgb, var(--warning) 34%, var(--border));
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+  color: var(--warning);
+}
+
+.admin-status--invalid {
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--border));
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  color: var(--danger);
+}
+
+/* 难度文字色：与题库页保持同一套语义色。 */
+.admin-difficulty {
+  font-size: 12.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.admin-difficulty--easy {
+  color: var(--success);
+}
+
+.admin-difficulty--medium {
+  color: var(--warning);
+}
+
+.admin-difficulty--hard {
+  color: var(--danger);
+}
+
+/* ===== 表单页（新建 / 编辑草稿） ===== */
+
+.admin-form {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+}
+
+.admin-form-grid--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* 底部操作条吸附在视口底部，长表单随时可保存。 */
+.admin-form-bar {
+  position: sticky;
+  bottom: 14px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow: var(--shadow-elevated);
+  backdrop-filter: blur(10px);
+}
+
+.admin-form-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 测试点编辑区：双列卡片，序号徽章 + 输入输出对照。 */
+.admin-case-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.admin-case-card {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.admin-case-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.admin-case-ordinal {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-case-ordinal i {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font: 700 11px ui-monospace, monospace;
+  font-style: normal;
+}
+
+.admin-case-io {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.admin-case-io textarea {
+  font-family: ui-monospace, monospace;
+}
+
+.admin-case-foot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.admin-case-score {
+  width: 110px;
+}
+
+/* 总分徽标：满分 100 为绿色，否则红色提醒。 */
+.admin-score-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--success) 32%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success) 9%, var(--surface));
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.admin-score-chip--invalid {
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--border));
+  background: color-mix(in srgb, var(--danger) 9%, var(--surface));
+  color: var(--danger);
+}
+
+/* ===== 批量导入页 ===== */
+
+/* 上传拖放区：虚线容器 + 选中/悬停高亮。 */
+.admin-dropzone {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  border: 1.5px dashed var(--border);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.admin-dropzone:hover,
+.admin-dropzone--dragover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+
+.admin-dropzone input[type="file"] {
+  display: none;
+}
+
+.admin-dropzone-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--accent);
+}
+
+.admin-dropzone-text {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.admin-dropzone-text strong {
+  min-width: 0;
+  font-size: 13.5px;
+  overflow-wrap: anywhere;
+}
+
+.admin-dropzone-text span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.admin-batch-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ===== 判题 Worker 页 ===== */
+
+.admin-worker-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.admin-worker-side {
+  display: grid;
+  min-width: 0;
+  gap: 18px;
+}
+
+.admin-worker-id {
+  display: grid;
+  gap: 5px;
+}
+
+.admin-worker-id span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.admin-worker-id code {
+  color: var(--text);
+  font: 12px ui-monospace, monospace;
+  overflow-wrap: anywhere;
+}
+
+.admin-token-label {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.admin-token-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.admin-token-row input {
+  min-width: 0;
+  font-family: ui-monospace, monospace;
+}
+
+.admin-checklist {
+  display: grid;
+  gap: 11px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-checklist li {
+  display: grid;
+  grid-template-columns: 17px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.admin-checklist svg {
+  margin-top: 2px;
+  color: var(--success);
+}
+
+/* ===== 响应式 ===== */
+
+/* 窄屏：侧栏折叠为顶部横向滚动导航。 */
+@media (max-width: 1080px) {
+  .admin-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-sidebar {
+    position: static;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    height: auto;
+    padding: 10px 12px;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .admin-sidebar-brand,
+  .admin-sidebar-footer,
+  .admin-nav-label {
+    display: none;
+  }
+
+  /* 分组容器在横向布局中拍平，链接依次排列。 */
+  .admin-nav,
+  .admin-nav-group {
+    display: contents;
+  }
+
+  .admin-nav-link {
+    min-height: 34px;
+    padding: 0 10px;
+    flex: 0 0 auto;
+    font-size: 12.5px;
+    white-space: nowrap;
+  }
+
+  .admin-nav-link--active,
+  .admin-nav-link--active:hover {
+    box-shadow: inset 0 -2px var(--accent);
+  }
+
+  .admin-content {
+    padding: 22px 18px 56px;
+  }
+}
+
+@media (max-width: 1280px) {
+  .admin-filter-field,
+  .admin-filter-field--keyword {
+    grid-column: span 4;
+  }
+
+  .admin-filter-field--year {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 760px) {
+  .admin-content {
+    padding: 18px 12px 48px;
+  }
+
+  .admin-page-head h1 {
+    font-size: 22px;
+  }
+
+  .admin-filter-field,
+  .admin-filter-field--keyword,
+  .admin-filter-field--year {
+    grid-column: span 12;
+  }
+
+  .admin-form-grid,
+  .admin-form-grid--three,
+  .admin-case-grid,
+  .admin-case-io,
+  .admin-worker-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-case-score {
+    width: 100%;
+  }
+
+  .admin-form-bar {
+    flex-wrap: wrap;
+  }
+
+  .admin-form-bar .admin-panel-hint {
+    display: none;
+  }
+}

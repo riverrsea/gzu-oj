@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { FileArchive, Upload } from "@lucide/vue";
+import { ClipboardCheck, FileArchive, FileCheck2, Upload } from "@lucide/vue";
 import { toast } from "../lib/notify";
 import { api } from "../api/client";
 import type { ImportBatch } from "../api/types";
 import UiButton from "../components/ui/Button.vue";
-import UiTable from "../components/ui/Table.vue";
 
 /** 待上传的标准导入包。 */
 const file = ref<File>();
+/** 是否有文件正被拖入上传区。 */
+const dragover = ref(false);
 /** ZIP 上传和校验状态。 */
 const staging = ref(false);
 /** 批次提交状态。 */
@@ -16,12 +17,31 @@ const committing = ref(false);
 /** 最近一次导入预览。 */
 const batch = ref<ImportBatch>();
 
+/** 批次中校验通过的条目数量。 */
+const validCount = computed(() => batch.value?.items.filter((item) => item.status === "VALID").length ?? 0);
 /** 批次是否包含阻止提交的错误项。 */
 const hasInvalidItems = computed(() => batch.value?.items.some((item) => item.status === "INVALID") ?? false);
 
-/** 记录文件选择。 */
+/** 批次状态显示文本。 */
+function batchStatusLabel(status: string): string {
+  return { STAGED: "已校验", VALIDATED: "已校验", IMPORTED: "已导入" }[status] ?? status;
+}
+
+/** 记录通过文件选择器选中的 ZIP。 */
 function selectFile(event: Event): void {
   file.value = (event.target as HTMLInputElement).files?.[0];
+}
+
+/** 记录拖入上传区的 ZIP 文件。 */
+function dropFile(event: DragEvent): void {
+  dragover.value = false;
+  const dropped = event.dataTransfer?.files?.[0];
+  if (!dropped) return;
+  if (!dropped.name.toLowerCase().endsWith(".zip")) {
+    toast.warning("仅支持 .zip 标准导入包");
+    return;
+  }
+  file.value = dropped;
 }
 
 /** 上传 ZIP 并展示服务端安全校验预览。 */
@@ -58,18 +78,73 @@ async function commitImport(): Promise<void> {
 </script>
 
 <template>
-  <section class="content-page content-page--modern oj-page admin-page">
-    <div class="page-heading"><h1>批量导入</h1></div>
-    <section class="admin-tool-surface">
-      <header><FileArchive :size="21" /><div><h2>标准 ZIP 导入</h2></div></header>
-      <div class="upload-row"><label class="upload-command"><Upload :size="18" />选择 ZIP<input type="file" accept=".zip,application/zip" @change="selectFile" /></label><span>{{ file?.name ?? '尚未选择文件' }}</span><UiButton :loading="staging" :disabled="!file" @click="stageImport">校验预览</UiButton></div>
-      <template v-if="batch">
-        <UiTable>
+  <section class="admin-page admin-page--narrow">
+    <div class="admin-page-head">
+      <div>
+        <h1>批量导入</h1>
+        <p>上传标准 ZIP 导入包，先校验预览，再批量创建题目草稿版本。</p>
+      </div>
+    </div>
+
+    <section class="admin-panel">
+      <header class="admin-panel-head">
+        <span class="admin-panel-icon"><FileArchive :size="17" /></span>
+        <div class="admin-panel-titles"><h2>标准 ZIP 导入</h2><p>导入包需包含题面与测试点，服务端会逐项安全校验</p></div>
+      </header>
+      <div class="admin-panel-body">
+        <label
+          class="admin-dropzone"
+          :class="{ 'admin-dropzone--dragover': dragover }"
+          @dragover.prevent="dragover = true"
+          @dragleave.prevent="dragover = false"
+          @drop.prevent="dropFile"
+        >
+          <input type="file" accept=".zip,application/zip" @change="selectFile" />
+          <span class="admin-dropzone-icon"><Upload :size="19" /></span>
+          <span class="admin-dropzone-text">
+            <strong>{{ file?.name ?? "点击选择或拖入 ZIP 文件" }}</strong>
+            <span>{{ file ? "已选择导入包，可开始校验预览" : "仅支持 .zip 标准导入包" }}</span>
+          </span>
+        </label>
+        <div class="admin-filters-actions">
+          <UiButton :loading="staging" :disabled="!file" @click="stageImport"><FileCheck2 :size="16" />校验预览</UiButton>
+        </div>
+      </div>
+    </section>
+
+    <section v-if="batch" class="admin-panel admin-table-card">
+      <header class="admin-panel-head">
+        <span class="admin-panel-icon"><ClipboardCheck :size="17" /></span>
+        <div class="admin-panel-titles"><h2>批次预览</h2><p class="admin-cell-key">{{ batch.id }}</p></div>
+        <div class="admin-panel-head-actions">
+          <span :class="['admin-status', 'admin-status--' + batch.status.toLowerCase()]">{{ batchStatusLabel(batch.status) }}</span>
+        </div>
+      </header>
+      <div class="admin-panel-body">
+        <div class="admin-batch-stats">
+          <span class="admin-count-pill">共 {{ batch.items.length }} 项</span>
+          <span class="admin-status admin-status--valid">有效 {{ validCount }}</span>
+          <span v-if="hasInvalidItems" class="admin-status admin-status--invalid">无效 {{ batch.items.length - validCount }}</span>
+        </div>
+      </div>
+      <div class="admin-table-scroll">
+        <table class="admin-table">
           <thead><tr><th>外部题目标识</th><th>标题</th><th>测点</th><th>状态</th><th>错误</th></tr></thead>
-          <tbody><tr v-for="row in batch.items" :key="row.externalKey"><td>{{ row.externalKey }}</td><td>{{ row.title }}</td><td>{{ row.testCaseCount }}</td><td>{{ row.status }}</td><td>{{ row.errors.join('；') || '—' }}</td></tr></tbody>
-        </UiTable>
-        <div class="tool-actions"><span>批次 {{ batch.id }} · {{ batch.status }}</span><UiButton :loading="committing" :disabled="hasInvalidItems || batch.status !== 'VALIDATED'" @click="commitImport">提交导入</UiButton></div>
-      </template>
+          <tbody>
+            <tr v-for="row in batch.items" :key="row.externalKey">
+              <td><span class="admin-cell-key">{{ row.externalKey }}</span></td>
+              <td>{{ row.title }}</td>
+              <td>{{ row.testCaseCount }} 个</td>
+              <td><span :class="['admin-status', 'admin-status--' + row.status.toLowerCase()]">{{ row.status === "VALID" ? "有效" : "无效" }}</span></td>
+              <td>{{ row.errors.join("；") || "—" }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <footer class="admin-panel-foot">
+        <p class="admin-panel-hint">{{ hasInvalidItems ? "存在无效条目，修正后可重新校验" : "确认无误后提交导入，将为有效条目创建草稿版本" }}</p>
+        <UiButton :loading="committing" :disabled="hasInvalidItems || batch.status !== 'VALIDATED'" @click="commitImport">提交导入</UiButton>
+      </footer>
     </section>
   </section>
 </template>

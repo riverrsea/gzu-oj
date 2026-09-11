@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
-import { Copy, KeyRound, ServerCog, ShieldCheck } from "@lucide/vue";
+import { CheckCircle2, Copy, KeyRound, ServerCog, ShieldCheck } from "@lucide/vue";
 import { toast } from "../lib/notify";
 import { api } from "../api/client";
 import type { CreatedWorker } from "../api/types";
@@ -74,60 +74,70 @@ async function copyToken(): Promise<void> {
 </script>
 
 <template>
-  <section class="content-page content-page--modern oj-page admin-page worker-page">
-    <div class="page-heading">
+  <section class="admin-page">
+    <div class="admin-page-head">
       <div>
-        <div class="worker-eyebrow"><ServerCog :size="16" />节点凭据</div>
+        <div class="admin-eyebrow"><ServerCog :size="15" />节点凭据</div>
         <h1>判题 Worker</h1>
+        <p>为判题主机创建接入凭据，并按检查清单确认运行环境。</p>
       </div>
     </div>
 
-    <div class="worker-layout">
-      <article class="tool-card">
-        <header>
-          <ServerCog :size="21" />
-          <div><h2>创建 Worker 凭据</h2></div>
+    <div class="admin-worker-layout">
+      <section class="admin-panel">
+        <header class="admin-panel-head">
+          <span class="admin-panel-icon"><ServerCog :size="17" /></span>
+          <div class="admin-panel-titles"><h2>创建 Worker 凭据</h2><p>名称全局唯一，槽位决定节点并发能力</p></div>
         </header>
 
-        <form class="problem-form" @submit.prevent="createWorker">
+        <form class="admin-panel-body" @submit.prevent="createWorker">
           <div class="form-field"><UiLabel>节点名称</UiLabel><UiInput v-model="form.name" maxlength="100" autocomplete="off" placeholder="wsl-judge-1" /></div>
           <div class="form-field"><UiLabel>并发槽位</UiLabel><UiNumberField v-model="form.slots" :min="1" :max="64" /></div>
           <div class="form-field"><UiLabel>AI 生成与差分槽位</UiLabel><UiNumberField v-model="form.aiSlots" :min="0" :max="16" /></div>
           <UiAlert title="Token 只返回一次" variant="warning">
             创建完成后请立即复制并保存。服务端只保存哈希，刷新或离开页面后无法再次查看。
           </UiAlert>
-          <div class="form-actions">
-            <UiButton :loading="creating" :disabled="!validName || !validSlots || !validAiSlots" @click="createWorker">
+          <div class="admin-filters-actions">
+            <UiButton :loading="creating" :disabled="!validName || !validSlots || !validAiSlots" type="submit">
               <KeyRound :size="16" />创建凭据
             </UiButton>
           </div>
         </form>
-      </article>
+      </section>
 
-      <aside class="worker-side">
-        <article v-if="created" class="tool-card worker-token-card">
-          <header>
-            <KeyRound :size="21" />
-            <div><h2>凭据已创建</h2><p>{{ created.name }} · 普通 {{ created.slots }} 槽 · AI {{ created.aiSlots }} 槽</p></div>
+      <aside class="admin-worker-side">
+        <section v-if="created" class="admin-panel admin-panel--accent">
+          <header class="admin-panel-head">
+            <span class="admin-panel-icon"><KeyRound :size="17" /></span>
+            <div class="admin-panel-titles"><h2>凭据已创建</h2><p>{{ created.name }} · 普通 {{ created.slots }} 槽 · AI {{ created.aiSlots }} 槽</p></div>
           </header>
-          <div class="worker-id"><span>节点 ID</span><code>{{ created.id }}</code></div>
-          <label class="token-label" for="worker-token">Worker Token（仅展示一次）</label>
-          <div class="token-row">
-            <UiInput id="worker-token" :model-value="created.token" readonly />
-            <UiButton :title="copied ? '已复制' : '复制 Token'" @click="copyToken"><Copy :size="16" />{{ copied ? '已复制' : '复制' }}</UiButton>
+          <div class="admin-panel-body">
+            <div class="admin-worker-id"><span>节点 ID</span><code>{{ created.id }}</code></div>
+            <div>
+              <label class="admin-token-label" for="worker-token">Worker Token（仅展示一次）</label>
+              <div class="admin-token-row">
+                <UiInput id="worker-token" :model-value="created.token" readonly />
+                <UiButton :title="copied ? '已复制' : '复制 Token'" @click="copyToken"><Copy :size="16" />{{ copied ? '已复制' : '复制' }}</UiButton>
+              </div>
+            </div>
+            <UiAlert title="请将 Token 写入 GZU_OJ_WORKER_TOKEN" variant="success" />
           </div>
-          <UiAlert class="token-alert" title="请将 Token 写入 GZU_OJ_WORKER_TOKEN" variant="success" />
-        </article>
+        </section>
 
-        <article class="tool-card">
-          <header><ShieldCheck :size="21" /><div><h2>启动前检查</h2></div></header>
-          <ul class="worker-checklist">
-            <li><span class="check-dot" />WSL 发行版已启用 cgroup v2 的 CPU、内存和 PID 控制器</li>
-            <li><span class="check-dot" />go-judge 使用与 Worker 配置一致的鉴权 Token</li>
-            <li><span class="check-dot" />控制端地址可从判题主机通过 HTTPS 访问</li>
-            <li><span class="check-dot" />go-judge 并发数不小于普通槽与 AI 槽之和</li>
-          </ul>
-        </article>
+        <section class="admin-panel">
+          <header class="admin-panel-head">
+            <span class="admin-panel-icon"><ShieldCheck :size="17" /></span>
+            <div class="admin-panel-titles"><h2>启动前检查</h2><p>逐项确认判题主机的运行环境</p></div>
+          </header>
+          <div class="admin-panel-body">
+            <ul class="admin-checklist">
+              <li><CheckCircle2 :size="15" />WSL 发行版已启用 cgroup v2 的 CPU、内存和 PID 控制器</li>
+              <li><CheckCircle2 :size="15" />go-judge 使用与 Worker 配置一致的鉴权 Token</li>
+              <li><CheckCircle2 :size="15" />控制端地址可从判题主机通过 HTTPS 访问</li>
+              <li><CheckCircle2 :size="15" />go-judge 并发数不小于普通槽与 AI 槽之和</li>
+            </ul>
+          </div>
+        </section>
       </aside>
     </div>
   </section>

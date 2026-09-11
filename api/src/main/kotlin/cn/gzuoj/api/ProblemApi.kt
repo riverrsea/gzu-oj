@@ -1028,8 +1028,7 @@ class ProblemService(
             jdbc.update(
                 """
                 UPDATE ai_problem_run
-                SET state = 'PUBLISHED', coordinator_lease = NULL,
-                    coordinator_lease_expires_at = NULL, updated_at = now()
+                SET state = 'PUBLISHED', updated_at = now()
                 WHERE id = ?
                 """.trimIndent(),
                 runId,

@@ -241,8 +241,6 @@ class AiRunService(
     private val jdbc: JdbcTemplate,
     /** JSON 编解码器。 */
     private val mapper: ObjectMapper,
-    /** 应用配置。 */
-    private val properties: AppProperties,
     /** 题目版本发布服务。 */
     private val problems: ProblemService,
 ) {
@@ -277,15 +275,14 @@ class AiRunService(
             """
             INSERT INTO ai_problem_run(
                 id, problem_version_id, state, requested_test_case_count, auto_publish, requested_sample_count,
-                provider_base_url, model, prompt_version, created_by
-            ) VALUES (?, ?, 'ANALYZING', ?, ?, ?, ?, ?, ?, ?)
+                model, prompt_version, created_by
+            ) VALUES (?, ?, 'ANALYZING', ?, ?, ?, ?, ?, ?)
             """.trimIndent(),
             id,
             request.problemVersionId,
             request.testCaseCount,
             request.autoPublish,
             request.sampleCount,
-            properties.ai.agentBaseUrl,
             "python-agent",
             "external",
             creator,
@@ -402,8 +399,7 @@ class AiRunService(
             """
             UPDATE ai_problem_run
             SET state = ?, publication_gate = ?::jsonb, validation_evidence = ?::jsonb,
-                failure_reason = ?, next_run_at = now(), coordinator_lease = NULL,
-                coordinator_lease_expires_at = NULL, updated_at = now()
+                failure_reason = ?, updated_at = now()
             WHERE id = ?
             """.trimIndent(),
             next.name,
@@ -436,8 +432,7 @@ class AiRunService(
         AiWorkflow.requireTransition(state, AiWorkflowState.NEEDS_REVIEW)
         jdbc.update(
             """
-            UPDATE ai_problem_run SET state = 'NEEDS_REVIEW', failure_reason = ?,
-                coordinator_lease = NULL, coordinator_lease_expires_at = NULL, updated_at = now()
+            UPDATE ai_problem_run SET state = 'NEEDS_REVIEW', failure_reason = ?, updated_at = now()
             WHERE id = ?
             """.trimIndent(),
             reason.take(2_000),
@@ -489,8 +484,7 @@ class AiRunService(
         }
         jdbc.update(
             """
-            UPDATE ai_problem_run SET state = 'CANCELED', coordinator_lease = NULL,
-                coordinator_lease_expires_at = NULL, updated_at = now() WHERE id = ?
+            UPDATE ai_problem_run SET state = 'CANCELED', updated_at = now() WHERE id = ?
             """.trimIndent(),
             runId,
         )
@@ -534,7 +528,6 @@ class AiRunService(
             """
             UPDATE ai_problem_run
             SET state = ?, resume_target = NULL, human_correction = ?::jsonb, failure_reason = NULL,
-                next_run_at = now(), coordinator_lease = NULL, coordinator_lease_expires_at = NULL,
                 updated_at = now()
             WHERE id = ?
             """.trimIndent(),
@@ -657,11 +650,11 @@ class AiRunService(
         problemVersionId,
     ) ?: false
 
-    /** 读取 Agent 返回；不读取 request_json，避免把题面上下文和内部提示词暴露给页面。 */
+    /** 读取 Agent 返回的结构化响应，不暴露内部提示词。 */
     private fun loadSteps(runId: UUID): List<AiStepResponse> = jdbc.query(
         """
         SELECT id, role, state,
-               COALESCE(response_json, structured_response)::text AS response_payload,
+               response_json::text AS response_payload,
                cost_microunits, content_sha256, finished_at, failure_reason
         FROM ai_problem_step
         WHERE run_id = ?
@@ -766,8 +759,7 @@ class AiRunService(
         problems.publish(row.first)
         jdbc.update(
             """
-            UPDATE ai_problem_run SET state = 'PUBLISHED', coordinator_lease = NULL,
-                coordinator_lease_expires_at = NULL, updated_at = now() WHERE id = ?
+            UPDATE ai_problem_run SET state = 'PUBLISHED', updated_at = now() WHERE id = ?
             """.trimIndent(),
             runId,
         )

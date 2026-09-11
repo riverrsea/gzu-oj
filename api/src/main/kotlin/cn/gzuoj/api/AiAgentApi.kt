@@ -96,6 +96,8 @@ data class AiAgentSandboxResultRequest(
     val status: String,
     /** 失败原因。 */
     val failureReason: String? = null,
+    /** 失败产物归属名（TEST_DATA/SOLUTIONS/BRUTE_FORCE）；为空表示不可定向。 */
+    val failedStage: String? = null,
 )
 
 /** Python Agent 内部回调接口；仅接受配置的 Bearer Token。 */

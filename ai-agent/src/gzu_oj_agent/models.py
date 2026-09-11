@@ -127,6 +127,14 @@ class SandboxStatus(StrEnum):
     SYSTEM_ERROR = "SYSTEM_ERROR"
 
 
+class SandboxFailureStage(StrEnum):
+    """Kotlin 归因的沙箱失败产物，用于把修复定向到出错的那个节点。"""
+
+    TEST_DATA = "TEST_DATA"
+    SOLUTIONS = "SOLUTIONS"
+    BRUTE_FORCE = "BRUTE_FORCE"
+
+
 class SandboxResult(StrictModel):
     """恢复 LangGraph 的沙箱结果通知。"""
 
@@ -136,6 +144,8 @@ class SandboxResult(StrictModel):
     repair_round: int = Field(ge=0, le=2)
     status: SandboxStatus
     failure_reason: str | None = Field(default=None, max_length=2_000)
+    # 为空表示不可定向，只能按最保守的测试数据重做。
+    failed_stage: SandboxFailureStage | None = None
 
     @field_validator("status", mode="before")
     @classmethod
@@ -143,6 +153,14 @@ class SandboxResult(StrictModel):
         """strict 模式下枚举字段只接受枚举实例，需先把 JSON 状态字符串转成枚举。"""
         if isinstance(value, str):
             return SandboxStatus(value)
+        return value
+
+    @field_validator("failed_stage", mode="before")
+    @classmethod
+    def accept_failure_stage_name(cls, value: object) -> object:
+        """strict 模式下枚举字段只接受枚举实例，需先把 JSON 归属名字符串转成枚举。"""
+        if isinstance(value, str):
+            return SandboxFailureStage(value)
         return value
 
 

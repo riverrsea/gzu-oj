@@ -2,6 +2,7 @@ package cn.gzuoj.api
 
 import cn.gzuoj.shared.AiPublicationGate
 import cn.gzuoj.shared.AiSandboxCompletion
+import cn.gzuoj.shared.AiSandboxFailureStage
 import cn.gzuoj.shared.AiSandboxTaskPayload
 import cn.gzuoj.shared.AiWorkflow
 import cn.gzuoj.shared.AiWorkflowState
@@ -455,20 +456,32 @@ class AiRunService(
 
     /** 前两轮差分失败交给 Python Agent 定向修复，第三轮才进入人工接管。 */
     @Transactional
-    internal fun prepareSandboxRepair(runId: UUID, reason: String) {
+    internal fun prepareSandboxRepair(runId: UUID, reason: String, stage: AiSandboxFailureStage?) {
         val state = jdbc.query(
             "SELECT state FROM ai_problem_run WHERE id = ? FOR UPDATE",
             { result, _ -> AiWorkflowState.valueOf(result.getString("state")) },
             runId,
         ).firstOrNull() ?: throw ApiException(HttpStatus.NOT_FOUND, "AI_RUN_NOT_FOUND", "AI 运行不存在")
         if (state != AiWorkflowState.DIFFERENTIAL_TESTING) return
-        AiWorkflow.requireRepair(state, AiWorkflowState.GENERATING_TESTS)
+        // 失败归属决定回退到哪个阶段：标程或暴力解出错时不必重跑测试生成器。
+        val target = when (stage) {
+            AiSandboxFailureStage.SOLUTIONS, AiSandboxFailureStage.BRUTE_FORCE -> AiWorkflowState.GENERATING_SOLUTIONS
+            else -> AiWorkflowState.GENERATING_TESTS
+        }
+        AiWorkflow.requireRepair(state, target)
+        val artifact = when (stage) {
+            AiSandboxFailureStage.TEST_DATA -> "测试数据生成器"
+            AiSandboxFailureStage.SOLUTIONS -> "两份标程"
+            AiSandboxFailureStage.BRUTE_FORCE -> "暴力解"
+            null -> "测试数据生成器"
+        }
         jdbc.update(
-            "UPDATE ai_problem_run SET state = 'GENERATING_TESTS', failure_reason = ?, updated_at = now() WHERE id = ?",
+            "UPDATE ai_problem_run SET state = ?, failure_reason = ?, updated_at = now() WHERE id = ?",
+            target.name,
             reason.take(2_000),
             runId,
         )
-        recordStateTransition(runId, state, AiWorkflowState.GENERATING_TESTS, "差分未通过，Agent 将针对失败原因修复测试生成器")
+        recordStateTransition(runId, state, target, "差分未通过，Agent 将定向修复$artifact")
     }
 
     /** 汇总未通过的门禁，直接展示给管理员定位人工处理项。 */

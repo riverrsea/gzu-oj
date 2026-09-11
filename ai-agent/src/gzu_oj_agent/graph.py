@@ -13,6 +13,7 @@ from .llm import ModelClient
 from .models import (
 	AnalysisResult,
 	ProgressEvent,
+	SandboxFailureStage,
 	SandboxResult,
 	SandboxStatus,
 	SandboxTask,
@@ -94,6 +95,7 @@ class AgentState(TypedDict, total=False):
 	resume_attempt: int
 	failure_reason: str
 	failure_target: str
+	repair_target: str
 	resume: dict[str, Any]
 	canceled: bool
 
@@ -352,11 +354,28 @@ class Workflow:
 		return "finish"
 
 	@staticmethod
+	def after_repair(state: AgentState) -> Literal["test_data", "solutions", "brute_force"]:
+		"""按失败归属把修复定向到出错节点，避免整条链路从头重跑。"""
+		target = state.get("repair_target")
+		if target in ("solutions", "brute_force"):
+			return target
+		return "test_data"
+
+	@staticmethod
 	def prepare_repair(state: AgentState) -> AgentState:
 		result = validate_checkpoint(SandboxResult, state["sandbox_result"])
+		# 归属为空说明 Kotlin 无法定向，只能按最保守的测试数据重做。
+		stage = result.failed_stage
+		if stage is SandboxFailureStage.SOLUTIONS:
+			target = "solutions"
+		elif stage is SandboxFailureStage.BRUTE_FORCE:
+			target = "brute_force"
+		else:
+			target = "test_data"
 		return {
 			"repair_round": state.get("repair_round", 0) + 1,
 			"failure_reason": result.failure_reason or "沙箱差分失败",
+			"repair_target": target,
 		}
 
 	def compile(self, checkpointer: Any):
@@ -376,7 +395,11 @@ class Workflow:
 		graph.add_edge("solutions", "brute_force")
 		graph.add_edge("brute_force", "submit")
 		graph.add_conditional_edges("submit", self.after_sandbox)
-		graph.add_edge("repair", "test_data")
+		graph.add_conditional_edges(
+			"repair",
+			self.after_repair,
+			{"test_data": "test_data", "solutions": "solutions", "brute_force": "brute_force"},
+		)
 		graph.add_conditional_edges("fail", self.after_fail, {"analyze": "analyze", "finish": END})
 		graph.add_edge("finish", END)
 		return graph.compile(checkpointer=checkpointer)

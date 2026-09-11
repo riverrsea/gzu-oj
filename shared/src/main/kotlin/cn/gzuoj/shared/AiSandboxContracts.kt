@@ -55,6 +55,18 @@ enum class AiSandboxCompletionStatus {
     SYSTEM_ERROR,
 }
 
+/** 沙箱校验失败时出错的产物归属，供 Agent 只重生成对应节点。 */
+enum class AiSandboxFailureStage {
+    /** 输入生成器或输入校验器。 */
+    TEST_DATA,
+
+    /** 两份标程之一。 */
+    SOLUTIONS,
+
+    /** 小数据暴力解。 */
+    BRUTE_FORCE,
+}
+
 /** 单个 AI 生成测试点的完整差分证据。 */
 data class AiGeneratedCaseResult(
     /** 测试点顺序，从 1 开始。 */
@@ -107,4 +119,6 @@ data class AiSandboxCompletion(
     val maximumMemoryPercent: Int = 0,
     /** 失败原因；通过时为空。 */
     val failureReason: String? = null,
+    /** 失败产物归属；仅校验失败时可能非空，用于 Agent 定向重生成。 */
+    val failedStage: AiSandboxFailureStage? = null,
 )

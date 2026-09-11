@@ -18,10 +18,12 @@ class AiWorkflowTest {
         assertFalse(AiWorkflow.canTransition(AiWorkflowState.PUBLISHED, AiWorkflowState.CANCELED))
     }
 
-    /** 差分失败的前两轮允许回到测试生成，普通流程转移仍保持单向。 */
+    /** 差分失败的前两轮允许定向回到测试或标程生成，普通流程转移仍保持单向。 */
     @Test
     fun `allows targeted repair transition`() {
         assertTrue(AiWorkflow.canRepair(AiWorkflowState.DIFFERENTIAL_TESTING, AiWorkflowState.GENERATING_TESTS))
+        assertTrue(AiWorkflow.canRepair(AiWorkflowState.DIFFERENTIAL_TESTING, AiWorkflowState.GENERATING_SOLUTIONS))
+        assertFalse(AiWorkflow.canRepair(AiWorkflowState.DIFFERENTIAL_TESTING, AiWorkflowState.ANALYZING))
         assertFalse(AiWorkflow.canRepair(AiWorkflowState.ANALYZING, AiWorkflowState.GENERATING_TESTS))
     }
 

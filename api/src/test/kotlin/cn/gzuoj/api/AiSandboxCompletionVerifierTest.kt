@@ -3,6 +3,7 @@ package cn.gzuoj.api
 import cn.gzuoj.shared.AiGeneratedCaseResult
 import cn.gzuoj.shared.AiSandboxCompletion
 import cn.gzuoj.shared.AiSandboxCompletionStatus
+import cn.gzuoj.shared.AiSandboxFailureStage
 import cn.gzuoj.shared.AiSandboxTaskPayload
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -42,6 +43,17 @@ class AiSandboxCompletionVerifierTest {
         val completion = completion(task).copy(
             testCases = completion(task).testCases.map { it.copy(outputSha256 = "0".repeat(64)) },
         )
+
+        assertThrows(ApiException::class.java) {
+            AiSandboxCompletionVerifier.verify(task, completion)
+        }
+    }
+
+    /** 通过结算不能携带失败归属，否则管理员会看到矛盾的定向修复提示。 */
+    @Test
+    fun rejectsFailureStageOnPassedCompletion() {
+        val task = task(listOf(11L))
+        val completion = completion(task).copy(failedStage = AiSandboxFailureStage.SOLUTIONS)
 
         assertThrows(ApiException::class.java) {
             AiSandboxCompletionVerifier.verify(task, completion)

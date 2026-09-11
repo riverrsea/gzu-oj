@@ -5,7 +5,14 @@ import pytest
 from pydantic import ValidationError
 
 from gzu_oj_agent.graph import Workflow, sandbox_payload
-from gzu_oj_agent.models import SandboxResult, SandboxStatus, SolutionResult, StartRunRequest, TestDataResult as DataResult
+from gzu_oj_agent.models import (
+    SandboxFailureStage,
+    SandboxResult,
+    SandboxStatus,
+    SolutionResult,
+    StartRunRequest,
+    TestDataResult as DataResult,
+)
 
 
 def base_state() -> dict:
@@ -87,6 +94,45 @@ def test_sandbox_result_accepts_kotlin_camel_json_status() -> None:
     # 非法状态名仍必须被拒绝。
     with pytest.raises(ValidationError):
         SandboxResult.model_validate({**payload, "status": "NOT_A_STATUS"})
+
+
+def test_sandbox_result_accepts_kotlin_failure_stage() -> None:
+    """Kotlin 用 camelCase 产物名归因；strict 模型必须能解析，且非法归属被拒绝。"""
+    payload = {
+        "eventId": str(uuid4()),
+        "runId": str(uuid4()),
+        "sandboxJobId": str(uuid4()),
+        "repairRound": 0,
+        "status": "VALIDATION_FAILED",
+        "failureReason": "标程 B 编译失败",
+        "failedStage": "SOLUTIONS",
+    }
+    result = SandboxResult.model_validate(payload)
+    assert result.failed_stage is SandboxFailureStage.SOLUTIONS
+    # 归属为空表示不可定向，必须能正常解析。
+    assert SandboxResult.model_validate({**payload, "failedStage": None}).failed_stage is None
+    with pytest.raises(ValidationError):
+        SandboxResult.model_validate({**payload, "failedStage": "REVIEW"})
+
+
+def test_repair_is_routed_to_the_failing_artifact() -> None:
+    """编译/差分失败只重跑出错产物，避免整条链路从测试数据重新生成。"""
+    expectations = {
+        None: "test_data",
+        SandboxFailureStage.TEST_DATA: "test_data",
+        SandboxFailureStage.SOLUTIONS: "solutions",
+        SandboxFailureStage.BRUTE_FORCE: "brute_force",
+    }
+    for stage, node in expectations.items():
+        state = base_state()
+        state["sandbox_result"] = SandboxResult(
+            event_id=uuid4(), run_id=uuid4(), sandbox_job_id=uuid4(), repair_round=0,
+            status=SandboxStatus.VALIDATION_FAILED, failure_reason="编译失败", failed_stage=stage
+        ).model_dump(mode="json")
+        repaired = Workflow.prepare_repair(state)
+        assert repaired["repair_target"] == node
+        assert repaired["repair_round"] == 1
+        assert Workflow.after_repair({**state, **repaired}) == node
 
 
 def test_source_fields_strip_markdown_fences() -> None:

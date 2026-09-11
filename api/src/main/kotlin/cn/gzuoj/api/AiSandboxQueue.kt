@@ -47,6 +47,7 @@ object AiSandboxCompletionVerifier {
         if (!completion.deterministic || !completion.solutionsAgree || !completion.bruteForcePassed) {
             invalid("通过结算必须满足复现、双标程和暴力差分门禁")
         }
+        if (completion.failedStage != null) invalid("通过的 AI 沙箱结算不能携带失败归属")
         if (task.seeds.isEmpty() || task.seeds.distinct().size != task.seeds.size) {
             invalid("AI 沙箱任务的固定种子必须互不重复")
         }
@@ -250,7 +251,7 @@ class AiSandboxQueue(
             AiSandboxCompletionStatus.PASSED -> runs.acceptSandboxResult(jobId, job.runId, job.payload, completion, verified)
             AiSandboxCompletionStatus.VALIDATION_FAILED -> {
                 val reason = completion.failureReason ?: "AI 生成数据未通过差分门禁"
-                if (job.repairRound < 2) runs.prepareSandboxRepair(job.runId, reason)
+                if (job.repairRound < 2) runs.prepareSandboxRepair(job.runId, reason, completion.failedStage)
                 else runs.failSandboxValidation(job.runId, reason)
             }
             AiSandboxCompletionStatus.SYSTEM_ERROR -> runs.failSandboxValidation(
@@ -285,6 +286,7 @@ class AiSandboxQueue(
                     repairRound = job.repairRound,
                     status = completion.status.name,
                     failureReason = completion.failureReason,
+                    failedStage = completion.failedStage?.name,
                 )
             ),
         )

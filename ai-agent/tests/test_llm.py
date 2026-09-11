@@ -57,3 +57,34 @@ async def test_json_object_mode_sends_json_hint_and_strips_fence() -> None:
     assert result.summary == "ok"
     assert model.messages is not None
     assert any("json" in str(message.content).lower() for message in model.messages)
+
+
+class RecordingSchemaModel:
+    """记录 with_structured_output 收到的消息。"""
+
+    def __init__(self) -> None:
+        self.messages = None
+
+    def with_structured_output(self, schema, **_kwargs):
+        outer = self
+
+        class _Runnable:
+            async def ainvoke(self, messages):
+                outer.messages = messages
+                return schema(summary="ok", constraints=[], ambiguities=[])
+
+        return _Runnable()
+
+
+@pytest.mark.asyncio
+async def test_json_schema_mode_also_sends_json_hint() -> None:
+    """部分网关会把 json_schema 降级成 json_object，因此 json_schema 模式同样要带 json 关键词。"""
+    settings = Settings(
+        agent_internal_token="test-token",
+        llm_structured_output_mode=StructuredOutputMode.JSON_SCHEMA,
+    )
+    model = RecordingSchemaModel()
+    result = await ModelClient(settings, model=model).generate(AnalysisResult, "system", "prompt")
+    assert result.summary == "ok"
+    assert model.messages is not None
+    assert any("json" in str(message.content).lower() for message in model.messages)

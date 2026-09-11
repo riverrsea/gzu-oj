@@ -1035,13 +1035,13 @@ class ProblemService(
             )
             jdbc.update(
                 """
-                INSERT INTO ai_problem_state_history(id, run_id, from_state, to_state, major_state, message)
-                VALUES (?, ?, ?, 'PUBLISHED', 'PUBLISHED', ?)
+                INSERT INTO ai_run_log(id, run_id, kind, message, from_state, to_state)
+                VALUES (?, ?, 'TRANSITION', ?, ?, 'PUBLISHED')
                 """.trimIndent(),
                 UUID.randomUUID(),
                 runId,
-                fromState,
                 "管理员检查测试点并手动发布题目版本",
+                fromState,
             )
         }
     }

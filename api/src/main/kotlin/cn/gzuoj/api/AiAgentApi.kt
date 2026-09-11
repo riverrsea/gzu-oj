@@ -119,11 +119,11 @@ class AiAgentController(
         authenticate(authorization)
         val inserted = jdbc.update(
             """
-            INSERT INTO ai_agent_event(event_id, run_id, stage, status, message, repair_round)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO ai_run_log(id, run_id, event_id, kind, stage, status, message, repair_round)
+            VALUES (?, ?, ?, 'PROGRESS', ?, ?, ?, ?)
             ON CONFLICT(event_id) DO NOTHING
             """.trimIndent(),
-            body.eventId, body.runId, body.stage.take(64), body.status.take(32), body.message.take(2_000), body.repairRound,
+            UUID.randomUUID(), body.runId, body.eventId, body.stage.take(64), body.status.take(32), body.message.take(2_000), body.repairRound,
         )
         if (inserted == 1) advanceState(body)
     }
@@ -151,15 +151,14 @@ class AiAgentController(
         )
         jdbc.update(
             """
-            INSERT INTO ai_problem_state_history(id, run_id, from_state, to_state, major_state, message)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO ai_run_log(id, run_id, kind, message, from_state, to_state)
+            VALUES (?, ?, 'TRANSITION', ?, ?, ?)
             """.trimIndent(),
             UUID.randomUUID(),
             event.runId,
+            event.message.take(2_000),
             current.name,
             target.name,
-            AiWorkflow.majorState(target).name,
-            event.message.take(2_000),
         )
     }
 
@@ -262,11 +261,10 @@ class AiAgentController(
     private fun recordFailureHistory(runId: UUID, from: AiWorkflowState, reason: String) {
         jdbc.update(
             """
-            INSERT INTO ai_problem_state_history(id, run_id, from_state, to_state, major_state, message)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO ai_run_log(id, run_id, kind, message, from_state, to_state)
+            VALUES (?, ?, 'TRANSITION', ?, ?, ?)
             """.trimIndent(),
-            UUID.randomUUID(), runId, from.name, AiWorkflowState.NEEDS_REVIEW.name,
-            AiWorkflow.majorState(AiWorkflowState.NEEDS_REVIEW).name, reason.take(2_000),
+            UUID.randomUUID(), runId, reason.take(2_000), from.name, AiWorkflowState.NEEDS_REVIEW.name,
         )
     }
 

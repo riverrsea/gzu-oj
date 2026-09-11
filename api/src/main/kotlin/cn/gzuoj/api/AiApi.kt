@@ -3,7 +3,6 @@ package cn.gzuoj.api
 import cn.gzuoj.shared.AiPublicationGate
 import cn.gzuoj.shared.AiSandboxCompletion
 import cn.gzuoj.shared.AiSandboxTaskPayload
-import cn.gzuoj.shared.AiMajorState
 import cn.gzuoj.shared.AiWorkflow
 import cn.gzuoj.shared.AiWorkflowState
 import cn.gzuoj.shared.JudgePriority
@@ -90,8 +89,8 @@ data class AiRunResponse(
     val problemVersionId: UUID,
     /** 当前状态。 */
     val state: AiWorkflowState,
-    /** 兼容小状态之上的页面聚合大状态。 */
-    val majorState: AiMajorState,
+    /** 兼容小状态之上的页面聚合大状态（展示用字符串，不再单列枚举）。 */
+    val majorState: String,
     /** 当前自动修复轮次。 */
     val repairRound: Int,
     /** 管理员启动流程时要求生成的测试点数量。 */
@@ -178,8 +177,8 @@ data class AiStepResponse(
 
 /** AI 运行状态时间线中的一条追加式记录。 */
 data class AiStateHistoryEntry(
-    /** 聚合大状态。 */
-    val majorState: AiMajorState,
+    /** 聚合大状态（展示用字符串）。 */
+    val majorState: String,
     /** 保留兼容性的细粒度小状态。 */
     val state: AiWorkflowState,
     /** 状态变化说明。 */
@@ -233,6 +232,20 @@ private data class AiPublicationOptions(
     /** 需要标记为公开样例的测试点数量。 */
     val sampleCount: Int,
 )
+
+/** 将细粒度小状态映射为页面聚合大状态；仅展示用，不再单列枚举与落库。 */
+private fun displayMajorState(state: AiWorkflowState, publicationGatePassed: Boolean = false): String = when (state) {
+    AiWorkflowState.DRAFT -> "DRAFT"
+    AiWorkflowState.ANALYZING -> "ANALYZING"
+    AiWorkflowState.GENERATING_SOLUTIONS -> "GENERATING_SOLUTIONS"
+    AiWorkflowState.REVIEWING -> "REVIEWING"
+    AiWorkflowState.GENERATING_TESTS, AiWorkflowState.DIFFERENTIAL_TESTING -> "TESTS_GENERATING"
+    AiWorkflowState.VALIDATING -> if (publicationGatePassed) "PASSING" else "VALIDATING"
+    AiWorkflowState.PUBLISHED -> "PUBLISHED"
+    AiWorkflowState.NEEDS_REVIEW -> "NEEDS_REVIEW"
+    AiWorkflowState.FAILED -> "FAILED"
+    AiWorkflowState.CANCELED -> "CANCELED"
+}
 
 /** AI 状态、审计步骤和发布门禁持久化服务。 */
 @Service
@@ -413,7 +426,6 @@ class AiRunService(
             run.state,
             next,
             reason ?: "已生成 $caseCount 个测试点，确定性差分和发布门禁全部通过",
-            publicationGatePassed = next == AiWorkflowState.VALIDATING,
         )
         if (next == AiWorkflowState.VALIDATING && run.autoPublish) {
             publishAfterGate(runId)
@@ -592,7 +604,7 @@ class AiRunService(
             id = row.id,
             problemVersionId = row.problemVersionId,
             state = row.state,
-            majorState = AiWorkflow.majorState(row.state, gatePassed),
+            majorState = displayMajorState(row.state, gatePassed),
             repairRound = row.repairRound,
             requestedTestCaseCount = row.requestedTestCaseCount,
             autoPublish = row.autoPublish,
@@ -607,7 +619,7 @@ class AiRunService(
             history = loadHistory(runId).ifEmpty {
                 listOf(
                     AiStateHistoryEntry(
-                        majorState = AiWorkflow.majorState(row.state, gatePassed),
+                        majorState = displayMajorState(row.state, gatePassed),
                         state = row.state,
                         message = "历史记录未迁移，仅显示当前状态",
                         createdAt = row.createdAt,
@@ -691,17 +703,19 @@ class AiRunService(
         return get(runId)
     }
 
-    /** 读取状态变化时间线；历史表新增前的旧运行允许为空。 */
+    /** 读取状态变迁时间线；事件流与变迁同表，仅取 TRANSITION 行。 */
     private fun loadHistory(runId: UUID): List<AiStateHistoryEntry> = jdbc.query(
         """
-        SELECT major_state, to_state, message, created_at
-        FROM ai_problem_state_history
-        WHERE run_id = ? ORDER BY created_at, id
+        SELECT to_state, message, created_at
+        FROM ai_run_log
+        WHERE run_id = ? AND kind = 'TRANSITION'
+        ORDER BY created_at, id
         """.trimIndent(),
         { result, _ ->
+            val toState = AiWorkflowState.valueOf(result.getString("to_state"))
             AiStateHistoryEntry(
-                majorState = AiMajorState.valueOf(result.getString("major_state")),
-                state = AiWorkflowState.valueOf(result.getString("to_state")),
+                majorState = displayMajorState(toState),
+                state = toState,
                 message = result.getString("message"),
                 createdAt = result.getTimestamp("created_at").toInstant(),
             )
@@ -709,25 +723,23 @@ class AiRunService(
         runId,
     )
 
-    /** 追加状态历史；不修改已有小状态，支持重启后恢复时间线。 */
+    /** 追加状态变迁；不修改已有小状态，支持重启后恢复时间线。 */
     private fun recordStateTransition(
         runId: UUID,
         from: AiWorkflowState?,
         to: AiWorkflowState,
         message: String? = null,
-        publicationGatePassed: Boolean = false,
     ) {
         jdbc.update(
             """
-            INSERT INTO ai_problem_state_history(id, run_id, from_state, to_state, major_state, message)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO ai_run_log(id, run_id, kind, message, from_state, to_state)
+            VALUES (?, ?, 'TRANSITION', ?, ?, ?)
             """.trimIndent(),
             UUID.randomUUID(),
             runId,
+            message?.take(2_000),
             from?.name,
             to.name,
-            AiWorkflow.majorState(to, publicationGatePassed).name,
-            message?.take(2_000),
         )
     }
 

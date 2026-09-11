@@ -221,16 +221,19 @@ class Workflow:
 		)
 		request = validate_checkpoint(StartRunRequest, state["request"])
 		context = str(state["analysis"])
+		# 定向修复标程时必须带上上轮沙箱失败原因，否则会重新生成同样的错误实现。
+		failure = state.get("failure_reason", "")
+		repair_note = f"\n上轮沙箱失败原因：{failure}" if failure else ""
 		a, b = await asyncio.gather(
 			self.model.generate(
 				SolutionResult,
 				SYSTEM_SOLUTIONS,
-				request.statement_markdown + "\n分析：" + context
+				request.statement_markdown + "\n分析：" + context + repair_note
 			),
 			self.model.generate(
 				SolutionResult,
 				SYSTEM_SOLUTIONS,
-				request.statement_markdown + "\n请独立求解，不参考另一候选。\n分析：" + context
+				request.statement_markdown + "\n请独立求解，不参考另一候选。\n分析：" + context + repair_note
 			),
 		)
 		a_dump, b_dump = a.model_dump(), b.model_dump()

@@ -17,5 +17,8 @@ web/dist/
 web/playwright-report/
 web/test-results/
 __pycache__/
+# uv 创建的虚拟环境按项目就地生成，不入库。
+.venv/
+.pytest_cache/
 uv.lock
 prompts/

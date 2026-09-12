@@ -11,7 +11,6 @@ import jakarta.validation.Valid
 import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotBlank
-import jakarta.validation.constraints.Size
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.jdbc.core.JdbcTemplate
@@ -54,32 +53,6 @@ data class ResumeAiRunRequest(
     val action: String,
     /** 人工 review 后回传给 Agent、作为重新生成上下文的结构化澄清内容。 */
     val correction: JsonNode? = null,
-)
-
-/** 差分与资源校验的可审计证据。 */
-data class AiValidationEvidence(
-    /** 两份标程在全部大数据上的输出哈希是否一致。 */
-    val solutionOutputHashesAgree: Boolean,
-    /** 小数据暴力差分任务标识。 */
-    @field:Size(min = 1, max = 100)
-    val bruteForceJobIds: List<UUID>,
-    /** 大数据双标程差分任务标识。 */
-    @field:Size(min = 1, max = 100)
-    val differentialJobIds: List<UUID>,
-    /** 已复跑并一致的固定种子。 */
-    @field:Size(min = 1, max = 1_000)
-    val reproducedSeeds: List<Long>,
-    /** 输入、标准输出和生成器的 SHA-256。 */
-    @field:Size(min = 1, max = 2_000)
-    val artifactHashes: List<@NotBlank String>,
-    /** 标程最坏 CPU 时间占题目限制百分比。 */
-    @field:Min(0)
-    @field:Max(100)
-    val maximumTimePercent: Int,
-    /** 标程最坏内存占题目限制百分比。 */
-    @field:Min(0)
-    @field:Max(100)
-    val maximumMemoryPercent: Int,
 )
 
 /** AI 运行的用户可见审计摘要。 */
@@ -365,25 +338,6 @@ class AiRunService(
                 verified.maximumMemoryPercent <= RESOURCE_MARGIN_PERCENT,
             noUnresolvedAmbiguity = noUnresolvedAmbiguity,
         )
-        val evidence = AiValidationEvidence(
-            solutionOutputHashesAgree = completion.solutionsAgree,
-            bruteForceJobIds = listOf(jobId),
-            differentialJobIds = listOf(jobId),
-            reproducedSeeds = task.seeds,
-            artifactHashes = buildList {
-                add(SecureValues.sha256(task.solutionASource))
-                add(SecureValues.sha256(task.solutionBSource))
-                add(SecureValues.sha256(task.bruteForceSource))
-                add(SecureValues.sha256(task.generatorSource))
-                add(SecureValues.sha256(task.validatorSource))
-                verified.testCases.forEach { testCase ->
-                    add(testCase.inputSha256.lowercase())
-                    add(testCase.outputSha256.lowercase())
-                }
-            }.distinct(),
-            maximumTimePercent = verified.maximumTimePercent,
-            maximumMemoryPercent = verified.maximumMemoryPercent,
-        )
         val next = if (gate.allowsPublication()) AiWorkflowState.VALIDATING else AiWorkflowState.NEEDS_REVIEW
         val reason = if (next == AiWorkflowState.NEEDS_REVIEW) failedGateReason(gate) else null
         if (next == AiWorkflowState.VALIDATING) {
@@ -412,13 +366,11 @@ class AiRunService(
         jdbc.update(
             """
             UPDATE ai_problem_run
-            SET state = ?, publication_gate = ?::jsonb, validation_evidence = ?::jsonb,
-                failure_reason = ?, updated_at = now()
+            SET state = ?, publication_gate = ?::jsonb, failure_reason = ?, updated_at = now()
             WHERE id = ?
             """.trimIndent(),
             next.name,
             mapper.writeValueAsString(gate),
-            mapper.writeValueAsString(evidence),
             reason,
             runId,
         )
@@ -552,12 +504,10 @@ class AiRunService(
         jdbc.update(
             """
             UPDATE ai_problem_run
-            SET state = ?, resume_target = NULL, human_correction = ?::jsonb, failure_reason = NULL,
-                updated_at = now()
+            SET state = ?, resume_target = NULL, failure_reason = NULL, updated_at = now()
             WHERE id = ?
             """.trimIndent(),
             target.name,
-            mapper.writeValueAsString(correctionNode),
             runId,
         )
         jdbc.update(

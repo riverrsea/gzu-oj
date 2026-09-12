@@ -54,10 +54,9 @@ data class AiPublicationGate(
 object AiWorkflow {
     /** 正常主流程中每个状态的后继状态。 */
     private val normalTransitions = mapOf(
-        AiWorkflowState.ANALYZING to AiWorkflowState.GENERATING_SOLUTIONS,
-        AiWorkflowState.GENERATING_SOLUTIONS to AiWorkflowState.REVIEWING,
-        AiWorkflowState.REVIEWING to AiWorkflowState.GENERATING_TESTS,
-        AiWorkflowState.GENERATING_TESTS to AiWorkflowState.DIFFERENTIAL_TESTING,
+        AiWorkflowState.ANALYZING to AiWorkflowState.GENERATING_TESTS,
+        AiWorkflowState.GENERATING_TESTS to AiWorkflowState.GENERATING_SOLUTIONS,
+        AiWorkflowState.GENERATING_SOLUTIONS to AiWorkflowState.DIFFERENTIAL_TESTING,
         AiWorkflowState.DIFFERENTIAL_TESTING to AiWorkflowState.VALIDATING,
         AiWorkflowState.VALIDATING to AiWorkflowState.PUBLISHED,
     )
@@ -75,24 +74,29 @@ object AiWorkflow {
         require(canTransition(from, to)) { "非法 AI 状态转换：$from -> $to" }
     }
 
-    /** 差分失败后的定向修复只允许回到测试生成阶段。 */
+    /** 差分失败后的定向修复允许回到测试生成或标程生成阶段，不回退到题意分析。 */
     fun canRepair(from: AiWorkflowState, to: AiWorkflowState): Boolean =
-        from == AiWorkflowState.DIFFERENTIAL_TESTING && to == AiWorkflowState.GENERATING_TESTS
+        from == AiWorkflowState.DIFFERENTIAL_TESTING && to in repairableStates
 
     /** 校验一次差分修复状态回退。 */
     fun requireRepair(from: AiWorkflowState, to: AiWorkflowState) {
         require(canRepair(from, to)) { "非法 AI 修复状态转换：$from -> $to" }
     }
 
-    /** 人工接管恢复只允许回到先前失败的题意分析或对抗审查阶段。 */
+    /** 人工接管恢复只允许回到先前失败的题意分析阶段。 */
     fun canResume(from: AiWorkflowState, to: AiWorkflowState): Boolean =
-        from == AiWorkflowState.NEEDS_REVIEW &&
-            (to == AiWorkflowState.ANALYZING || to == AiWorkflowState.REVIEWING)
+        from == AiWorkflowState.NEEDS_REVIEW && to == AiWorkflowState.ANALYZING
 
     /** 校验一次人工接管恢复的合法性。 */
     fun requireResume(from: AiWorkflowState, to: AiWorkflowState) {
         require(canResume(from, to)) { "非法 AI 人工接管恢复转换：$from -> $to" }
     }
+
+    /** 允许定向修复回退到的状态：测试生成与标程生成（暴力解与标程共用该状态）。 */
+    private val repairableStates = setOf(
+        AiWorkflowState.GENERATING_TESTS,
+        AiWorkflowState.GENERATING_SOLUTIONS,
+    )
 
     /** 不允许继续流转的终态。 */
     private val terminalStates = setOf(

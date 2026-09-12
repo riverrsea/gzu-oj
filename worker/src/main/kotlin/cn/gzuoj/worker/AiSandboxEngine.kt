@@ -1,9 +1,12 @@
 package cn.gzuoj.worker
 
+import cn.gzuoj.shared.AiCompileTask
 import cn.gzuoj.shared.AiGeneratedCaseResult
 import cn.gzuoj.shared.AiSandboxCompletion
 import cn.gzuoj.shared.AiSandboxCompletionStatus
+import cn.gzuoj.shared.AiSandboxFailureStage
 import cn.gzuoj.shared.AiSandboxLease
+import cn.gzuoj.shared.AiSandboxTaskPayload
 import cn.gzuoj.shared.OutputComparator
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -14,6 +17,8 @@ import kotlin.math.ceil
 private class AiValidationFailure(
     /** 管理员可见的失败原因。 */
     override val message: String,
+    /** 出错产物归属，供 Agent 只重生成对应节点。 */
+    val stage: AiSandboxFailureStage,
 ) : RuntimeException(message)
 
 /** go-judge、网络、租约或返回协议发生基础设施异常。 */
@@ -30,6 +35,8 @@ private data class AiCompiledProgram(
     val fileName: String,
     /** go-judge 缓存文件标识。 */
     val fileId: String,
+    /** 该程序出错时对应的产物归属。 */
+    val stage: AiSandboxFailureStage,
 )
 
 /** 一次标程或暴力解运行的规范输出与资源证据。 */
@@ -50,53 +57,86 @@ class AiSandboxEngine(
     /** go-judge 内部 REST 客户端。 */
     private val goJudge: GoJudgeClient,
 ) {
-    /** 执行一份完整 AI 沙箱租约，并把模型问题与基础设施问题分开结算。 */
-    fun execute(lease: AiSandboxLease, leaseStillValid: () -> Boolean): AiSandboxCompletion = try {
+    /** 执行一份 AI 沙箱租约，按任务类型分派到全量差分或编译门禁。 */
+    fun execute(lease: AiSandboxLease, leaseStillValid: () -> Boolean): AiSandboxCompletion {
+        val compileTask = lease.compile
+        return if (compileTask != null) {
+            settle(lease) { compileOnly(lease, compileTask, leaseStillValid) }
+        } else {
+            settle(lease) { differential(lease, lease.requireTask(), leaseStillValid) }
+        }
+    }
+
+    /** 只编译生成节点刚产出的源码，不做生成与差分，用于尽早暴露编译错误。 */
+    private fun compileOnly(
+        lease: AiSandboxLease,
+        task: AiCompileTask,
+        leaseStillValid: () -> Boolean,
+    ): AiSandboxCompletion {
+        task.units.forEach { unit ->
+            ensureLease(leaseStillValid)
+            compile(unit.label, unit.source, task.stage)
+        }
         ensureLease(leaseStillValid)
-        val solutionA = compile("标程 A", lease.task.solutionASource)
+        logger.info("AI 编译门禁通过，jobId={}，阶段={}，产物数={}", lease.jobId, task.stage, task.units.size)
+        return AiSandboxCompletion(
+            attemptId = lease.attemptId,
+            leaseToken = lease.leaseToken,
+            status = AiSandboxCompletionStatus.PASSED,
+        )
+    }
+
+    /** 执行完整的确定性生成、输入校验和双标程差分。 */
+    private fun differential(
+        lease: AiSandboxLease,
+        task: AiSandboxTaskPayload,
+        leaseStillValid: () -> Boolean,
+    ): AiSandboxCompletion {
         ensureLease(leaseStillValid)
-        val solutionB = compile("标程 B", lease.task.solutionBSource)
+        val solutionA = compile("标程 A", task.solutionASource, AiSandboxFailureStage.SOLUTIONS)
         ensureLease(leaseStillValid)
-        val bruteForce = compile("暴力解", lease.task.bruteForceSource)
+        val solutionB = compile("标程 B", task.solutionBSource, AiSandboxFailureStage.SOLUTIONS)
         ensureLease(leaseStillValid)
-        val generator = compile("测试生成器", lease.task.generatorSource)
+        val bruteForce = compile("暴力解", task.bruteForceSource, AiSandboxFailureStage.BRUTE_FORCE)
         ensureLease(leaseStillValid)
-        val validator = compile("输入校验器", lease.task.validatorSource)
+        val generator = compile("测试生成器", task.generatorSource, AiSandboxFailureStage.TEST_DATA)
+        ensureLease(leaseStillValid)
+        val validator = compile("输入校验器", task.validatorSource, AiSandboxFailureStage.TEST_DATA)
 
         var totalDataBytes = 0L
         val inputHashes = mutableSetOf<String>()
-        val cases = lease.task.seeds.mapIndexed { index, seed ->
+        val cases = task.seeds.mapIndexed { index, seed ->
             ensureLease(leaseStillValid)
             val firstInput = generate(generator, seed)
             ensureLease(leaseStillValid)
             val secondInput = generate(generator, seed)
             if (firstInput != secondInput) {
-                throw AiValidationFailure("测试生成器在种子 $seed 下不能复现完全相同的输入")
+                throw AiValidationFailure("测试生成器在种子 $seed 下不能复现完全相同的输入", AiSandboxFailureStage.TEST_DATA)
             }
             val inputHash = sha256(firstInput)
             if (!inputHashes.add(inputHash)) {
-                throw AiValidationFailure("不同固定种子生成了重复测试输入，种子：$seed")
+                throw AiValidationFailure("不同固定种子生成了重复测试输入，种子：$seed", AiSandboxFailureStage.TEST_DATA)
             }
             validateInput(validator, firstInput, seed)
 
             ensureLease(leaseStillValid)
-            val outputA = runAnswer(solutionA, firstInput, lease.task.timeLimitMs, lease.task.memoryLimitMiB)
+            val outputA = runAnswer(solutionA, firstInput, task.timeLimitMs, task.memoryLimitMiB)
             ensureLease(leaseStillValid)
-            val outputB = runAnswer(solutionB, firstInput, lease.task.timeLimitMs, lease.task.memoryLimitMiB)
+            val outputB = runAnswer(solutionB, firstInput, task.timeLimitMs, task.memoryLimitMiB)
             if (outputA.normalized != outputB.normalized) {
-                throw AiValidationFailure("两份标程在第 ${index + 1} 个测试点（种子 $seed）输出不一致")
+                throw AiValidationFailure("两份标程在第 ${index + 1} 个测试点（种子 $seed）输出不一致", AiSandboxFailureStage.SOLUTIONS)
             }
 
-            val bruteOutput = if (index < lease.task.bruteForceCaseCount) {
+            val bruteOutput = if (index < task.bruteForceCaseCount) {
                 ensureLease(leaseStillValid)
                 runAnswer(
                     bruteForce,
                     firstInput,
-                    bruteForceTimeLimit(lease.task.timeLimitMs),
-                    lease.task.memoryLimitMiB,
+                    bruteForceTimeLimit(task.timeLimitMs),
+                    task.memoryLimitMiB,
                 ).also { output ->
                     if (output.normalized != outputA.normalized) {
-                        throw AiValidationFailure("暴力解在第 ${index + 1} 个小数据测试点（种子 $seed）与标程不一致")
+                        throw AiValidationFailure("暴力解在第 ${index + 1} 个小数据测试点（种子 $seed）与标程不一致", AiSandboxFailureStage.BRUTE_FORCE)
                     }
                 }
             } else {
@@ -105,7 +145,7 @@ class AiSandboxEngine(
             totalDataBytes += firstInput.toByteArray(Charsets.UTF_8).size
             totalDataBytes += outputA.normalized.toByteArray(Charsets.UTF_8).size
             if (totalDataBytes > MAX_TOTAL_DATA_BYTES) {
-                throw AiValidationFailure("生成的测试点输入输出总大小超过 64 MiB")
+                throw AiValidationFailure("生成的测试点输入输出总大小超过 64 MiB", AiSandboxFailureStage.TEST_DATA)
             }
             AiGeneratedCaseResult(
                 ordinal = index + 1,
@@ -125,7 +165,7 @@ class AiSandboxEngine(
         }
         val maximumTimeMs = cases.maxOfOrNull { maxOf(it.solutionATimeMs, it.solutionBTimeMs) } ?: 0
         val maximumMemoryKiB = cases.maxOfOrNull { maxOf(it.solutionAMemoryKiB, it.solutionBMemoryKiB) } ?: 0
-        AiSandboxCompletion(
+        return AiSandboxCompletion(
             attemptId = lease.attemptId,
             leaseToken = lease.leaseToken,
             status = AiSandboxCompletionStatus.PASSED,
@@ -133,12 +173,17 @@ class AiSandboxEngine(
             deterministic = true,
             solutionsAgree = true,
             bruteForcePassed = true,
-            maximumTimePercent = percentage(maximumTimeMs, lease.task.timeLimitMs),
-            maximumMemoryPercent = percentage(maximumMemoryKiB, lease.task.memoryLimitMiB * KIB),
+            maximumTimePercent = percentage(maximumTimeMs, task.timeLimitMs),
+            maximumMemoryPercent = percentage(maximumMemoryKiB, task.memoryLimitMiB * KIB),
         )
+    }
+
+    /** 把模型问题与基础设施问题分开结算；编译门禁与差分共用同一套结算语义。 */
+    private fun settle(lease: AiSandboxLease, body: () -> AiSandboxCompletion): AiSandboxCompletion = try {
+        body()
     } catch (failure: AiValidationFailure) {
         logger.info("AI 测试生成未通过，jobId={}，原因={}", lease.jobId, failure.message)
-        failed(lease, AiSandboxCompletionStatus.VALIDATION_FAILED, failure.message)
+        failed(lease, AiSandboxCompletionStatus.VALIDATION_FAILED, failure.message, failure.stage)
     } catch (failure: AiSandboxInfrastructureFailure) {
         logger.error("AI 沙箱基础设施失败，jobId={}，原因={}", lease.jobId, failure.message)
         failed(lease, AiSandboxCompletionStatus.SYSTEM_ERROR, failure.message)
@@ -151,7 +196,7 @@ class AiSandboxEngine(
     }
 
     /** 编译一份 GNU C++17 源码，并区分模型编译错误和 go-judge 异常。 */
-    private fun compile(label: String, source: String): AiCompiledProgram {
+    private fun compile(label: String, source: String, stage: AiSandboxFailureStage): AiCompiledProgram {
         val sourceName = "main.cpp"
         val artifactName = "program"
         val result = goJudge.run(
@@ -178,11 +223,11 @@ class AiSandboxEngine(
             val message = (result.files[STDERR].orEmpty() + result.files[STDOUT].orEmpty())
                 .ifBlank { result.error ?: result.status }
                 .take(ERROR_MESSAGE_LIMIT)
-            throw AiValidationFailure("$label 编译失败：$message")
+            throw AiValidationFailure("$label 编译失败：$message", stage)
         }
         val fileId = result.fileIds[artifactName]
             ?: throw AiSandboxInfrastructureFailure("$label 编译成功但 go-judge 未返回缓存制品")
-        return AiCompiledProgram(label, artifactName, fileId)
+        return AiCompiledProgram(label, artifactName, fileId, stage)
     }
 
     /** 使用十进制固定种子运行生成器并返回原始输入，确定性比较不做文本规范化。 */
@@ -195,7 +240,7 @@ class AiSandboxEngine(
             memoryLimitMiB = GENERATOR_MEMORY_LIMIT_MIB,
             outputLimit = CASE_DATA_LIMIT,
         )
-        requireAccepted(result, generator.label, "种子 $seed")
+        requireAccepted(result, generator, "种子 $seed")
         return result.files[STDOUT].orEmpty()
     }
 
@@ -209,7 +254,7 @@ class AiSandboxEngine(
             memoryLimitMiB = VALIDATOR_MEMORY_LIMIT_MIB,
             outputLimit = VALIDATOR_OUTPUT_LIMIT,
         )
-        requireAccepted(result, validator.label, "种子 $seed 生成的输入")
+        requireAccepted(result, validator, "种子 $seed 生成的输入")
     }
 
     /** 运行标程或暴力解，并按平台规则规范化输出。 */
@@ -227,7 +272,7 @@ class AiSandboxEngine(
             memoryLimitMiB = memoryLimitMiB,
             outputLimit = CASE_DATA_LIMIT,
         )
-        requireAccepted(result, program.label, "差分输入")
+        requireAccepted(result, program, "差分输入")
         val normalized = OutputComparator.normalize(result.files[STDOUT].orEmpty())
         return AiProgramOutput(
             normalized = normalized,
@@ -268,13 +313,13 @@ class AiSandboxEngine(
     )
 
     /** 检查用户生成程序状态，go-judge 内部错误进入基础设施重试，其余进入人工审查。 */
-    private fun requireAccepted(result: GoJudgeResult, label: String, context: String) {
+    private fun requireAccepted(result: GoJudgeResult, program: AiCompiledProgram, context: String) {
         if (result.status == ACCEPTED) return
         if (isInfrastructureStatus(result.status)) {
-            throw AiSandboxInfrastructureFailure("$label 在${context}执行时沙箱异常：${result.status}")
+            throw AiSandboxInfrastructureFailure("${program.label} 在${context}执行时沙箱异常：${result.status}")
         }
         val detail = result.files[STDERR].orEmpty().ifBlank { result.error ?: result.status }.take(ERROR_MESSAGE_LIMIT)
-        throw AiValidationFailure("$label 在${context}执行失败：${result.status}；$detail")
+        throw AiValidationFailure("${program.label} 在${context}执行失败：${result.status}；$detail", program.stage)
     }
 
     /** 形成失败结算，不携带任何未完整校验的候选测试点。 */
@@ -282,11 +327,13 @@ class AiSandboxEngine(
         lease: AiSandboxLease,
         status: AiSandboxCompletionStatus,
         reason: String,
+        stage: AiSandboxFailureStage? = null,
     ): AiSandboxCompletion = AiSandboxCompletion(
         attemptId = lease.attemptId,
         leaseToken = lease.leaseToken,
         status = status,
         failureReason = reason.take(ERROR_MESSAGE_LIMIT),
+        failedStage = stage,
     )
 
     /** 租约失效后停止继续调用沙箱。 */

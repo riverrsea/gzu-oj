@@ -4,8 +4,23 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from gzu_oj_agent.graph import Workflow, sandbox_payload
-from gzu_oj_agent.models import ArtifactResult, SandboxResult, SandboxStatus, SolutionResult, StartRunRequest
+from gzu_oj_agent.graph import (
+    MAX_COMPILE_ATTEMPTS,
+    Workflow,
+    compile_units,
+    reusable_stages,
+    sandbox_payload,
+)
+from gzu_oj_agent.models import (
+    SandboxCompileTask,
+    SandboxCompileUnit,
+    SandboxFailureStage,
+    SandboxResult,
+    SandboxStatus,
+    SolutionResult,
+    StartRunRequest,
+    TestDataResult as DataResult,
+)
 
 
 def base_state() -> dict:
@@ -19,32 +34,32 @@ def base_state() -> dict:
             "memory_limit_mib": 256,
             "repair_round": 0,
         },
+        "test_data": {
+            "generator_source": "int main(int argc, char** argv) { return atoi(argv[1]); }",
+            "validator_source": "int main(){}",
+        },
         "solution_a": {"summary": "A", "source_code": "int main(){}"},
         "solution_b": {"summary": "B", "source_code": "int main(){}"},
-        "artifacts": {
-            "generator_source": "int main(){}",
-            "validator_source": "int main(){}",
-            "brute_force_source": "int main(){}",
-            "seeds": [11, 12],
-        },
+        "brute_force": {"summary": "BF", "source_code": "int main(){}"},
         "repair_round": 0,
     }
 
 
-def test_structured_models_reject_unknown_fields_and_duplicate_seeds() -> None:
+def test_structured_models_reject_unknown_fields() -> None:
     with pytest.raises(ValidationError):
         SolutionResult.model_validate({"summary": "x", "source_code": "x", "raw": "secret"})
     with pytest.raises(ValidationError):
-        ArtifactResult.model_validate(
-            {"generator_source": "x", "validator_source": "x", "brute_force_source": "x", "seeds": [1, 1]}
-        )
+        DataResult.model_validate({"generator_source": "x", "validator_source": "x", "seeds": [1]})
 
 
-def test_sandbox_payload_contains_only_validated_sources() -> None:
+def test_sandbox_payload_uses_fixed_seeds() -> None:
+    """测试种子固定为 1..N，数据/标程/暴力解源码全部来自已校验状态。"""
     payload = sandbox_payload(base_state())
-    assert payload.seeds == [11, 12]
+    assert payload.seeds == [1, 2]
     assert payload.brute_force_case_count == 2
     assert payload.solution_a_source == "int main(){}"
+    assert payload.generator_source == "int main(int argc, char** argv) { return atoi(argv[1]); }"
+    assert payload.brute_force_source == "int main(){}"
 
 
 def test_kotlin_memory_limit_alias_round_trips() -> None:
@@ -89,6 +104,176 @@ def test_sandbox_result_accepts_kotlin_camel_json_status() -> None:
         SandboxResult.model_validate({**payload, "status": "NOT_A_STATUS"})
 
 
+def test_sandbox_result_accepts_kotlin_failure_stage() -> None:
+    """Kotlin 用 camelCase 产物名归因；strict 模型必须能解析，且非法归属被拒绝。"""
+    payload = {
+        "eventId": str(uuid4()),
+        "runId": str(uuid4()),
+        "sandboxJobId": str(uuid4()),
+        "repairRound": 0,
+        "status": "VALIDATION_FAILED",
+        "failureReason": "标程 B 编译失败",
+        "failedStage": "SOLUTIONS",
+    }
+    result = SandboxResult.model_validate(payload)
+    assert result.failed_stage is SandboxFailureStage.SOLUTIONS
+    # 归属为空表示不可定向，必须能正常解析。
+    assert SandboxResult.model_validate({**payload, "failedStage": None}).failed_stage is None
+    with pytest.raises(ValidationError):
+        SandboxResult.model_validate({**payload, "failedStage": "REVIEW"})
+
+
+def test_repair_is_routed_to_the_failing_artifact() -> None:
+    """编译/差分失败只重跑出错产物，避免整条链路从测试数据重新生成。"""
+    expectations = {
+        None: "test_data",
+        SandboxFailureStage.TEST_DATA: "test_data",
+        SandboxFailureStage.SOLUTIONS: "solutions",
+        SandboxFailureStage.BRUTE_FORCE: "brute_force",
+    }
+    for stage, node in expectations.items():
+        state = base_state()
+        state["sandbox_result"] = SandboxResult(
+            event_id=uuid4(), run_id=uuid4(), sandbox_job_id=uuid4(), repair_round=0,
+            status=SandboxStatus.VALIDATION_FAILED, failure_reason="编译失败", failed_stage=stage
+        ).model_dump(mode="json")
+        repaired = Workflow.prepare_repair(state)
+        assert repaired["repair_target"] == node
+        assert repaired["repair_round"] == 1
+        assert Workflow.after_repair({**state, **repaired}) == node
+
+
+def test_compile_task_uses_kotlin_camel_aliases_and_bounded_units() -> None:
+    """编译门禁请求必须是 Kotlin 能解析的 camelCase 结构，且一次最多两个产物。"""
+    task = SandboxCompileTask(
+        stage=SandboxFailureStage.SOLUTIONS,
+        units=[
+            SandboxCompileUnit(label="标程 A", source="```cpp\nint main(){}\n```"),
+            SandboxCompileUnit(label="标程 B", source="int main(){}"),
+        ],
+    )
+    wire = task.model_dump(mode="json", by_alias=True)
+    assert wire["stage"] == "SOLUTIONS"
+    assert wire["units"][0] == {"label": "标程 A", "source": "int main(){}"}
+    with pytest.raises(ValidationError):
+        SandboxCompileTask(
+            stage=SandboxFailureStage.TEST_DATA,
+            units=[
+                SandboxCompileUnit(label="a", source="x"),
+                SandboxCompileUnit(label="b", source="x"),
+                SandboxCompileUnit(label="c", source="x"),
+            ],
+        )
+    with pytest.raises(ValidationError):
+        SandboxCompileTask(stage=SandboxFailureStage.TEST_DATA, units=[])
+
+
+def test_compile_units_match_generated_stage_artifacts() -> None:
+    """每个门禁只取本阶段刚生成的源码，标签与 Worker 报错一致。"""
+    state = base_state()
+    state["test_data"] = {
+        "generator_source": "int main(int argc, char** argv) { return atoi(argv[1]); }",
+        "validator_source": "int main(){}",
+    }
+    state["solution_a"] = {"summary": "A", "source_code": "int main(){/*A*/}"}
+    state["solution_b"] = {"summary": "B", "source_code": "int main(){/*B*/}"}
+    state["brute_force"] = {"summary": "BF", "source_code": "int main(){/*BF*/}"}
+    assert [(u.label, u.source) for u in compile_units(state, SandboxFailureStage.TEST_DATA)] == [
+        ("测试生成器", "int main(int argc, char** argv) { return atoi(argv[1]); }"),
+        ("输入校验器", "int main(){}"),
+    ]
+    assert [(u.label, u.source) for u in compile_units(state, SandboxFailureStage.SOLUTIONS)] == [
+        ("标程 A", "int main(){/*A*/}"),
+        ("标程 B", "int main(){/*B*/}"),
+    ]
+    assert [(u.label, u.source) for u in compile_units(state, SandboxFailureStage.BRUTE_FORCE)] == [
+        ("暴力解", "int main(){/*BF*/}")
+    ]
+
+
+def test_compile_gate_retries_then_fails() -> None:
+    """编译门禁只有通过才继续；未通过时在预算内重做本批产物，用尽后交人工接管。"""
+    state = base_state()
+    state["compile_stage"] = "SOLUTIONS"
+
+    def gate(status: SandboxStatus, attempts: int, compiled: list[str]) -> str:
+        state["compile_result"] = SandboxResult(
+            event_id=uuid4(), run_id=uuid4(), sandbox_job_id=uuid4(), repair_round=0,
+            status=status, failure_reason="标程 A 编译失败"
+        ).model_dump(mode="json")
+        state["solutions_attempts"] = attempts
+        state["compiled_stages"] = compiled
+        return Workflow.after_compile(state)
+
+    assert gate(SandboxStatus.VALIDATION_FAILED, 1, ["TEST_DATA"]) == "solutions"
+    assert gate(SandboxStatus.VALIDATION_FAILED, MAX_COMPILE_ATTEMPTS - 1, ["TEST_DATA"]) == "solutions"
+    assert gate(SandboxStatus.VALIDATION_FAILED, MAX_COMPILE_ATTEMPTS, ["TEST_DATA"]) == "fail"
+
+
+def test_compile_gate_only_fills_missing_artifacts() -> None:
+    """编译通过后只补齐尚未就绪的产物，全部就绪才提交全量差分。"""
+    state = base_state()
+    state["compile_stage"] = "SOLUTIONS"
+    state["compile_result"] = SandboxResult(
+        event_id=uuid4(), run_id=uuid4(), sandbox_job_id=uuid4(), repair_round=0,
+        status=SandboxStatus.PASSED, failure_reason=None
+    ).model_dump(mode="json")
+    state["solutions_attempts"] = 1
+
+    # 刚过标程门禁：暴力解还没生成，必须继续生成它。
+    state["compiled_stages"] = ["TEST_DATA", "SOLUTIONS"]
+    assert Workflow.after_compile(state) == "brute_force"
+    # 三批产物都已就绪：直接提交差分，不再重复任何生成节点。
+    state["compiled_stages"] = ["TEST_DATA", "SOLUTIONS", "BRUTE_FORCE"]
+    assert Workflow.after_compile(state) == "submit"
+
+
+def test_regenerating_one_artifact_keeps_others_ready() -> None:
+    """重做某批产物只作废它自己，标程与暴力解不互相牵连。"""
+    state = base_state()
+    state["compiled_stages"] = ["TEST_DATA", "SOLUTIONS", "BRUTE_FORCE"]
+    assert reusable_stages(state, SandboxFailureStage.SOLUTIONS) == ["TEST_DATA", "BRUTE_FORCE"]
+    assert reusable_stages(state, SandboxFailureStage.BRUTE_FORCE) == ["TEST_DATA", "SOLUTIONS"]
+    assert reusable_stages(state, SandboxFailureStage.TEST_DATA) == ["SOLUTIONS", "BRUTE_FORCE"]
+
+
+def test_source_rejects_link_instead_of_code() -> None:
+    """模型用链接或说明文字代替源码时必须在返回边界拒绝，而不是送进沙箱。"""
+    with pytest.raises(ValidationError, match="链接"):
+        SolutionResult(summary="s", source_code="https://pastebin.com/raw/abc123")
+    # 围栏里只有链接也要被识别出来。
+    with pytest.raises(ValidationError, match="链接"):
+        SolutionResult(summary="s", source_code="```\n见 https://example.com/solution.cpp\n```")
+    # 不是链接但同样不是完整程序：必须给出可编译的 main。
+    with pytest.raises(ValidationError, match="main"):
+        SolutionResult(summary="s", source_code="#include <bits/stdc++.h>\n// 具体实现此处省略")
+
+
+def test_generator_must_read_seed_from_argv() -> None:
+    """生成器不读命令行参数说明模型写错了角色，必须在返回边界拒绝并让它重写。"""
+    with pytest.raises(ValidationError, match="命令行参数"):
+        DataResult(
+            generator_source="int main(){ std::cout << 1 << '\\n'; }",
+            validator_source="int main(){ return 0; }",
+        )
+    # 角色互换：把只读 stdin 的程序写成了生成器。
+    with pytest.raises(ValidationError, match="命令行参数"):
+        DataResult(
+            generator_source="int main(){ int n; std::cin >> n; std::cout << n << '\\n'; }",
+            validator_source="int main(){ return 0; }",
+        )
+    accepted = DataResult(
+        generator_source="int main(int argc, char** argv){ return atoi(argv[1]); }",
+        validator_source="int main(){ return 0; }",
+    )
+    assert "argv" in accepted.generator_source
+    # 参数名不叫 argv 也不该被误判：只要保留了命令行入口即可。
+    assert DataResult(
+        generator_source="int main(int argc, char** args){ return atoi(args[1]); }",
+        validator_source="int main(){ return 0; }",
+    ).generator_source.endswith("}")
+
+
 def test_source_fields_strip_markdown_fences() -> None:
     """模型带 ``` 围栏的源码必须在进入沙箱前被剥掉，否则 Worker 编译失败。"""
     fenced = "```cpp\n#include <bits/stdc++.h>\nint main() { return 0; }\n```"
@@ -97,28 +282,14 @@ def test_source_fields_strip_markdown_fences() -> None:
     # 未加围栏的源码不受影响。
     assert SolutionResult(summary="s", source_code="int main(){}").source_code == "int main(){}"
 
-    artifacts = ArtifactResult(
-        generator_source="```cpp\nint g(){}\n```",
-        validator_source="int v(){}",
-        brute_force_source="```\nint b(){}\n```",
-        seeds=[1, 2],
+    data = DataResult(
+        generator_source="```cpp\nint main(int argc, char** argv){ return atoi(argv[1]); }\n```",
+        validator_source="```\nint main(){ return 0; }\n```",
     )
-    assert artifacts.generator_source == "int g(){}"
-    assert artifacts.validator_source == "int v(){}"
-    assert artifacts.brute_force_source == "int b(){}"
+    assert data.generator_source == "int main(int argc, char** argv){ return atoi(argv[1]); }"
+    assert data.validator_source == "int main(){ return 0; }"
 
     # sandbox_payload 重新校验状态时也应得到干净源码。
     state = base_state()
     state["solution_a"] = {"summary": "A", "source_code": fenced}
     assert sandbox_payload(state).solution_a_source.startswith("#include")
-
-
-def test_after_review_routes_findings_back_to_design() -> None:
-    """findings 非阻断 → 回退测试设计；ambiguities 阻断 → 人工接管。"""
-    state = base_state()
-    state["failure_reason"] = ""
-    assert Workflow.after_review(state) == "artifacts"
-    state["redesign_requested"] = True
-    assert Workflow.after_review(state) == "design"
-    state["failure_reason"] = "对抗审查发现未解决歧义"
-    assert Workflow.after_review(state) == "fail"

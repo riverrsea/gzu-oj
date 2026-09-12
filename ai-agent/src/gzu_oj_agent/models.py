@@ -56,7 +56,32 @@ def strip_markdown_fence(value: object) -> object:
     return "\n".join(lines).strip("\n")
 
 
-Source = Annotated[str, BeforeValidator(strip_markdown_fence), Field(min_length=1, max_length=131_072)]
+# 匹配源码里出现的链接；模型偶尔用"见这个链接"代替代码。
+_URL_RE = re.compile(r"https?://|www\.", re.IGNORECASE)
+
+
+def reject_non_source(value: object) -> object:
+    """拒绝不是完整 C++ 程序的源码字段：链接、解释性文字、片段。
+
+    模型偶尔会返回链接或说明文字代替源码，这类输出送进沙箱必然编译失败并浪费
+    一整轮修复，因此在模型返回边界直接拒绝，并由重试把原因回喂给它重写。
+    """
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if "main" in text:
+        return value
+    if _URL_RE.search(text):
+        raise ValueError("源码字段是链接而不是代码，必须给出可直接编译的完整程序")
+    raise ValueError("源码字段缺少 main 函数，必须给出可直接编译的完整程序")
+
+
+Source = Annotated[
+    str,
+    BeforeValidator(strip_markdown_fence),
+    BeforeValidator(reject_non_source),
+    Field(min_length=1, max_length=131_072),
+]
 
 
 
@@ -83,33 +108,23 @@ class SolutionResult(StrictModel):
         return value
 
 
-class TestDesignResult(StrictModel):
-    """测试类别与边界覆盖计划。"""
-
-    test_plan: list[str] = Field(min_length=1, max_length=200)
-
-
-class ReviewResult(StrictModel):
-    """对抗审查结果。"""
-
-    findings: list[str] = Field(default_factory=list, max_length=200)
-    ambiguities: list[str] = Field(default_factory=list, max_length=100)
-
-
-class ArtifactResult(StrictModel):
-    """可由 Worker 编译执行的生成器、校验器和暴力解。"""
+class TestDataResult(StrictModel):
+    """可由 Worker 编译执行的确定性测试数据生成器与输入校验器；种子由链路固定为 1..N。"""
 
     generator_source: Source
     validator_source: Source
-    brute_force_source: Source
-    seeds: list[int] = Field(min_length=1, max_length=200)
 
-    @field_validator("seeds")
+    @field_validator("generator_source")
     @classmethod
-    def unique_seeds(cls, value: list[int]) -> list[int]:
-        """固定种子必须互异，才能形成可审计测试点。"""
-        if len(value) != len(set(value)):
-            raise ValueError("固定种子不能重复")
+    def require_seed_argument(cls, value: str) -> str:
+        """生成器必须带命令行入口；不读参数的实现说明模型写成了别的角色。
+
+        沙箱用 `程序 <seed>` 调用生成器并把标准输入留空，因此完全没有 argc/argv 的
+        "生成器"（例如把标程或从 stdin 读入的程序写进了这个字段）必然在下游差分才
+        暴露，代价很高。这里只做最低限度的角色判别，不校验参数的写法。
+        """
+        if "argv" not in value and "argc" not in value:
+            raise ValueError("输入生成器必须是读取命令行参数的程序，不能从 stdin 读取输入")
         return value
 
 
@@ -150,6 +165,29 @@ class SandboxStatus(StrEnum):
     SYSTEM_ERROR = "SYSTEM_ERROR"
 
 
+class SandboxFailureStage(StrEnum):
+    """Kotlin 归因的沙箱失败产物，用于把修复定向到出错的那个节点。"""
+
+    TEST_DATA = "TEST_DATA"
+    SOLUTIONS = "SOLUTIONS"
+    BRUTE_FORCE = "BRUTE_FORCE"
+
+
+class SandboxCompileUnit(StrictModel):
+    """编译门禁中的一个待编译产物。"""
+
+    label: str = Field(min_length=1, max_length=64)
+    source: Source
+
+
+class SandboxCompileTask(StrictModel):
+    """生成节点产出源码后立即提交的编译预检参数。"""
+
+    stage: SandboxFailureStage
+    # 一个生成节点最多产出两个源码：生成器+校验器，或标程 A+标程 B。
+    units: list[SandboxCompileUnit] = Field(min_length=1, max_length=2)
+
+
 class SandboxResult(StrictModel):
     """恢复 LangGraph 的沙箱结果通知。"""
 
@@ -159,6 +197,8 @@ class SandboxResult(StrictModel):
     repair_round: int = Field(ge=0, le=2)
     status: SandboxStatus
     failure_reason: str | None = Field(default=None, max_length=2_000)
+    # 为空表示不可定向，只能按最保守的测试数据重做。
+    failed_stage: SandboxFailureStage | None = None
 
     @field_validator("status", mode="before")
     @classmethod
@@ -166,6 +206,14 @@ class SandboxResult(StrictModel):
         """strict 模式下枚举字段只接受枚举实例，需先把 JSON 状态字符串转成枚举。"""
         if isinstance(value, str):
             return SandboxStatus(value)
+        return value
+
+    @field_validator("failed_stage", mode="before")
+    @classmethod
+    def accept_failure_stage_name(cls, value: object) -> object:
+        """strict 模式下枚举字段只接受枚举实例，需先把 JSON 归属名字符串转成枚举。"""
+        if isinstance(value, str):
+            return SandboxFailureStage(value)
         return value
 
 
@@ -191,7 +239,7 @@ class StepRecord(StrictModel):
 
 
 class HumanResume(StrictModel):
-    """人工接管后回传给 Agent 的恢复指令。"""
+    """人工接管后回传给 Agent 的恢复指令；当前仅支持重跑题意分析。"""
 
-    action: Literal["reanalyze", "rereview"]
+    action: Literal["reanalyze"]
     correction: dict[str, Any] | None = None

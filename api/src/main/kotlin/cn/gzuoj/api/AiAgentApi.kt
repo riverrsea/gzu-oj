@@ -1,5 +1,7 @@
 package cn.gzuoj.api
 
+import cn.gzuoj.shared.AI_DIFFERENTIAL_SANDBOX_STAGE
+import cn.gzuoj.shared.AiCompileTask
 import cn.gzuoj.shared.AiSandboxTaskPayload
 import jakarta.validation.Valid
 import jakarta.validation.constraints.Max
@@ -46,14 +48,20 @@ data class AiAgentEventRequest(
     val repairRound: Int,
 )
 
-/** Python Agent 创建沙箱任务时附带的修复轮次。 */
+/** Python Agent 创建沙箱任务时附带的修复轮次、阶段与尝试序号。 */
 data class AiAgentSandboxRequest(
     /** LangGraph 当前修复轮次。 */
     @field:Min(0)
     @field:Max(2)
     val repairRound: Int,
-    /** Worker 执行参数。 */
-    val task: AiSandboxTaskPayload,
+    /** 同一阶段内的第几次尝试；编译门禁重试时递增，用于幂等键。 */
+    @field:Min(0)
+    @field:Max(20)
+    val attempt: Int = 0,
+    /** 全量差分任务参数；与 compile 互斥。 */
+    val task: AiSandboxTaskPayload? = null,
+    /** 编译门禁任务参数；与 task 互斥。 */
+    val compile: AiCompileTask? = null,
 )
 
 /** Agent 失败或取消通知。 */
@@ -96,6 +104,8 @@ data class AiAgentSandboxResultRequest(
     val status: String,
     /** 失败原因。 */
     val failureReason: String? = null,
+    /** 失败产物归属名（TEST_DATA/SOLUTIONS/BRUTE_FORCE）；为空表示不可定向。 */
+    val failedStage: String? = null,
 )
 
 /** Python Agent 内部回调接口；仅接受配置的 Bearer Token。 */
@@ -132,9 +142,8 @@ class AiAgentController(
     private fun advanceState(event: AiAgentEventRequest) {
         val target = when (event.stage) {
             "ANALYZING" -> AiWorkflowState.ANALYZING
-            "GENERATING_SOLUTIONS" -> AiWorkflowState.GENERATING_SOLUTIONS
-            "TEST_DESIGN", "ADVERSARIAL_REVIEW" -> AiWorkflowState.REVIEWING
-            "GENERATING_ARTIFACTS" -> AiWorkflowState.GENERATING_TESTS
+            "GENERATING_TEST_DATA" -> AiWorkflowState.GENERATING_TESTS
+            "GENERATING_SOLUTIONS", "GENERATING_BRUTE_FORCE" -> AiWorkflowState.GENERATING_SOLUTIONS
             "SANDBOX" -> AiWorkflowState.DIFFERENTIAL_TESTING
             else -> return
         }
@@ -162,7 +171,7 @@ class AiAgentController(
         )
     }
 
-    /** 创建或复用同一运行和修复轮次的沙箱任务。 */
+    /** 创建或复用同一运行、修复轮次、阶段和尝试次数的沙箱任务。 */
     @PostMapping("/runs/{runId}/sandbox-jobs")
     @Transactional
     fun sandbox(
@@ -171,18 +180,32 @@ class AiAgentController(
         @Valid @RequestBody body: AiAgentSandboxRequest,
     ): Map<String, UUID> {
         authenticate(authorization)
+        val compile = body.compile
+        if ((compile == null) == (body.task == null)) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_AI_SANDBOX_TASK", "沙箱任务必须且只能提供差分参数或编译门禁参数")
+        }
+        val stage = compile?.stage?.name ?: AI_DIFFERENTIAL_SANDBOX_STAGE
         val jobId = jdbc.query(
-            "SELECT id FROM ai_sandbox_job WHERE run_id = ? AND repair_round = ?",
+            "SELECT id FROM ai_sandbox_job WHERE run_id = ? AND repair_round = ? AND stage = ? AND attempt = ?",
             { result, _ -> result.getObject("id", UUID::class.java) },
-            runId, body.repairRound,
+            runId, body.repairRound, stage, body.attempt,
         ).firstOrNull() ?: UUID.randomUUID().also { id ->
+            // 只有全量差分任务代表进入差分阶段；编译门禁仍停留在当前生成阶段。
+            if (compile == null) {
+                jdbc.update(
+                    "UPDATE ai_problem_run SET state = 'DIFFERENTIAL_TESTING', updated_at = now() WHERE id = ? AND state IN ('ANALYZING', 'GENERATING_SOLUTIONS', 'REVIEWING', 'GENERATING_TESTS')",
+                    runId,
+                )
+            }
             jdbc.update(
-                "UPDATE ai_problem_run SET state = 'DIFFERENTIAL_TESTING', updated_at = now() WHERE id = ? AND state IN ('ANALYZING', 'GENERATING_SOLUTIONS', 'REVIEWING', 'GENERATING_TESTS')",
+                "INSERT INTO ai_sandbox_job(id, run_id, repair_round, stage, attempt, payload, priority) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?)",
+                id,
                 runId,
-            )
-            jdbc.update(
-                "INSERT INTO ai_sandbox_job(id, run_id, repair_round, payload, priority) VALUES (?, ?, ?, ?::jsonb, ?)",
-                id, runId, body.repairRound, mapper.writeValueAsString(body.task), 10,
+                body.repairRound,
+                stage,
+                body.attempt,
+                mapper.writeValueAsString(compile ?: body.task),
+                10,
             )
         }
         return mapOf("sandboxJobId" to jobId)

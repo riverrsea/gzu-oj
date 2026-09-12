@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import DOMPurify from "dompurify";
-import { marked } from "marked";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   Bold,
@@ -23,6 +21,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab, redo, undo } from
 import { Compartment, EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers, placeholder } from "@codemirror/view";
 import UiEmptyState from "./ui/EmptyState.vue";
+import { renderMarkdown } from "../lib/markdown";
 
 /** Markdown 编辑器显示模式。 */
 type EditorMode = "edit" | "split" | "preview";
@@ -46,10 +45,8 @@ let editor: EditorView | null = null;
 const savedMode = localStorage.getItem("gzu-oj.markdown-mode");
 const mode = ref<EditorMode>(savedMode === "edit" || savedMode === "preview" || savedMode === "split" ? savedMode : "split");
 
-/** 将 Markdown 渲染为经过清洗的预览 HTML。 */
-const renderedMarkdown = computed(() =>
-  DOMPurify.sanitize(marked.parse(props.modelValue, { async: false }) as string),
-);
+/** 将 Markdown 渲染为经过清洗的预览 HTML（含 KaTeX 公式）。 */
+const renderedMarkdown = computed(() => renderMarkdown(props.modelValue));
 
 /** 构造与站点主题一致的 Markdown 编辑器样式。 */
 function editorTheme(isDark: boolean) {

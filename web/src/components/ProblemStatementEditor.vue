@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import DOMPurify from "dompurify";
-import { marked } from "marked";
 import { computed, reactive, ref, watch } from "vue";
 import { Eye } from "@lucide/vue";
 import UiEmptyState from "./ui/EmptyState.vue";
 import UiTextarea from "./ui/Textarea.vue";
+import { renderMarkdown } from "../lib/markdown";
 
 /** 结构化题面的章节字段。内容仍使用 Markdown，便于保留公式、代码和列表。 */
 type StatementSectionKey = "description" | "inputFormat" | "outputFormat" | "constraints" | "notes";
@@ -118,10 +117,8 @@ const serializedStatement = computed(() => {
   return blocks.length > 0 ? `${blocks.join("\n\n\n")}\n` : "";
 });
 
-/** 使用与题目详情页相同的 Markdown 清洗和渲染规则。 */
-const renderedStatement = computed(() =>
-  DOMPurify.sanitize(marked.parse(serializedStatement.value, { async: false }) as string),
-);
+/** 使用与题目详情页相同的 Markdown 清洗和渲染规则（含 KaTeX 公式）。 */
+const renderedStatement = computed(() => renderMarkdown(serializedStatement.value));
 
 watch(() => props.modelValue, (value) => {
   if (value !== serializedStatement.value) parseStatement(value);

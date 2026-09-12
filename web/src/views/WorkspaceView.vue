@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import DOMPurify from "dompurify";
-import { marked } from "marked";
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { DockviewVue, themeDark, themeLight } from "dockview-vue";
@@ -8,6 +6,7 @@ import type { DockviewApi, DockviewReadyEvent, VueComponent } from "dockview-vue
 import "dockview-vue/dist/styles/dockview.css";
 import { toast } from "../lib/notify";
 import { formatProblemOrdinal } from "../lib/problemOrdinal";
+import { renderMarkdown } from "../lib/markdown";
 import { api, ApiError } from "../api/client";
 import type { JudgeLanguage, JudgeStatus, ProblemDetail, ProblemSummary, Submission, TimedAttempt } from "../api/types";
 import { session } from "../stores/session";
@@ -169,7 +168,7 @@ const contestRemainingSeconds = computed(() => {
 const contestEndAt = ref<number>();
 const renderedStatement = computed(() => {
   if (!problem.value) return "";
-  return DOMPurify.sanitize(marked.parse(problem.value.statementMarkdown, { async: false }) as string);
+  return renderMarkdown(problem.value.statementMarkdown);
 });
 
 /** 比赛和个人套卷使用独立的锁定题目序列，不直接复用题库的全局已解决状态。 */

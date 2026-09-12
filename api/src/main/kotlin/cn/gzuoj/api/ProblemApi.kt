@@ -48,6 +48,12 @@ data class CreateTestCaseRequest(
     val output: String,
     /** 是否作为公开样例返回。 */
     val sample: Boolean = false,
+    /**
+     * 生成该测试点的 AI 运行标识；手动录入或导入时为空。
+     *
+     * 编辑页保存时必须原样回传，否则 AI 测试点会被当成手动测试点，下一次生成时无法替换。
+     */
+    val generatedByAiRunId: UUID? = null,
 )
 
 /** 创建题目或新版本的请求。 */
@@ -284,6 +290,13 @@ data class AdminTestCaseDetail(
     val output: String,
     /** 是否公开为样例。 */
     val sample: Boolean,
+    /**
+     * 生成该测试点的 AI 运行标识；手动录入或导入时为 null。
+     *
+     * 编辑页必须把它原样回传，否则保存后 AI 测试点会被当成手动测试点，
+     * 下一次生成测试点时就无法被正确替换，只能不断累积。
+     */
+    val generatedByAiRunId: UUID? = null,
 )
 
 /** 管理员查看和编辑题目草稿的完整版本。 */
@@ -407,6 +420,8 @@ private data class AiDraftVersionRecord(
     val timeLimitMs: Int,
     /** 基准内存限制。 */
     val memoryLimitMiB: Int,
+    /** 当前数据声明；AI 追加测试点时只在为空时才补默认提示。 */
+    val dataNotice: String?,
 )
 
 /** 题库、版本和测试数据事务服务。 */
@@ -436,7 +451,8 @@ class ProblemService(
         val version = jdbc.query(
             """
             SELECT pv.problem_id, pv.status, p.external_key, pv.title, pv.school, pv.year, pv.tags,
-                   pv.difficulty, pv.source_url, pv.statement_markdown, pv.time_limit_ms, pv.memory_limit_mib
+                   pv.difficulty, pv.source_url, pv.statement_markdown, pv.time_limit_ms, pv.memory_limit_mib,
+                   pv.data_notice
             FROM problem_version pv JOIN problem p ON p.id = pv.problem_id
             WHERE pv.id = ? FOR UPDATE OF pv
             """.trimIndent(),
@@ -454,6 +470,7 @@ class ProblemService(
                     statementMarkdown = result.getString("statement_markdown"),
                     timeLimitMs = result.getInt("time_limit_ms"),
                     memoryLimitMiB = result.getInt("memory_limit_mib"),
+                    dataNotice = result.getString("data_notice"),
                 )
             },
             versionId,
@@ -462,16 +479,25 @@ class ProblemService(
             throw ApiException(HttpStatus.CONFLICT, "VERSION_IMMUTABLE", "AI 测试点只能写入草稿版本")
         }
         lockProblem(version.problemId)
-        val replacedArtifacts = loadVersionArtifacts(versionId)
         val stored = mutableListOf<StoredArtifact>()
         try {
+            // 先把新一轮 AI 的测试数据全部落盘，失败时统一回收，避免留下半截制品。
             testCases.forEach { testCase ->
                 stored += artifactStore.put("test-data", testCase.input.toByteArray(Charsets.UTF_8), "text/plain; charset=utf-8")
                 stored += artifactStore.put("test-data", testCase.output.toByteArray(Charsets.UTF_8), "text/plain; charset=utf-8")
             }
-            jdbc.update("DELETE FROM problem_test_case WHERE problem_version_id = ?", versionId)
-            val deletedStorageKeys = deleteUnreferencedArtifacts(replacedArtifacts)
-            deleteArtifactsAfterCommit(deletedStorageKeys)
+            // 只删除上一轮 AI 生成的测试点：手动录入和导入时由题面样例生成的测试点必须保留。
+            val replacedArtifacts = loadAiTestCaseArtifacts(versionId)
+            jdbc.update(
+                "DELETE FROM problem_test_case WHERE problem_version_id = ? AND generated_by_ai_run_id IS NOT NULL",
+                versionId,
+            )
+            deleteArtifactsAfterCommit(deleteUnreferencedArtifacts(replacedArtifacts))
+            // 保留的测试点重排成连续的 1..n，AI 结果接在其后，序号始终不留空洞。
+            val kept = loadExistingTestCases(versionId)
+            kept.forEachIndexed { index, testCase ->
+                jdbc.update("UPDATE problem_test_case SET ordinal = ? WHERE id = ?", index + 1, testCase.id)
+            }
             testCases.forEachIndexed { index, testCase ->
                 val inputId = insertArtifact(stored[index * 2], creator)
                 val outputId = insertArtifact(stored[index * 2 + 1], creator)
@@ -482,11 +508,12 @@ class ProblemService(
                         sample, generated_by_ai_run_id, generation_seed
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """.trimIndent(),
-                    UUID.randomUUID(), versionId, index + 1, inputId, outputId, testCase.sample, runId, testCase.seed,
+                    UUID.randomUUID(), versionId, kept.size + index + 1, inputId, outputId, testCase.sample, runId, testCase.seed,
                 )
             }
-            val dataNotice = AI_DATA_NOTICE
-            val contentHash = hashProblem(
+            // 数据声明只在题目还没有说明时补默认提示，避免覆盖管理员写过的内容。
+            val dataNotice = version.dataNotice?.takeIf(String::isNotBlank) ?: AI_DATA_NOTICE
+            val contentHash = hashProblemWithTestHashes(
                 CreateProblemVersionRequest(
                     title = version.title,
                     school = version.school,
@@ -498,9 +525,15 @@ class ProblemService(
                     timeLimitMs = version.timeLimitMs,
                     memoryLimitMiB = version.memoryLimitMiB,
                     externalKey = version.externalKey,
-                    testCases = testCases.map { CreateTestCaseRequest(it.input, it.output, it.sample) },
+                    // 测试点由下面的哈希投影给出，这里的字段不参与哈希。
+                    testCases = emptyList(),
                     dataNotice = dataNotice,
                 ),
+                // 哈希必须覆盖追加后的完整集合：保留的在前，AI 新增的在后。
+                kept.map { TestCaseHash(it.inputSha256, it.outputSha256, it.sample) } +
+                    testCases.mapIndexed { index, testCase ->
+                        TestCaseHash(stored[index * 2].sha256, stored[index * 2 + 1].sha256, testCase.sample)
+                    },
             )
             jdbc.update(
                 "UPDATE problem_version SET data_notice = ?, content_sha256 = ? WHERE id = ?",
@@ -733,7 +766,8 @@ class ProblemService(
         ).firstOrNull() ?: throw ApiException(HttpStatus.NOT_FOUND, "VERSION_NOT_FOUND", "题目版本不存在")
         val testCases = jdbc.query(
             """
-            SELECT tc.ordinal, tc.sample, ia.storage_key AS input_key, oa.storage_key AS output_key
+            SELECT tc.ordinal, tc.sample, tc.generated_by_ai_run_id,
+                   ia.storage_key AS input_key, oa.storage_key AS output_key
             FROM problem_test_case tc
             JOIN artifact ia ON ia.id = tc.input_artifact_id
             JOIN artifact oa ON oa.id = tc.output_artifact_id
@@ -744,7 +778,8 @@ class ProblemService(
                     ordinal = result.getInt("ordinal"),
                     input = artifactStore.open(result.getString("input_key")).bufferedReader().use { it.readText() },
                     output = artifactStore.open(result.getString("output_key")).bufferedReader().use { it.readText() },
-                        sample = result.getBoolean("sample"),
+                    sample = result.getBoolean("sample"),
+                    generatedByAiRunId = result.getObject("generated_by_ai_run_id", UUID::class.java),
                 )
             },
             versionId,
@@ -855,10 +890,12 @@ class ProblemService(
                 val outputId = insertArtifact(stored[index * 2 + 1], creator)
                 jdbc.update(
                     """
-                    INSERT INTO problem_test_case(id, problem_version_id, ordinal, input_artifact_id, output_artifact_id, sample)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO problem_test_case(
+                        id, problem_version_id, ordinal, input_artifact_id, output_artifact_id,
+                        sample, generated_by_ai_run_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """.trimIndent(),
-                    UUID.randomUUID(), versionId, index + 1, inputId, outputId, test.sample,
+                    UUID.randomUUID(), versionId, index + 1, inputId, outputId, test.sample, test.generatedByAiRunId,
                 )
             }
             if (request.publish) {
@@ -1102,6 +1139,56 @@ class ProblemService(
         versionId,
     )
 
+    /** 只读取上一轮 AI 生成测试点所占用的制品，用于重新生成时回收，不碰手动测试点的制品。 */
+    private fun loadAiTestCaseArtifacts(versionId: UUID): List<ReferencedArtifact> = jdbc.query(
+        """
+        SELECT a.id, a.storage_key
+        FROM artifact a
+        WHERE a.id IN (
+            SELECT input_artifact_id FROM problem_test_case
+            WHERE problem_version_id = ? AND generated_by_ai_run_id IS NOT NULL
+            UNION
+            SELECT output_artifact_id FROM problem_test_case
+            WHERE problem_version_id = ? AND generated_by_ai_run_id IS NOT NULL
+        )
+        """.trimIndent(),
+        { result, _ -> ReferencedArtifact(result.getObject("id", UUID::class.java), result.getString("storage_key")) },
+        versionId,
+        versionId,
+    )
+
+    /** 读取版本里保留不动的测试点，按序号排序；只取哈希投影，避免把测试数据读进内存。 */
+    private fun loadExistingTestCases(versionId: UUID): List<ExistingTestCase> = jdbc.query(
+        """
+        SELECT tc.id, tc.sample, ia.sha256 AS input_sha, oa.sha256 AS output_sha
+        FROM problem_test_case tc
+        JOIN artifact ia ON ia.id = tc.input_artifact_id
+        JOIN artifact oa ON oa.id = tc.output_artifact_id
+        WHERE tc.problem_version_id = ? ORDER BY tc.ordinal
+        """.trimIndent(),
+        { result, _ ->
+            ExistingTestCase(
+                id = result.getObject("id", UUID::class.java),
+                sample = result.getBoolean("sample"),
+                inputSha256 = result.getString("input_sha"),
+                outputSha256 = result.getString("output_sha"),
+            )
+        },
+        versionId,
+    )
+
+    /** 追加 AI 测试点时保留不动的已有测试点。 */
+    private data class ExistingTestCase(
+        /** 测试点标识。 */
+        val id: UUID,
+        /** 是否公开样例。 */
+        val sample: Boolean,
+        /** 输入内容哈希。 */
+        val inputSha256: String,
+        /** 标准输出内容哈希。 */
+        val outputSha256: String,
+    )
+
     /** 删除已经没有测试点引用的旧制品元数据，并返回需要在提交后删除的文件键。 */
     private fun deleteUnreferencedArtifacts(artifacts: List<ReferencedArtifact>): List<String> = artifacts.mapNotNull { artifact ->
         val deleted = jdbc.update(
@@ -1139,7 +1226,22 @@ class ProblemService(
     }
 
     /** 生成用于导入幂等判断的规范内容哈希。 */
-    private fun hashProblem(request: CreateProblemVersionRequest): String {
+    private fun hashProblem(request: CreateProblemVersionRequest): String = hashProblemWithTestHashes(
+        request,
+        request.testCases.map { TestCaseHash(SecureValues.sha256(it.input), SecureValues.sha256(it.output), it.sample) },
+    )
+
+    /**
+     * 用预先算好的测试点哈希计算内容哈希。
+     *
+     * 这里刻意忽略 [request] 自带的 `testCases`，**调用方必须在 [testCases] 里给出完整的最终集合**。
+     * 单独拆出这个重载的原因：AI 追加测试点时，已有测试点只需要从 artifact 行取哈希，
+     * 不必把最大 16 MiB 的测试数据读进内存。
+     */
+    private fun hashProblemWithTestHashes(
+        request: CreateProblemVersionRequest,
+        testCases: List<TestCaseHash>,
+    ): String {
         val canonical = buildString {
             appendLine(request.externalKey)
             appendLine(request.title.trim())
@@ -1152,14 +1254,24 @@ class ProblemService(
             appendLine(request.memoryLimitMiB)
             appendLine(request.dataNotice?.trim().orEmpty())
             appendLine(request.statementMarkdown.replace("\r\n", "\n"))
-            request.testCases.forEach {
-                appendLine(SecureValues.sha256(it.input))
-                appendLine(SecureValues.sha256(it.output))
+            testCases.forEach {
+                appendLine(it.inputSha256)
+                appendLine(it.outputSha256)
                 appendLine(it.sample)
             }
         }
         return SecureValues.sha256(canonical)
     }
+
+    /** 参与版本内容哈希的测试点投影：只保留哈希与样例标记。 */
+    private data class TestCaseHash(
+        /** 输入内容哈希。 */
+        val inputSha256: String,
+        /** 标准输出内容哈希。 */
+        val outputSha256: String,
+        /** 是否公开样例。 */
+        val sample: Boolean,
+    )
 
     /** 映射题库列表行。 */
     private fun mapSummary(result: java.sql.ResultSet, ignored: Int): ProblemSummary = ProblemSummary(

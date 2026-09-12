@@ -236,6 +236,8 @@ export interface AdminTestCaseDetail {
   input: string;
   output: string;
   sample: boolean;
+  /** 该测试点来自哪一次 AI 运行；手动录入或导入时为 null。保存时必须原样回传。 */
+  generatedByAiRunId: string | null;
 }
 
 export interface AdminProblemVersionDetail {

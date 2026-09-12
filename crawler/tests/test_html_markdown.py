@@ -64,3 +64,41 @@ def test_does_not_escape_inside_code_elements() -> None:
     fragment = BeautifulSoup("<div>示例 <code>&lt;iostream&gt; 与 $x$</code></div>", "html.parser")
     rendered = to_markdown(fragment.select_one("div"))
     assert "`<iostream> 与 $x$`" in rendered
+
+
+def test_keeps_superscript_from_being_dropped() -> None:
+    """<sup> 没有 Markdown 原生语法，丢失后 X 的 N 次方会读成变量 XN。
+
+    站点题目 1017（幂次方）就是这种写法。
+    """
+    fragment = BeautifulSoup(
+        "<div class='OjInfo'><p>对任意正整数N，求X<sup>N</sup>%233333的值。</p>"
+        "<p>X<sup>30</sup>&nbsp;= X<sup>15</sup>*X<sup>15</sup></p></div>",
+        "html.parser",
+    )
+    rendered = to_markdown(fragment.select_one("div"))
+    assert "X<sup>N</sup>%233333" in rendered
+    assert "X<sup>30</sup>" in rendered
+    assert "X<sup>15</sup>" in rendered
+    # 上标内容不能退化成普通文本。
+    assert "X<sup>N</sup>" in rendered
+    assert "XN%" not in rendered
+
+
+def test_keeps_subscript() -> None:
+    """<sub> 与 <sup> 同理，使用 HTML 标签保留。"""
+    fragment = BeautifulSoup("<div>数组$a<sub>i</sub>$的第i项</div>", "html.parser")
+    rendered = to_markdown(fragment.select_one("div"))
+    assert "<sub>i</sub>" in rendered
+
+
+def test_superscript_and_math_coexist() -> None:
+    """上标处理不能干扰公式占位符的还原。"""
+    fragment = BeautifulSoup(
+        "<div>求 $X^{N}$ 与 X<sup>N</sup> 的区别，范围 $2 \\le m \\le 10^4$。</div>",
+        "html.parser",
+    )
+    rendered = to_markdown(fragment.select_one("div"))
+    assert "$X^{N}$" in rendered
+    assert "X<sup>N</sup>" in rendered
+    assert "$2 \\le m \\le 10^4$" in rendered

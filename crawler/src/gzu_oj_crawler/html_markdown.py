@@ -20,6 +20,24 @@ _DROPPED_TAGS = ("script", "style", "noscript")
 _URL_ATTRIBUTES = (("img", "src"), ("a", "href"), ("source", "src"), ("video", "src"))
 
 
+class _StatementConverter(markdownify.MarkdownConverter):
+    """在 markdownify 基础上保留 Markdown 没有对应语法的语义标签。
+
+    ``<sup>`` / ``<sub>`` 在 Markdown 和 GFM 里都没有原生语法，markdownify 默认会把
+    标签丢掉、只留文本，于是站点里的 ``X<sup>N</sup>`` 会变成 ``XN``——
+    语义从“X 的 N 次方”变成“变量 XN”，题面直接读错。
+    这里原样输出 HTML 标签，下游 marked + DOMPurify 会正常渲染并清洗。
+    """
+
+    def convert_sup(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        """保留上标，例如 ``X<sup>N</sup>``。"""
+        return f"<sup>{text}</sup>"
+
+    def convert_sub(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        """保留下标，与上标同理。"""
+        return f"<sub>{text}</sub>"
+
+
 def to_markdown(element: Tag, base_url: str | None = None) -> str:
     """把一个 HTML 元素转换成 Markdown 文本。
 
@@ -42,11 +60,7 @@ def to_markdown(element: Tag, base_url: str | None = None) -> str:
         if protected != str(node):
             node.replace_with(protected)
 
-    rendered = markdownify.markdownify(
-        str(fragment),
-        heading_style="ATX",
-        bullets="-",
-    )
+    rendered = _StatementConverter(heading_style="ATX", bullets="-").convert(str(fragment))
     return _normalize(protector.restore(rendered))
 
 

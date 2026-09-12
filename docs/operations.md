@@ -45,11 +45,16 @@ uv run gzu-oj-crawler noobdream-problems https://noobdream.com/DreamJudge/Issue/
 
 调试时可以在两个命令末尾追加 `--single-page`。详情 CSV 不是管理员批量导入 ZIP；标准导入仍需通过 `problems.csv`、`statements/` 和可选 `tests/` 目录组织 ZIP，并补齐学校、年份和测试点。
 
-单题体检：只抓一道题并写出题面 Markdown，用于确认登录、解析和公式都没问题。参数支持题号或详情页地址，命令也会回报公式定界符数量。注意题库第一页几乎不含公式，验证公式请用 `5382`、`10102`、`10298` 这类题号：
+单题体检：只抓一道题并写出题面 Markdown，用于确认登录、解析和公式都没问题。参数支持题号或详情页地址，命令也会回报公式定界符数量。注意题库第一页几乎不含公式，验证公式请用 `5382`（`$...$` 行内公式）、`10102`（公式紧贴中文）、`1017`（HTML 上标 `<sup>`）这类题号：
 
 ```bash
 uv run gzu-oj-crawler noobdream-problem 5382 /absolute/p5382.md
 ```
+
+题面里的数学写法不止 MathJax 一种：站点部分题目用 HTML `<sup>` 写指数（例如 1017 的 `X<sup>N</sup>`），
+这类标签没有 Markdown 原生语法，采集时会原样保留为 HTML，避免退化成 `XN` 而读错语义。
+另外 MathJax 脚本是站点模板全局加载的，**页面里有 MathJax 不代表题面用了 LaTeX**，
+判断依据是题面里有没有 `$` / `\(`。
 
 本地规范 JSON 转标准导入 ZIP：
 

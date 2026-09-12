@@ -37,6 +37,9 @@ uv run gzu-oj-crawler --help
 uv run gzu-oj-crawler noobdream-list https://noobdream.com/DreamJudge/Issue/page/0/ /absolute/noobdream-list.csv
 ```
 
+该命令只抓列表页，CSV 里只有题号、标题、难度、题型、学校和 `detailUrl`，**没有题面**；
+`detailUrl` 是详情页链接而不是题目内容。要题面请用下面这条命令。
+
 采集登录后题面和公开样例，输出原始详情 CSV；不完整字段保留为空：
 
 ```bash

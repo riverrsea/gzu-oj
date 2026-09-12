@@ -8,8 +8,8 @@ GZU OJ 的题库采集与标准导入包生成 CLI，是 Kotlin 版 `crawler-cli
 | --- | --- |
 | `local <canonical-problems.json> <output.zip>` | 把本地规范 JSON 转成标准导入包 |
 | `noobdream-import <details.csv> <output.zip> [--default-year YYYY]` | 把详情 CSV 转成无测试点导入包 |
-| `noobdream-list <list-url> <output.csv> [--single-page] [--school 学校名]` | 采集 N 诺题库列表 |
-| `noobdream-problems <list-url> <output.csv> [--single-page] [--school 学校名]` | 采集 N 诺题目详情（含完整题面） |
+| `noobdream-list <list-url> <output.csv> [--single-page] [--school 学校名]` | **只**抓列表页：题号、标题、难度、题型、学校 + `detailUrl`，**不含题面** |
+| `noobdream-problems <list-url> <output.csv> [--single-page] [--school 学校名]` | 列表 + 逐题详情，CSV 带完整题面（会逐题发请求，慢） |
 | `noobdream-problem <题号或地址> <output.md>` | 单题体检：只写题面 Markdown，便于核对公式 |
 
 输出契约与 Kotlin 版完全一致：CSV 表头、ZIP 结构（`problems.csv` + `statements/` + 可选 `tests/`）
@@ -89,6 +89,28 @@ uv run gzu-oj-crawler noobdream-import \
 
 登录配置从项目根目录的 `.env.crawler` 读取，支持 `user_name` / `user_password`
 以及兼容别名 `noobdream_account` / `noobdream_pwd`。该文件已被 `.gitignore` 忽略。
+
+### 两个采集命令的区别
+
+这是最容易踩的一个坑：**`noobdream-list` 的 CSV 里没有题面**。
+
+| | `noobdream-list` | `noobdream-problems` |
+| --- | --- | --- |
+| 请求量 | 只抓列表页（全库约 82 个请求） | 列表页 + 每题一个详情请求（全库约 1700+ 请求） |
+| CSV 内容 | 题号、标题、难度、题型、学校、`detailUrl` | 在列表基础上多出 `statementMarkdown` 等完整题面字段 |
+| 用途 | 快速盘点题库、筛选出要抓的题号 | 拿题面去生成导入包 |
+
+`detailUrl` 是**详情页链接**，不是题面内容。要题面就用 `noobdream-problems`：
+
+```bash
+# 只要清单（快）
+uv run gzu-oj-crawler noobdream-list \
+  https://noobdream.com/DreamJudge/Issue/page/0/ /absolute/noobdream-list.csv --school 贵州大学
+
+# 要完整题面（慢，逐题请求）
+uv run gzu-oj-crawler noobdream-problems \
+  https://noobdream.com/DreamJudge/Issue/page/0/ /absolute/noobdream-problems.csv --school 贵州大学
+```
 
 ### 按学校筛选
 

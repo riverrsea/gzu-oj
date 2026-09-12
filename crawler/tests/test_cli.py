@@ -57,3 +57,22 @@ def test_requires_subcommand() -> None:
     with pytest.raises(SystemExit) as error:
         main([])
     assert error.value.code == 2
+
+
+def test_statement_hint_points_to_problems_command() -> None:
+    """列表采集完成后要提示改用 noobdream-problems 才能拿到题面。"""
+    from gzu_oj_crawler.cli import _statement_hint
+
+    hint = _statement_hint("https://noobdream.com/DreamJudge/Issue/page/0/", "贵州大学")
+    assert "noobdream-problems" in hint
+    assert "--school 贵州大学" in hint
+    assert "不是题面" in hint
+
+
+def test_statement_hint_without_school() -> None:
+    """没有学校筛选时不拼多余的 --school 参数。"""
+    from gzu_oj_crawler.cli import _statement_hint
+
+    hint = _statement_hint("https://noobdream.com/DreamJudge/Issue/page/0/", None)
+    assert "--school" not in hint
+    assert "noobdream-problems" in hint

@@ -111,7 +111,11 @@ def _run_import(source: Path, target: Path, default_year: int | None) -> None:
 
 
 def _run_list(url: str, target: Path, single_page: bool, school: str | None = None) -> None:
-    """采集列表页并写入 CSV；采集结束后登出。"""
+    """采集列表页并写入 CSV；采集结束后登出。
+
+    列表页只有元数据和详情页链接，没有题面。这里在结果后面补一句提示，
+    避免把 ``detailUrl`` 当成题面内容。
+    """
     target_path = target.absolute()
     page_uri = with_school_filter(url, school)
     with _LoggedInSession() as (_, cookie_header):
@@ -119,6 +123,23 @@ def _run_list(url: str, target: Path, single_page: bool, school: str | None = No
         items = client.fetch(page_uri) if single_page else client.fetch_all(page_uri)
         write_list_csv(items, target_path)
         print(f"已采集 {len(items)} 道题目列表{_scope_text(single_page, school)}并写入 CSV：{target_path}")
+    print(_statement_hint(url, school))
+
+
+def _statement_hint(url: str, school: str | None) -> str:
+    """提示如何拿到完整题面。
+
+    ``noobdream-list`` 与 ``noobdream-problems`` 的分工容易被误解：前者只抓列表页，
+    所以 CSV 里只有标题、学校等元数据和 ``detailUrl`` 链接，没有题面。
+    """
+    command = ["uv run gzu-oj-crawler", "noobdream-problems", url, "<output.csv>"]
+    name = (school or "").strip()
+    if name:
+        command += ["--school", name]
+    return (
+        "提示：noobdream-list 只采集列表元数据，CSV 里的 detailUrl 是详情页链接而不是题面。"
+        "需要完整题面请改用：\n  " + " ".join(command)
+    )
 
 
 def _run_problems(

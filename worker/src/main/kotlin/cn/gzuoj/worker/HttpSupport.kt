@@ -184,7 +184,17 @@ class ControlPlaneClient(
             throw RemoteCallException("control", response.statusCode(), "控制端请求失败")
         }
         if (response.statusCode() == 204 || responseType == Void::class.java || response.body().isEmpty()) return null
-        return mapper.readValue(response.body(), responseType)
+        val body = response.body()
+        return try {
+            mapper.readValue(body, responseType)
+        } catch (exception: Exception) {
+            // 控制端与 Worker 版本不一致时 Jackson 只报字段名，无法定位是哪个响应，必须带上原始报文。
+            throw RemoteCallException(
+                "control",
+                response.statusCode(),
+                "解析控制端响应失败（$path）：${exception.message?.take(300)}；原始响应：${String(body).take(500)}",
+            )
+        }
     }
 
     /** 解析根地址下的固定路径。 */

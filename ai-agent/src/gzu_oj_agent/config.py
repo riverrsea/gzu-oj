@@ -7,7 +7,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class StructuredOutputMode(StrEnum):
-    """OpenAI 兼容服务的结构化输出能力。"""
+    """OpenAI 兼容服务的结构化输出能力。
+
+    三者能力递减：json_schema 由网关强校验字段（仅 OpenAI 等少数服务支持），
+    json_object 只保证是合法 JSON，prompt_json 连 response_format 都不发送。
+    兼容网关普遍只实现后两者，因此默认取兼容性最好的 json_object。
+    """
 
     JSON_SCHEMA = "json_schema"
     JSON_OBJECT = "json_object"
@@ -22,7 +27,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "http://127.0.0.1:11434/v1"
     llm_api_key: str = "ollama"
     llm_model: str = "qwen2.5"
-    llm_structured_output_mode: StructuredOutputMode = StructuredOutputMode.JSON_SCHEMA
+    llm_structured_output_mode: StructuredOutputMode = StructuredOutputMode.JSON_OBJECT
     llm_timeout_seconds: float = Field(default=120, gt=0)
     llm_max_retries: int = Field(default=2, ge=0, le=10)
     llm_max_concurrent: int = Field(default=1, ge=1, le=32)

@@ -197,3 +197,37 @@ async def test_unsupported_json_object_degrades_to_prompt_json() -> None:
     assert (await client.generate(AnalysisResult, "system", "prompt")).summary == "ok"
     assert model.calls == ["json_object", "prompt_json"]
     assert client.mode is StructuredOutputMode.PROMPT_JSON
+
+
+class SchemaAwareJsonModel:
+    """记录 json_object 模式下送往模型的消息，并返回合法的 SolutionResult。"""
+
+    def __init__(self) -> None:
+        self.messages: list = []
+
+    def bind(self, **_kwargs):
+        return self
+
+    async def ainvoke(self, messages):
+        self.messages = list(messages)
+        return SimpleNamespace(content='{"summary":"ok","source_code":"int main(){return 0;}"}')
+
+
+@pytest.mark.asyncio
+async def test_json_object_mode_sends_schema_fields() -> None:
+    """json_object 不校验字段，必须把 schema 原文写进提示词，否则模型只能猜键名。
+
+    schema 按 pydantic 默认输出别名（sourceCode），与 Kotlin 侧 camelCase 一致；
+    populate_by_name 让模型写 source_code 也能通过校验，因此两种写法都安全。
+    """
+    settings = Settings(
+        agent_internal_token="test-token",
+        llm_structured_output_mode=StructuredOutputMode.JSON_OBJECT,
+    )
+    model = SchemaAwareJsonModel()
+    await ModelClient(settings, model=model).generate(SolutionResult, "system", "prompt")
+
+    joined = " ".join(str(message.content) for message in model.messages)
+    assert "符合该 JSON Schema" in joined
+    assert "sourceCode" in joined
+    assert "required" in joined

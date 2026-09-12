@@ -46,6 +46,19 @@ def _strip_outer_fence(content: str) -> str:
     return text.strip()
 
 
+def _schema_hint(schema: type[BaseModel]) -> str:
+    """把 JSON Schema 原文写进提示词。
+
+    json_object 只保证"是合法 JSON"，不校验字段；prompt_json 更是连 response_format
+    都不发送。这两种模式只能靠提示词里的 schema 保证字段名与类型，否则模型很容易
+    用错键名，白白消耗重试次数。
+    """
+    return (
+        "只返回一个符合该 JSON Schema 的 JSON 对象，字段名必须完全一致："
+        + json.dumps(schema.model_json_schema(), ensure_ascii=False)
+    )
+
+
 def _correction_hint(error: Exception) -> str:
     """把上一次失败压成一句可执行的纠正要求，避免重试时原样重问。"""
     if not isinstance(error, ValidationError):
@@ -129,16 +142,10 @@ class ModelClient:
             runnable = self.model.with_structured_output(schema, method="json_schema", strict=True)
             result = await runnable.ainvoke(messages)
             return result if isinstance(result, schema) else schema.model_validate(result)
+        # 以下两种模式网关都不会校验字段，必须把 schema 原文写进提示词。
+        messages.append(HumanMessage(content=_schema_hint(schema)))
         if mode is StructuredOutputMode.JSON_OBJECT:
             result = await self.model.bind(response_format={"type": "json_object"}).ainvoke(messages)
             return schema.model_validate_json(_strip_outer_fence(str(result.content)))
-        result = await self.model.ainvoke(
-            messages
-            + [
-                HumanMessage(
-                    content="只返回一个符合该 JSON Schema 的 JSON 对象："
-                    + json.dumps(schema.model_json_schema(), ensure_ascii=False)
-                )
-            ]
-        )
+        result = await self.model.ainvoke(messages)
         return schema.model_validate_json(_strip_outer_fence(str(result.content)))

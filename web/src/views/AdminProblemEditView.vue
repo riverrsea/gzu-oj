@@ -21,6 +21,8 @@ interface TestCaseForm {
   input: string;
   output: string;
   sample: boolean;
+  /** 该测试点来自哪一次 AI 运行；手动录入或导入时为 null。保存时必须原样回传。 */
+  generatedByAiRunId: string | null;
 }
 
 const route = useRoute();
@@ -67,7 +69,7 @@ function isTerminalOrReview(state: string): boolean {
 }
 
 function addCase(): void {
-  form.testCases.push({ input: "", output: "", sample: false });
+  form.testCases.push({ input: "", output: "", sample: false, generatedByAiRunId: null });
 }
 
 function removeCase(index: number): void {
@@ -96,7 +98,12 @@ async function load(): Promise<void> {
     form.memoryLimitMiB = detail.value.memoryLimitMiB;
     form.dataNotice = detail.value.dataNotice ?? "";
     tagText.value = detail.value.tags.join(", ");
-    form.testCases = detail.value.testCases.map(({ input, output, sample }) => ({ input, output, sample }));
+    form.testCases = detail.value.testCases.map(({ input, output, sample, generatedByAiRunId }) => ({
+      input,
+      output,
+      sample,
+      generatedByAiRunId: generatedByAiRunId ?? null,
+    }));
     await loadAiRun();
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "草稿加载失败");

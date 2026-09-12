@@ -1,10 +1,12 @@
 package cn.gzuoj.worker
 
+import cn.gzuoj.shared.AiCompileTask
 import cn.gzuoj.shared.AiGeneratedCaseResult
 import cn.gzuoj.shared.AiSandboxCompletion
 import cn.gzuoj.shared.AiSandboxCompletionStatus
 import cn.gzuoj.shared.AiSandboxFailureStage
 import cn.gzuoj.shared.AiSandboxLease
+import cn.gzuoj.shared.AiSandboxTaskPayload
 import cn.gzuoj.shared.OutputComparator
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -55,22 +57,55 @@ class AiSandboxEngine(
     /** go-judge 内部 REST 客户端。 */
     private val goJudge: GoJudgeClient,
 ) {
-    /** 执行一份完整 AI 沙箱租约，并把模型问题与基础设施问题分开结算。 */
-    fun execute(lease: AiSandboxLease, leaseStillValid: () -> Boolean): AiSandboxCompletion = try {
+    /** 执行一份 AI 沙箱租约，按任务类型分派到全量差分或编译门禁。 */
+    fun execute(lease: AiSandboxLease, leaseStillValid: () -> Boolean): AiSandboxCompletion {
+        val compileTask = lease.compile
+        return if (compileTask != null) {
+            settle(lease) { compileOnly(lease, compileTask, leaseStillValid) }
+        } else {
+            settle(lease) { differential(lease, lease.requireTask(), leaseStillValid) }
+        }
+    }
+
+    /** 只编译生成节点刚产出的源码，不做生成与差分，用于尽早暴露编译错误。 */
+    private fun compileOnly(
+        lease: AiSandboxLease,
+        task: AiCompileTask,
+        leaseStillValid: () -> Boolean,
+    ): AiSandboxCompletion {
+        task.units.forEach { unit ->
+            ensureLease(leaseStillValid)
+            compile(unit.label, unit.source, task.stage)
+        }
         ensureLease(leaseStillValid)
-        val solutionA = compile("标程 A", lease.task.solutionASource, AiSandboxFailureStage.SOLUTIONS)
+        logger.info("AI 编译门禁通过，jobId={}，阶段={}，产物数={}", lease.jobId, task.stage, task.units.size)
+        return AiSandboxCompletion(
+            attemptId = lease.attemptId,
+            leaseToken = lease.leaseToken,
+            status = AiSandboxCompletionStatus.PASSED,
+        )
+    }
+
+    /** 执行完整的确定性生成、输入校验和双标程差分。 */
+    private fun differential(
+        lease: AiSandboxLease,
+        task: AiSandboxTaskPayload,
+        leaseStillValid: () -> Boolean,
+    ): AiSandboxCompletion {
         ensureLease(leaseStillValid)
-        val solutionB = compile("标程 B", lease.task.solutionBSource, AiSandboxFailureStage.SOLUTIONS)
+        val solutionA = compile("标程 A", task.solutionASource, AiSandboxFailureStage.SOLUTIONS)
         ensureLease(leaseStillValid)
-        val bruteForce = compile("暴力解", lease.task.bruteForceSource, AiSandboxFailureStage.BRUTE_FORCE)
+        val solutionB = compile("标程 B", task.solutionBSource, AiSandboxFailureStage.SOLUTIONS)
         ensureLease(leaseStillValid)
-        val generator = compile("测试生成器", lease.task.generatorSource, AiSandboxFailureStage.TEST_DATA)
+        val bruteForce = compile("暴力解", task.bruteForceSource, AiSandboxFailureStage.BRUTE_FORCE)
         ensureLease(leaseStillValid)
-        val validator = compile("输入校验器", lease.task.validatorSource, AiSandboxFailureStage.TEST_DATA)
+        val generator = compile("测试生成器", task.generatorSource, AiSandboxFailureStage.TEST_DATA)
+        ensureLease(leaseStillValid)
+        val validator = compile("输入校验器", task.validatorSource, AiSandboxFailureStage.TEST_DATA)
 
         var totalDataBytes = 0L
         val inputHashes = mutableSetOf<String>()
-        val cases = lease.task.seeds.mapIndexed { index, seed ->
+        val cases = task.seeds.mapIndexed { index, seed ->
             ensureLease(leaseStillValid)
             val firstInput = generate(generator, seed)
             ensureLease(leaseStillValid)
@@ -85,20 +120,20 @@ class AiSandboxEngine(
             validateInput(validator, firstInput, seed)
 
             ensureLease(leaseStillValid)
-            val outputA = runAnswer(solutionA, firstInput, lease.task.timeLimitMs, lease.task.memoryLimitMiB)
+            val outputA = runAnswer(solutionA, firstInput, task.timeLimitMs, task.memoryLimitMiB)
             ensureLease(leaseStillValid)
-            val outputB = runAnswer(solutionB, firstInput, lease.task.timeLimitMs, lease.task.memoryLimitMiB)
+            val outputB = runAnswer(solutionB, firstInput, task.timeLimitMs, task.memoryLimitMiB)
             if (outputA.normalized != outputB.normalized) {
                 throw AiValidationFailure("两份标程在第 ${index + 1} 个测试点（种子 $seed）输出不一致", AiSandboxFailureStage.SOLUTIONS)
             }
 
-            val bruteOutput = if (index < lease.task.bruteForceCaseCount) {
+            val bruteOutput = if (index < task.bruteForceCaseCount) {
                 ensureLease(leaseStillValid)
                 runAnswer(
                     bruteForce,
                     firstInput,
-                    bruteForceTimeLimit(lease.task.timeLimitMs),
-                    lease.task.memoryLimitMiB,
+                    bruteForceTimeLimit(task.timeLimitMs),
+                    task.memoryLimitMiB,
                 ).also { output ->
                     if (output.normalized != outputA.normalized) {
                         throw AiValidationFailure("暴力解在第 ${index + 1} 个小数据测试点（种子 $seed）与标程不一致", AiSandboxFailureStage.BRUTE_FORCE)
@@ -130,7 +165,7 @@ class AiSandboxEngine(
         }
         val maximumTimeMs = cases.maxOfOrNull { maxOf(it.solutionATimeMs, it.solutionBTimeMs) } ?: 0
         val maximumMemoryKiB = cases.maxOfOrNull { maxOf(it.solutionAMemoryKiB, it.solutionBMemoryKiB) } ?: 0
-        AiSandboxCompletion(
+        return AiSandboxCompletion(
             attemptId = lease.attemptId,
             leaseToken = lease.leaseToken,
             status = AiSandboxCompletionStatus.PASSED,
@@ -138,9 +173,14 @@ class AiSandboxEngine(
             deterministic = true,
             solutionsAgree = true,
             bruteForcePassed = true,
-            maximumTimePercent = percentage(maximumTimeMs, lease.task.timeLimitMs),
-            maximumMemoryPercent = percentage(maximumMemoryKiB, lease.task.memoryLimitMiB * KIB),
+            maximumTimePercent = percentage(maximumTimeMs, task.timeLimitMs),
+            maximumMemoryPercent = percentage(maximumMemoryKiB, task.memoryLimitMiB * KIB),
         )
+    }
+
+    /** 把模型问题与基础设施问题分开结算；编译门禁与差分共用同一套结算语义。 */
+    private fun settle(lease: AiSandboxLease, body: () -> AiSandboxCompletion): AiSandboxCompletion = try {
+        body()
     } catch (failure: AiValidationFailure) {
         logger.info("AI 测试生成未通过，jobId={}，原因={}", lease.jobId, failure.message)
         failed(lease, AiSandboxCompletionStatus.VALIDATION_FAILED, failure.message, failure.stage)

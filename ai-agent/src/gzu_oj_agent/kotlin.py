@@ -7,7 +7,7 @@ from uuid import UUID
 import httpx
 
 from .config import Settings
-from .models import ProgressEvent, SandboxTask, StepRecord
+from .models import ProgressEvent, SandboxCompileTask, SandboxTask, StepRecord
 
 
 class KotlinClient:
@@ -29,10 +29,25 @@ class KotlinClient:
         response.raise_for_status()
 
     async def submit_sandbox(self, run_id: UUID, task: SandboxTask) -> UUID:
-        """按运行和修复轮次幂等创建沙箱任务。"""
+        """按运行和修复轮次幂等创建差分任务。"""
         response = await self.client.post(
             f"/internal/agent/v1/runs/{run_id}/sandbox-jobs",
             json={"repairRound": task.repair_round, "task": task.model_dump(mode="json", by_alias=True)},
+        )
+        response.raise_for_status()
+        return UUID(response.json()["sandboxJobId"])
+
+    async def submit_compile(
+        self, run_id: UUID, task: SandboxCompileTask, repair_round: int, attempt: int
+    ) -> UUID:
+        """按运行、修复轮次、阶段和尝试次数幂等创建编译门禁任务。"""
+        response = await self.client.post(
+            f"/internal/agent/v1/runs/{run_id}/sandbox-jobs",
+            json={
+                "repairRound": repair_round,
+                "attempt": attempt,
+                "compile": task.model_dump(mode="json", by_alias=True),
+            },
         )
         response.raise_for_status()
         return UUID(response.json()["sandboxJobId"])

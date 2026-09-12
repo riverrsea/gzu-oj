@@ -13,6 +13,8 @@ from .llm import ModelClient
 from .models import (
 	AnalysisResult,
 	ProgressEvent,
+	SandboxCompileTask,
+	SandboxCompileUnit,
 	SandboxFailureStage,
 	SandboxResult,
 	SandboxStatus,
@@ -21,6 +23,16 @@ from .models import (
 	StartRunRequest,
 	TestDataResult,
 )
+
+# 每个编译门禁允许的编译次数：首次生成后最多再重生成两次。
+MAX_COMPILE_ATTEMPTS = 3
+
+# 编译门禁沿用生成节点的进度阶段名，便于复用同一个状态投影。
+COMPILE_PROGRESS_STAGE = {
+	SandboxFailureStage.TEST_DATA: "GENERATING_TEST_DATA",
+	SandboxFailureStage.SOLUTIONS: "GENERATING_SOLUTIONS",
+	SandboxFailureStage.BRUTE_FORCE: "GENERATING_BRUTE_FORCE",
+}
 
 # 通用守则：绝不猜测标准输出、输入与源码必须确定性可复现。
 _NEVER_GUESS_OUTPUT = "不得猜测标准输出：标准输出只能由后续 Worker 沙箱计算。"
@@ -89,6 +101,11 @@ class AgentState(TypedDict, total=False):
 	solution_a: dict[str, Any]
 	solution_b: dict[str, Any]
 	brute_force: dict[str, Any]
+	compile_result: dict[str, Any]
+	compile_stage: str
+	test_data_attempts: int
+	solutions_attempts: int
+	brute_force_attempts: int
 	sandbox_job_id: str
 	sandbox_result: dict[str, Any]
 	repair_round: int
@@ -122,6 +139,22 @@ def sandbox_payload(state: AgentState) -> SandboxTask:
 	)
 
 
+def compile_units(state: AgentState, stage: SandboxFailureStage) -> list[SandboxCompileUnit]:
+	"""取出该阶段刚生成的源码；源码缺失说明图被写坏，直接抛错而不是送空编译。"""
+	if stage is SandboxFailureStage.SOLUTIONS:
+		return [
+			SandboxCompileUnit(label="标程 A", source=validate_checkpoint(SolutionResult, state["solution_a"]).source_code),
+			SandboxCompileUnit(label="标程 B", source=validate_checkpoint(SolutionResult, state["solution_b"]).source_code),
+		]
+	if stage is SandboxFailureStage.BRUTE_FORCE:
+		return [SandboxCompileUnit(label="暴力解", source=validate_checkpoint(SolutionResult, state["brute_force"]).source_code)]
+	test_data = validate_checkpoint(TestDataResult, state["test_data"])
+	return [
+		SandboxCompileUnit(label="测试生成器", source=test_data.generator_source),
+		SandboxCompileUnit(label="输入校验器", source=test_data.validator_source),
+	]
+
+
 class Workflow:
 	"""封装节点依赖，便于使用内存或 PostgreSQL checkpointer 测试。"""
 
@@ -134,11 +167,13 @@ class Workflow:
 		state: AgentState,
 		stage: str,
 		status: str,
-		message: str
+		message: str,
+		salt: int | str | None = None,
 	) -> None:
 		request = validate_checkpoint(StartRunRequest, state["request"])
 		repair_round = state.get("repair_round", request.repair_round)
-		attempt = state.get("resume_attempt", 0)
+		# 编译重试发生在同一轮内，必须用 salt 区分同一阶段的多条进度事件。
+		attempt = state.get("resume_attempt", 0) if salt is None else salt
 		await self.kotlin.progress(
 			ProgressEvent(
 				event_id=uuid5(
@@ -283,6 +318,57 @@ class Workflow:
 		await self._step(state, "brute_force", "GENERATING_SOLUTIONS", response)
 		return {"brute_force": response}
 
+	async def compile_test_data(self, state: AgentState) -> AgentState:
+		"""编译生成器与输入校验器。"""
+		return await self._compile_gate(state, SandboxFailureStage.TEST_DATA)
+
+	async def compile_solutions(self, state: AgentState) -> AgentState:
+		"""编译两份标程。"""
+		return await self._compile_gate(state, SandboxFailureStage.SOLUTIONS)
+
+	async def compile_brute_force(self, state: AgentState) -> AgentState:
+		"""编译小数据暴力解。"""
+		return await self._compile_gate(state, SandboxFailureStage.BRUTE_FORCE)
+
+	async def _compile_gate(self, state: AgentState, stage: SandboxFailureStage) -> AgentState:
+		"""提交单阶段编译门禁并等待 Worker 结果。
+
+		编译节点自身不生成任何源码：LangGraph 恢复 interrupt 时会从头重跑节点，
+		生成动作留在上游节点才能保证重放时拿到同一个幂等任务键。
+		"""
+		request = validate_checkpoint(StartRunRequest, state["request"])
+		repair_round = state.get("repair_round", request.repair_round)
+		counter = f"{stage.name.lower()}_attempts"
+		attempt = state.get(counter, 0)
+		task = SandboxCompileTask(stage=stage, units=compile_units(state, stage))
+		job_id = await self.kotlin.submit_compile(request.run_id, task, repair_round, attempt)
+		await self._progress(
+			state,
+			COMPILE_PROGRESS_STAGE[stage],
+			"RUNNING",
+			f"正在编译{'、'.join(unit.label for unit in task.units)}",
+			salt=f"compile{attempt}",
+		)
+		resumed = interrupt(
+			{
+				"sandboxJobId": str(job_id),
+				"repairRound": repair_round,
+				"compileAttempt": attempt,
+			}
+		)
+		result = validate_checkpoint(SandboxResult, resumed)
+		if str(result.sandbox_job_id) != str(job_id):
+			raise RuntimeError("编译门禁恢复结果与当前任务不一致")
+		failure = "" if result.status is SandboxStatus.PASSED else (result.failure_reason or "编译未通过")
+		return {
+			"compile_result": result.model_dump(mode="json"),
+			"compile_stage": stage.name,
+			counter: attempt + 1,
+			"failure_reason": failure,
+			# 编译连续失败不可由"重新分析"自动恢复，交管理员处理。
+			"failure_target": "" if failure else state.get("failure_target", ""),
+		}
+
 	async def submit(self, state: AgentState) -> AgentState:
 		request = validate_checkpoint(StartRunRequest, state["request"])
 		job_id = await self.kotlin.submit_sandbox(
@@ -381,22 +467,52 @@ class Workflow:
 			"repair_target": target,
 		}
 
+	@staticmethod
+	def after_compile(state: AgentState) -> Literal["continue", "retry", "fail"]:
+		"""编译通过则继续下游，未通过则在重试预算内重生成该产物。"""
+		result = validate_checkpoint(SandboxResult, state["compile_result"])
+		if result.status is SandboxStatus.PASSED:
+			return "continue"
+		stage = SandboxFailureStage(state["compile_stage"])
+		if state.get(f"{stage.name.lower()}_attempts", 0) < MAX_COMPILE_ATTEMPTS:
+			return "retry"
+		return "fail"
+
 	def compile(self, checkpointer: Any):
 		"""构造固定拓扑；沙箱节点通过 interrupt 持久化暂停。"""
 		graph = StateGraph(AgentState)
 		graph.add_node("analyze", self.analyze)
 		graph.add_node("test_data", self.test_data)
+		graph.add_node("compile_test_data", self.compile_test_data)
 		graph.add_node("solutions", self.solutions)
+		graph.add_node("compile_solutions", self.compile_solutions)
 		graph.add_node("brute_force", self.brute_force)
+		graph.add_node("compile_brute_force", self.compile_brute_force)
 		graph.add_node("submit", self.submit)
 		graph.add_node("repair", self.prepare_repair)
 		graph.add_node("finish", self.finish)
 		graph.add_node("fail", self.fail)
 		graph.add_edge(START, "analyze")
 		graph.add_conditional_edges("analyze", self.after_analysis)
-		graph.add_edge("test_data", "solutions")
-		graph.add_edge("solutions", "brute_force")
-		graph.add_edge("brute_force", "submit")
+		# 每个生成节点后面紧跟该产物的编译门禁，编译不通过就回到生成节点重做。
+		graph.add_edge("test_data", "compile_test_data")
+		graph.add_edge("solutions", "compile_solutions")
+		graph.add_edge("brute_force", "compile_brute_force")
+		graph.add_conditional_edges(
+			"compile_test_data",
+			self.after_compile,
+			{"continue": "solutions", "retry": "test_data", "fail": "fail"},
+		)
+		graph.add_conditional_edges(
+			"compile_solutions",
+			self.after_compile,
+			{"continue": "brute_force", "retry": "solutions", "fail": "fail"},
+		)
+		graph.add_conditional_edges(
+			"compile_brute_force",
+			self.after_compile,
+			{"continue": "submit", "retry": "brute_force", "fail": "fail"},
+		)
 		graph.add_conditional_edges("submit", self.after_sandbox)
 		graph.add_conditional_edges(
 			"repair",

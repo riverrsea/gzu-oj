@@ -1,8 +1,11 @@
 package cn.gzuoj.api
 
+import cn.gzuoj.shared.AI_DIFFERENTIAL_SANDBOX_STAGE
+import cn.gzuoj.shared.AiCompileTask
 import cn.gzuoj.shared.AiGeneratedCaseResult
 import cn.gzuoj.shared.AiSandboxCompletion
 import cn.gzuoj.shared.AiSandboxCompletionStatus
+import cn.gzuoj.shared.AiSandboxFailureStage
 import cn.gzuoj.shared.AiSandboxLease
 import cn.gzuoj.shared.AiSandboxTaskPayload
 import jakarta.validation.Valid
@@ -37,6 +40,27 @@ data class VerifiedAiSandboxResult(
 
 /** AI 沙箱结算的内容、哈希、顺序和资源证据校验器。 */
 object AiSandboxCompletionVerifier {
+    /** 校验编译门禁结算：既不产出测试点，也不能把失败归到别的阶段。 */
+    fun verifyCompile(task: AiCompileTask, completion: AiSandboxCompletion) {
+        if (task.units.isEmpty()) invalid("编译门禁任务必须包含至少一个产物")
+        when (completion.status) {
+            AiSandboxCompletionStatus.PASSED -> {
+                if (completion.failedStage != null) invalid("通过的编译门禁结算不能携带失败归属")
+                if (completion.testCases.isNotEmpty()) invalid("编译门禁不能携带测试点")
+            }
+            // 编译门禁失败必须自带原因与归属，且归属只能是本阶段，否则 Agent 会重生成错误产物。
+            AiSandboxCompletionStatus.VALIDATION_FAILED -> {
+                if (completion.failureReason.isNullOrBlank()) invalid("失败的编译门禁结算缺少原因")
+                if (completion.failedStage != task.stage) invalid("编译门禁失败归属与任务阶段不一致")
+            }
+            // 基础设施异常由 Agent 与管理员排障，不能伪装成某个产物的编译错误。
+            AiSandboxCompletionStatus.SYSTEM_ERROR -> {
+                if (completion.failureReason.isNullOrBlank()) invalid("失败的编译门禁结算缺少原因")
+                if (completion.failedStage != null) invalid("基础设施异常的编译门禁不能携带产物归属")
+            }
+        }
+    }
+
     /** 校验通过结算，防止 Worker 伪造种子、输出哈希或资源百分比。 */
     fun verify(task: AiSandboxTaskPayload, completion: AiSandboxCompletion): VerifiedAiSandboxResult {
         if (completion.status != AiSandboxCompletionStatus.PASSED) {
@@ -147,21 +171,23 @@ class AiSandboxQueue(
         if (worker.aiSlots <= 0) return null
         val row = jdbc.query(
             """
-            SELECT j.id, j.run_id, r.problem_version_id, j.payload::text
+            SELECT j.id, j.run_id, r.problem_version_id, j.stage, j.payload::text
             FROM ai_sandbox_job j JOIN ai_problem_run r ON r.id = j.run_id
             WHERE j.available_at <= now()
-              AND r.state = 'DIFFERENTIAL_TESTING'
+              AND r.state IN ('GENERATING_TESTS', 'GENERATING_SOLUTIONS', 'DIFFERENTIAL_TESTING')
               AND (j.status = 'QUEUED' OR (j.status = 'LEASED' AND j.lease_expires_at < now()))
             ORDER BY j.priority DESC, j.created_at
             FOR UPDATE OF j SKIP LOCKED
             LIMIT 1
             """.trimIndent(),
             { result, _ ->
+                val parsed = parseTask(result.getString("stage"), result.getString("payload"))
                 ClaimRow(
                     jobId = result.getObject("id", UUID::class.java),
                     runId = result.getObject("run_id", UUID::class.java),
                     problemVersionId = result.getObject("problem_version_id", UUID::class.java),
-                    payload = mapper.readValue(result.getString("payload"), AiSandboxTaskPayload::class.java),
+                    task = parsed.task,
+                    compile = parsed.compile,
                 )
             },
         ).firstOrNull() ?: return null
@@ -187,9 +213,20 @@ class AiSandboxQueue(
             attemptId = attemptId,
             leaseToken = leaseToken,
             leaseExpiresAt = expiresAt,
-            task = row.payload,
+            task = row.task,
+            compile = row.compile,
         )
     }
+
+    /** 按数据库 stage 解析任务参数；DIFFERENTIAL 之外都是编译门禁。 */
+    private fun parseTask(stage: String, json: String): ParsedAiSandboxTask =
+        if (stage == AI_DIFFERENTIAL_SANDBOX_STAGE) {
+            ParsedAiSandboxTask(task = mapper.readValue(json, AiSandboxTaskPayload::class.java))
+        } else {
+            // 数据库阶段名必须能对回枚举，否则说明写入端出现了未知阶段。
+            AiSandboxFailureStage.valueOf(stage)
+            ParsedAiSandboxTask(compile = mapper.readValue(json, AiCompileTask::class.java))
+        }
 
     /** 延长一份当前有效的 AI 沙箱租约。 */
     @Transactional
@@ -205,10 +242,12 @@ class AiSandboxQueue(
     fun complete(worker: WorkerIdentity, jobId: UUID, completion: AiSandboxCompletion): CompleteLeaseResponse {
         val job = jdbc.query(
             """
-            SELECT run_id, repair_round, status, attempt_id, lease_token_hash, leased_by, infrastructure_attempts, payload::text
+            SELECT run_id, repair_round, status, attempt_id, lease_token_hash, leased_by, infrastructure_attempts,
+                   stage, payload::text
             FROM ai_sandbox_job WHERE id = ? FOR UPDATE
             """.trimIndent(),
             { result, _ ->
+                val parsed = parseTask(result.getString("stage"), result.getString("payload"))
                 CompletionRow(
                     runId = result.getObject("run_id", UUID::class.java),
                     repairRound = result.getInt("repair_round"),
@@ -217,7 +256,8 @@ class AiSandboxQueue(
                     leaseTokenHash = result.getString("lease_token_hash"),
                     leasedBy = result.getObject("leased_by", UUID::class.java),
                     infrastructureAttempts = result.getInt("infrastructure_attempts"),
-                    payload = mapper.readValue(result.getString("payload"), AiSandboxTaskPayload::class.java),
+                    task = parsed.task,
+                    compile = parsed.compile,
                 )
             },
             jobId,
@@ -230,7 +270,14 @@ class AiSandboxQueue(
         if (job.status != "LEASED" || job.leasedBy != worker.id || !sameAttempt) {
             throw ApiException(HttpStatus.CONFLICT, "STALE_AI_SANDBOX_LEASE", "AI 沙箱租约已失效，结果未写入")
         }
-        val verified = AiSandboxCompletionVerifier.verify(job.payload, completion)
+        // 编译门禁不产出测试点，因此不参与差分证据校验和运行时状态推进。
+        val differential = job.task != null
+        val verified = if (differential) {
+            AiSandboxCompletionVerifier.verify(job.requireTask(), completion)
+        } else {
+            AiSandboxCompletionVerifier.verifyCompile(job.requireCompile(), completion)
+            null
+        }
         val resultJson = mapper.writeValueAsString(completion)
         if (completion.status == AiSandboxCompletionStatus.SYSTEM_ERROR && job.infrastructureAttempts < 3) {
             jdbc.update(
@@ -248,16 +295,26 @@ class AiSandboxQueue(
             return CompleteLeaseResponse(accepted = true, requeued = true)
         }
         when (completion.status) {
-            AiSandboxCompletionStatus.PASSED -> runs.acceptSandboxResult(jobId, job.runId, job.payload, completion, verified)
-            AiSandboxCompletionStatus.VALIDATION_FAILED -> {
+            AiSandboxCompletionStatus.PASSED -> if (differential) {
+                runs.acceptSandboxResult(
+                    jobId,
+                    job.runId,
+                    job.requireTask(),
+                    completion,
+                    requireNotNull(verified) { "差分任务缺少已验证的测试点" },
+                )
+            }
+            AiSandboxCompletionStatus.VALIDATION_FAILED -> if (differential) {
                 val reason = completion.failureReason ?: "AI 生成数据未通过差分门禁"
                 if (job.repairRound < 2) runs.prepareSandboxRepair(job.runId, reason, completion.failedStage)
                 else runs.failSandboxValidation(job.runId, reason)
             }
-            AiSandboxCompletionStatus.SYSTEM_ERROR -> runs.failSandboxValidation(
-                job.runId,
-                "AI 沙箱基础设施连续失败：${completion.failureReason ?: "未知错误"}",
-            )
+            AiSandboxCompletionStatus.SYSTEM_ERROR -> if (differential) {
+                runs.failSandboxValidation(
+                    job.runId,
+                    "AI 沙箱基础设施连续失败：${completion.failureReason ?: "未知错误"}",
+                )
+            }
         }
         jdbc.update(
             """
@@ -320,8 +377,18 @@ class AiSandboxQueue(
         val runId: UUID,
         /** 草稿版本标识。 */
         val problemVersionId: UUID,
-        /** 锁定的执行参数。 */
-        val payload: AiSandboxTaskPayload,
+        /** 全量差分参数；编译门禁任务为空。 */
+        val task: AiSandboxTaskPayload?,
+        /** 编译门禁参数；全量差分任务为空。 */
+        val compile: AiCompileTask?,
+    )
+
+    /** 按数据库阶段解析出的任务参数，两个字段互斥。 */
+    private data class ParsedAiSandboxTask(
+        /** 全量差分参数。 */
+        val task: AiSandboxTaskPayload? = null,
+        /** 编译门禁参数。 */
+        val compile: AiCompileTask? = null,
     )
 
     /** AI 任务结算时的数据库投影。 */
@@ -340,9 +407,17 @@ class AiSandboxQueue(
         val leasedBy: UUID?,
         /** 已发生的基础设施重试次数。 */
         val infrastructureAttempts: Int,
-        /** 锁定的执行参数。 */
-        val payload: AiSandboxTaskPayload,
-    )
+        /** 全量差分参数；编译门禁任务为空。 */
+        val task: AiSandboxTaskPayload?,
+        /** 编译门禁参数；全量差分任务为空。 */
+        val compile: AiCompileTask?,
+    ) {
+        /** 取出差分参数；编译门禁任务调用即抛出。 */
+        fun requireTask(): AiSandboxTaskPayload = requireNotNull(task) { "该 AI 沙箱任务不是差分任务" }
+
+        /** 取出编译门禁参数；差分任务调用即抛出。 */
+        fun requireCompile(): AiCompileTask = requireNotNull(compile) { "该 AI 沙箱任务不是编译门禁任务" }
+    }
 }
 
 /** Worker 独立 AI 槽使用的内部租约接口。 */

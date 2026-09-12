@@ -39,8 +39,30 @@ data class AiSandboxLease(
     val leaseToken: String,
     /** 当前租约过期时间。 */
     val leaseExpiresAt: Instant,
-    /** 本次生成和差分使用的不可变参数。 */
-    val task: AiSandboxTaskPayload,
+    /** 本次生成和差分使用的不可变参数；编译门禁任务为空。 */
+    val task: AiSandboxTaskPayload? = null,
+    /** 编译门禁参数；全量差分任务为空。 */
+    val compile: AiCompileTask? = null,
+) {
+    /** 取出差分参数；编译门禁租约调用即抛出，避免被误当成差分任务执行。 */
+    fun requireTask(): AiSandboxTaskPayload =
+        requireNotNull(task) { "该 AI 沙箱租约是编译门禁任务，不含差分参数" }
+}
+
+/** 编译门禁中的一个待编译产物。 */
+data class AiCompileUnit(
+    /** 管理员可见的产物名称，例如"测试生成器"。 */
+    val label: String,
+    /** 该产物的 GNU C++17 源码。 */
+    val source: String,
+)
+
+/** 生成节点产出源码后立即执行的编译预检参数。 */
+data class AiCompileTask(
+    /** 失败归属阶段，必须与任务所属阶段一致。 */
+    val stage: AiSandboxFailureStage,
+    /** 按顺序编译的产物；任一编译失败即返回该产物的标签。 */
+    val units: List<AiCompileUnit>,
 )
 
 /** AI 沙箱任务的结算状态。 */
@@ -54,6 +76,9 @@ enum class AiSandboxCompletionStatus {
     /** go-judge、网络或其他判题基础设施异常。 */
     SYSTEM_ERROR,
 }
+
+/** 全量差分任务在数据库中的阶段名；编译门禁使用 AiSandboxFailureStage 的名称。 */
+const val AI_DIFFERENTIAL_SANDBOX_STAGE: String = "DIFFERENTIAL"
 
 /** 沙箱校验失败时出错的产物归属，供 Agent 只重生成对应节点。 */
 enum class AiSandboxFailureStage {

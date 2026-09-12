@@ -135,6 +135,21 @@ class SandboxFailureStage(StrEnum):
     BRUTE_FORCE = "BRUTE_FORCE"
 
 
+class SandboxCompileUnit(StrictModel):
+    """编译门禁中的一个待编译产物。"""
+
+    label: str = Field(min_length=1, max_length=64)
+    source: Source
+
+
+class SandboxCompileTask(StrictModel):
+    """生成节点产出源码后立即提交的编译预检参数。"""
+
+    stage: SandboxFailureStage
+    # 一个生成节点最多产出两个源码：生成器+校验器，或标程 A+标程 B。
+    units: list[SandboxCompileUnit] = Field(min_length=1, max_length=2)
+
+
 class SandboxResult(StrictModel):
     """恢复 LangGraph 的沙箱结果通知。"""
 

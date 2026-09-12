@@ -4,8 +4,10 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from gzu_oj_agent.graph import Workflow, sandbox_payload
+from gzu_oj_agent.graph import MAX_COMPILE_ATTEMPTS, Workflow, compile_units, sandbox_payload
 from gzu_oj_agent.models import (
+    SandboxCompileTask,
+    SandboxCompileUnit,
     SandboxFailureStage,
     SandboxResult,
     SandboxStatus,
@@ -133,6 +135,70 @@ def test_repair_is_routed_to_the_failing_artifact() -> None:
         assert repaired["repair_target"] == node
         assert repaired["repair_round"] == 1
         assert Workflow.after_repair({**state, **repaired}) == node
+
+
+def test_compile_task_uses_kotlin_camel_aliases_and_bounded_units() -> None:
+    """编译门禁请求必须是 Kotlin 能解析的 camelCase 结构，且一次最多两个产物。"""
+    task = SandboxCompileTask(
+        stage=SandboxFailureStage.SOLUTIONS,
+        units=[
+            SandboxCompileUnit(label="标程 A", source="```cpp\nint main(){}\n```"),
+            SandboxCompileUnit(label="标程 B", source="int main(){}"),
+        ],
+    )
+    wire = task.model_dump(mode="json", by_alias=True)
+    assert wire["stage"] == "SOLUTIONS"
+    assert wire["units"][0] == {"label": "标程 A", "source": "int main(){}"}
+    with pytest.raises(ValidationError):
+        SandboxCompileTask(
+            stage=SandboxFailureStage.TEST_DATA,
+            units=[
+                SandboxCompileUnit(label="a", source="x"),
+                SandboxCompileUnit(label="b", source="x"),
+                SandboxCompileUnit(label="c", source="x"),
+            ],
+        )
+    with pytest.raises(ValidationError):
+        SandboxCompileTask(stage=SandboxFailureStage.TEST_DATA, units=[])
+
+
+def test_compile_units_match_generated_stage_artifacts() -> None:
+    """每个门禁只取本阶段刚生成的源码，标签与 Worker 报错一致。"""
+    state = base_state()
+    state["test_data"] = {"generator_source": "gen", "validator_source": "val"}
+    state["solution_a"] = {"summary": "A", "source_code": "a"}
+    state["solution_b"] = {"summary": "B", "source_code": "b"}
+    state["brute_force"] = {"summary": "BF", "source_code": "bf"}
+    assert [(u.label, u.source) for u in compile_units(state, SandboxFailureStage.TEST_DATA)] == [
+        ("测试生成器", "gen"),
+        ("输入校验器", "val"),
+    ]
+    assert [(u.label, u.source) for u in compile_units(state, SandboxFailureStage.SOLUTIONS)] == [
+        ("标程 A", "a"),
+        ("标程 B", "b"),
+    ]
+    assert [(u.label, u.source) for u in compile_units(state, SandboxFailureStage.BRUTE_FORCE)] == [
+        ("暴力解", "bf")
+    ]
+
+
+def test_compile_gate_retries_then_fails() -> None:
+    """编译门禁只有通过才继续；未通过时在预算内重试，用尽后交人工接管。"""
+    state = base_state()
+    state["compile_stage"] = "SOLUTIONS"
+
+    def gate(status: SandboxStatus, attempts: int) -> str:
+        state["compile_result"] = SandboxResult(
+            event_id=uuid4(), run_id=uuid4(), sandbox_job_id=uuid4(), repair_round=0,
+            status=status, failure_reason="标程 A 编译失败"
+        ).model_dump(mode="json")
+        state["solutions_attempts"] = attempts
+        return Workflow.after_compile(state)
+
+    assert gate(SandboxStatus.PASSED, 1) == "continue"
+    assert gate(SandboxStatus.VALIDATION_FAILED, 1) == "retry"
+    assert gate(SandboxStatus.VALIDATION_FAILED, MAX_COMPILE_ATTEMPTS - 1) == "retry"
+    assert gate(SandboxStatus.VALIDATION_FAILED, MAX_COMPILE_ATTEMPTS) == "fail"
 
 
 def test_source_fields_strip_markdown_fences() -> None:

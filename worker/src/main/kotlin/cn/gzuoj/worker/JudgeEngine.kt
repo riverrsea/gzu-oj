@@ -58,12 +58,10 @@ class JudgeEngine(
                 ensureLease(leaseStillValid)
                 judgeCase(lease, program, testCase)
             }
-            val score = if (lease.executionMode == JudgeExecutionMode.RUN) 0 else caseResults.sumOf(JudgeCaseResult::score)
             JudgeCompletion(
                 attemptId = lease.attemptId,
                 leaseToken = lease.leaseToken,
-                status = aggregateStatus(lease.executionMode, score, caseResults),
-                score = score,
+                status = aggregateStatus(lease.executionMode, caseResults),
                 testCases = caseResults,
             )
         } catch (failure: CompilationFailure) {
@@ -71,7 +69,6 @@ class JudgeEngine(
                 attemptId = lease.attemptId,
                 leaseToken = lease.leaseToken,
                 status = JudgeStatus.CE,
-                score = 0,
                 compileMessage = failure.compilerMessage,
             )
         } catch (failure: JudgeInfrastructureFailure) {
@@ -88,7 +85,6 @@ class JudgeEngine(
             attemptId = lease.attemptId,
             leaseToken = lease.leaseToken,
             status = JudgeStatus.SYSTEM_ERROR,
-            score = 0,
             systemMessage = message.take(SYSTEM_MESSAGE_LIMIT),
         )
     }
@@ -184,7 +180,6 @@ class JudgeEngine(
         return JudgeCaseResult(
             caseId = testCase.caseId,
             status = status,
-            score = if (status == JudgeStatus.AC) testCase.score else 0,
             timeMs = result.time.coerceAtLeast(0) / MILLISECOND_NS,
             memoryKiB = result.memory.coerceAtLeast(0) / KIB,
             message = publicMessage(status),
@@ -212,13 +207,12 @@ class JudgeEngine(
     /** 汇总固定一百分测试点的提交最终状态。 */
     private fun aggregateStatus(
         executionMode: JudgeExecutionMode,
-        score: Int,
         results: List<JudgeCaseResult>,
     ): JudgeStatus = when {
         executionMode == JudgeExecutionMode.RUN && results.all { it.status == JudgeStatus.AC } -> JudgeStatus.AC
         executionMode == JudgeExecutionMode.RUN -> results.first { it.status != JudgeStatus.AC }.status
-        score == 100 -> JudgeStatus.AC
-        score > 0 -> JudgeStatus.PARTIAL
+        results.isNotEmpty() && results.all { it.status == JudgeStatus.AC } -> JudgeStatus.AC
+        results.any { it.status == JudgeStatus.AC } -> JudgeStatus.PARTIAL
         else -> results.firstOrNull { it.status != JudgeStatus.AC }?.status ?: JudgeStatus.WA
     }
 

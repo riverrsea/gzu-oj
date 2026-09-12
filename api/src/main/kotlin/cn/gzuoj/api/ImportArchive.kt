@@ -185,7 +185,6 @@ class ProblemImportParser {
             tests.forEach {
                 append(SecureValues.sha256(it.input))
                 append(SecureValues.sha256(it.output))
-                append(it.score)
                 append(it.sample)
             }
         }
@@ -207,11 +206,11 @@ class ProblemImportParser {
         )
     }
 
-    /** 解析数据目录下固定 cases.csv。 */
+    /** 解析数据目录下固定 cases.csv；测试点不携带分值，得分按通过点数派生。 */
     private fun parseTests(directory: String, archive: SafeImportArchive): List<CreateTestCaseRequest> {
         val prefix = directory.trimEnd('/')
         val cases = CSVFormat.DEFAULT.builder()
-            .setHeader("ordinal", "inputPath", "outputPath", "score", "sample")
+            .setHeader("ordinal", "inputPath", "outputPath", "sample")
             .setSkipHeaderRecord(true)
             .get()
             .parse(archive.requiredText(prefix + "/cases.csv").reader())
@@ -222,12 +221,10 @@ class ProblemImportParser {
                 CreateTestCaseRequest(
                     input = archive.requiredText(inputPath),
                     output = archive.requiredText(outputPath),
-                    score = record.required("score").toInt().also { require(it in 0..100) { "测试点分值超出范围" } },
                     sample = record.required("sample").toBooleanStrict(),
                 )
             }
         require(cases.size in 1..200) { "测试点数量必须为 1 到 200" }
-        require(cases.sumOf(CreateTestCaseRequest::score) == 100) { "测试点分值之和必须为 100" }
         return cases
     }
 

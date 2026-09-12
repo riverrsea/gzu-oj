@@ -119,8 +119,6 @@ data class AiGeneratedTestCaseResponse(
     val input: String,
     /** 由差分通过标程计算的标准输出。 */
     val output: String,
-    /** 自动分配的测试点分值。 */
-    val score: Int,
     /** 是否作为公开样例返回。 */
     val sample: Boolean,
 )
@@ -311,15 +309,11 @@ class AiRunService(
         }
         AiWorkflow.requireTransition(run.state, AiWorkflowState.VALIDATING)
 
-        val caseCount = verified.testCases.size
-        val baseScore = 100 / caseCount
-        val remainder = 100 % caseCount
         val testCases = verified.testCases.mapIndexed { index, testCase ->
             AiGeneratedTestCase(
                 seed = testCase.seed,
                 input = testCase.input,
                 output = testCase.expectedOutput,
-                score = baseScore + if (index < remainder) 1 else 0,
                 sample = run.autoPublish && index < run.sampleCount,
             )
         }
@@ -373,7 +367,7 @@ class AiRunService(
             runId,
             run.state,
             next,
-            reason ?: "已生成 $caseCount 个测试点，确定性差分和发布门禁全部通过",
+            reason ?: "已生成 ${testCases.size} 个测试点，确定性差分和发布门禁全部通过",
         )
         if (next == AiWorkflowState.VALIDATING && run.autoPublish) {
             publishAfterGate(runId)

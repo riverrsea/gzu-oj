@@ -20,7 +20,6 @@ import UiTextarea from "../components/ui/Textarea.vue";
 interface TestCaseForm {
   input: string;
   output: string;
-  score: number;
   sample: boolean;
 }
 
@@ -47,8 +46,6 @@ const form = reactive({
   testCases: [] as TestCaseForm[],
 });
 
-const totalScore = computed(() => form.testCases.reduce((sum, item) => sum + Number(item.score || 0), 0));
-
 /** AI 运行期间锁定草稿内容；人工接管状态允许继续编辑。 */
 const aiLocked = computed(() => {
   const state = aiRun.value?.state;
@@ -70,7 +67,7 @@ function isTerminalOrReview(state: string): boolean {
 }
 
 function addCase(): void {
-  form.testCases.push({ input: "", output: "", score: 0, sample: false });
+  form.testCases.push({ input: "", output: "", sample: false });
 }
 
 function removeCase(index: number): void {
@@ -99,7 +96,7 @@ async function load(): Promise<void> {
     form.memoryLimitMiB = detail.value.memoryLimitMiB;
     form.dataNotice = detail.value.dataNotice ?? "";
     tagText.value = detail.value.tags.join(", ");
-    form.testCases = detail.value.testCases.map(({ input, output, score, sample }) => ({ input, output, score, sample }));
+    form.testCases = detail.value.testCases.map(({ input, output, sample }) => ({ input, output, sample }));
     await loadAiRun();
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "草稿加载失败");
@@ -320,9 +317,8 @@ onMounted(async () => {
       <section class="admin-panel">
         <header class="admin-panel-head">
           <span class="admin-panel-icon"><ListChecks :size="17" /></span>
-          <div class="admin-panel-titles"><h2>测试点</h2><p>输入输出成对出现，发布前总分须为 100</p></div>
+          <div class="admin-panel-titles"><h2>测试点</h2><p>输入输出成对出现，得分按通过的测试点数折算</p></div>
           <div class="admin-panel-head-actions">
-            <span class="admin-score-chip" :class="{ 'admin-score-chip--invalid': totalScore !== 100 }">总分 {{ totalScore }} / 100</span>
             <UiButton variant="outline" size="sm" :disabled="aiLocked" @click="addCase"><Plus :size="15" />添加测试点</UiButton>
           </div>
         </header>
@@ -339,7 +335,6 @@ onMounted(async () => {
               </div>
               <footer class="admin-case-foot">
                 <label class="checkbox-field"><UiCheckbox v-model="item.sample" :disabled="aiLocked" />公开样例</label>
-                <div class="form-field admin-case-score"><UiLabel>分值</UiLabel><UiNumberField v-model="item.score" :min="0" :max="100" :disabled="aiLocked" /></div>
               </footer>
             </article>
           </div>
@@ -348,7 +343,7 @@ onMounted(async () => {
       </section>
 
       <footer class="admin-form-bar">
-        <p class="admin-panel-hint">{{ totalScore === 100 ? '总分已满足发布要求' : '发布前请将测试点总分调整为 100' }}</p>
+        <p class="admin-panel-hint">得分按通过的测试点数折算，测试点不带分值</p>
         <div class="admin-form-bar-actions">
           <UiButton variant="outline" :disabled="aiLocked" :loading="saving" @click="save(false)"><Save :size="16" />保存草稿</UiButton>
           <UiButton :disabled="aiLocked" :loading="saving" @click="save(true)"><Send :size="16" />保存并发布</UiButton>

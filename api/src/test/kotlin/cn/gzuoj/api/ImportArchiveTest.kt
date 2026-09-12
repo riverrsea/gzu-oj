@@ -74,6 +74,43 @@ class ImportArchiveTest {
         assertEquals("legacy-1006", result.externalKey)
     }
 
+    /** 测试点只带输入、输出和样例标记，分值由服务端按通过点数派生。 */
+    @Test
+    fun parsesTestCasesWithoutScoreColumn() {
+        val problem = ProblemImportParser()
+            .parse(importArchiveWithTests("ordinal,inputPath,outputPath,sample", "1,1.in,1.out,true"))
+            .single()
+            .getOrThrow()
+        val testCase = problem.testCases.single()
+        assertEquals("1 2", testCase.input)
+        assertEquals("3", testCase.output)
+        assertEquals(true, testCase.sample)
+    }
+
+    /** 旧版 cases.csv 仍带 score 列，已明确不再兼容。 */
+    @Test
+    fun rejectsLegacyCasesHeaderWithScoreColumn() {
+        val outcome = ProblemImportParser()
+            .parse(importArchiveWithTests("ordinal,inputPath,outputPath,score,sample", "1,1.in,1.out,100,true"))
+            .single()
+        assertEquals(true, outcome.isFailure)
+    }
+
+    /** 构造包含一条题目记录和一组测试点的标准导入包。 */
+    private fun importArchiveWithTests(casesHeader: String, casesRow: String): ByteArray {
+        val header = ProblemImportParser.REQUIRED_HEADERS.joinToString(",")
+        val row = "noobdream:1006,题目,贵州大学,2025,数组,EASY,,1000,256,statements/a.md,tests/problem-1"
+        return archive(
+            mapOf(
+                "problems.csv" to (header + "\n" + row + "\n").toByteArray(StandardCharsets.UTF_8),
+                "statements/a.md" to "# 题目".toByteArray(StandardCharsets.UTF_8),
+                "tests/problem-1/cases.csv" to (casesHeader + "\n" + casesRow + "\n").toByteArray(StandardCharsets.UTF_8),
+                "tests/problem-1/1.in" to "1 2".toByteArray(StandardCharsets.UTF_8),
+                "tests/problem-1/1.out" to "3".toByteArray(StandardCharsets.UTF_8),
+            ),
+        )
+    }
+
     /** 构造包含一条题目记录的标准导入包。 */
     private fun importArchive(header: String, row: String): ByteArray = archive(
         mapOf(

@@ -32,19 +32,17 @@ IMPORT_HEADERS = (
 )
 
 #: 测试点 cases.csv 的固定表头。
-CASE_HEADERS = ("ordinal", "inputPath", "outputPath", "score", "sample")
+CASE_HEADERS = ("ordinal", "inputPath", "outputPath", "sample")
 
 
 @dataclass(slots=True)
 class CanonicalTestCase:
-    """爬虫统一输出的规范测试点。"""
+    """爬虫统一输出的规范测试点；不含分值，得分由服务端按通过点数派生。"""
 
     #: 测试输入。
     input: str
     #: 由可信标程生成的标准输出。
     output: str
-    #: 测试点分值。
-    score: int
     #: 是否公开为样例。
     sample: bool = False
 
@@ -111,7 +109,6 @@ class CanonicalProblem:
                 CanonicalTestCase(
                     input=str(case["input"]),
                     output=str(case["output"]),
-                    score=int(case["score"]),
                     sample=bool(case.get("sample", False)),
                 )
                 for case in raw_cases
@@ -169,7 +166,7 @@ class ImportPackageWriter:
             ordinal = index + 1
             input_name = f"{ordinal}.in"
             output_name = f"{ordinal}.out"
-            rows.append((ordinal, input_name, output_name, test.score, _bool_text(test.sample)))
+            rows.append((ordinal, input_name, output_name, _bool_text(test.sample)))
             archive.writestr(f"{prefix}/{input_name}", test.input.encode("utf-8"))
             archive.writestr(f"{prefix}/{output_name}", test.output.encode("utf-8"))
         archive.writestr(f"{prefix}/cases.csv", csv_bytes(CASE_HEADERS, rows))
@@ -194,11 +191,6 @@ def validate_canonical_problems(problems: list[CanonicalProblem]) -> None:
         require(100 <= problem.time_limit_ms <= 60_000, "时间限制超出范围")
         require(16 <= problem.memory_limit_mib <= 2048, "内存限制超出范围")
         require(problem.statement_markdown.strip(), "题面不能为空")
-        if problem.test_cases:
-            require(
-                sum(test.score for test in problem.test_cases) == 100,
-                "测试点分值之和必须为 100",
-            )
 
 
 def _problems_csv(problems: list[CanonicalProblem]) -> bytes:

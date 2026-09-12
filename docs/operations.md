@@ -84,7 +84,7 @@ uv run gzu-oj-crawler noobdream-import /absolute/noobdream-problems.csv /absolut
 uv run gzu-oj-crawler noobdream-import /absolute/noobdream-problems.csv /absolute/noobdream-import.zip --default-year 2025
 ```
 
-转换后的 ZIP 包含 `problems.csv`、`statements/`，并在题面有样例时写入 `tests/`：**题面里有几组样例就写几个测试点**（`sample=true`），导入后它们就是题目的测试点，题目立刻可判。测试点分值按样例组数均分且总和恒为 100（1 组 100；2 组 50+50；4 组 25×4）。源站每个题目只有一个 `pre#input` / `pre#output`，多组样例会拼在同一个块里（例如 1002 的输入 `2 100` / `2 22` 对应输出 `20` / `6` 是两组样例），转换器按「输入输出行数相同且都大于 1」逐组切开，命令结尾会点名提示复核；不需要样例测试点时加 `--no-sample-test`。转换器只从题面样例取数据，不生成额外测试点也不凭空造期望输出——更多测试点请走 AI 测试点生成流程。导入后题目为草稿，其余测试点在管理员编辑页面中继续录入。
+转换后的 ZIP 包含 `problems.csv`、`statements/`，并在题面有样例时写入 `tests/`：**题面里有几组样例就写几个测试点**（`sample=true`），导入后它们就是题目的测试点，题目立刻可判。测试点不带分值——提交得分统一按「通过点数 / 总点数」折算（四舍五入），与通过了哪几个测试点无关。源站每个题目只有一个 `pre#input` / `pre#output`，多组样例会拼在同一个块里（例如 1002 的输入 `2 100` / `2 22` 对应输出 `20` / `6` 是两组样例），转换器按「输入输出行数相同且都大于 1」逐组切开，命令结尾会点名提示复核；不需要样例测试点时加 `--no-sample-test`。转换器只从题面样例取数据，不生成额外测试点也不凭空造期望输出——更多测试点请走 AI 测试点生成流程。导入后题目为草稿，其余测试点在管理员编辑页面中继续录入。
 源站的 `简单/中等/困难`（包括 `+/-` 后缀）会映射为项目难度。旧题中超出 MiB 范围的 KiB 数值会按 1024 换算，页面拼接值会保留合法的 MiB 前缀，低于系统下限的正数会提升到 16 MiB。
 
 ### 题面公式的处理
@@ -103,3 +103,28 @@ uv run gzu-oj-crawler noobdream-import /absolute/noobdream-problems.csv /absolut
 Kotlin 版 `crawler-cli` 保留用于回归对照，命令形式与上面对应（把 `uv run gzu-oj-crawler` 换成
 `gradle :crawler-cli:run --args='...'`）。注意它使用 jsoup `wholeText()` 取纯文本，会丢失换行与
 列表结构，采集题面请优先使用 Python 版。
+
+## 提交得分与测试点
+
+测试点**不携带分值**，提交得分统一由服务端按「通过点数 / 总点数」折算（四舍五入），与通过了哪几个测试点无关：
+
+- 全部通过 → AC，100 分；部分通过 → PARTIAL，按比例给分；一个都没过 → 首个未通过测试点的状态，0 分；
+- Worker 只回报每个测试点的状态，得分只在 API 侧计算一处，避免多端各算一套；
+- `submission.score` 仍然是提交结果的一部分，排名、套卷得分、错题本「已解决」判定都继续用它；
+- 导入包与管理员接口的测试点都只有 `input` / `output` / `sample`，不再有分值字段。
+
+## 清空题目数据
+
+`api/src/main/resources/db/maintenance/wipe_problem_data.sql` 是一次性清库脚本：清空全部题目相关数据，
+只保留用户账号、登录会话与 Worker 节点。它放在 `db/maintenance/` 而不是 `db/migration/`，
+**Flyway 不会自动执行**，必须手动运行：
+
+```bash
+psql -h 127.0.0.1 -U riversea -d gzu_oj -v ON_ERROR_STOP=1 \
+  -f api/src/main/resources/db/maintenance/wipe_problem_data.sql
+```
+
+脚本内的 `TRUNCATE` 明确列出全部表而不使用 `CASCADE`：万一漏了某张表，PostgreSQL 会直接因为外键报错，
+而不是静默连带清掉未预期的数据。执行前请先备份。
+
+注意脚本只清数据库行，ArtifactStore 在磁盘上的制品文件不会被删除；孤儿文件需要按存储目录另行清理。

@@ -52,7 +52,6 @@ export interface ProblemDetail extends ProblemSummary {
 export interface SubmissionCase {
   ordinal: number;
   status: JudgeStatus;
-  score: number;
   timeMs: number;
   memoryKiB: number;
   message: string | null;
@@ -212,8 +211,6 @@ export interface AdminProblemSummary {
   status: ProblemVersionStatus;
   /** 测试点数量。 */
   testCaseCount: number;
-  /** 测试点分值总和。 */
-  scoreSum: number;
   /** 公开样例数量。 */
   sampleCount: number;
   /** 创建时间。 */
@@ -238,7 +235,6 @@ export interface AdminTestCaseDetail {
   ordinal: number;
   input: string;
   output: string;
-  score: number;
   sample: boolean;
 }
 
@@ -332,8 +328,6 @@ export interface AiGeneratedTestCase {
   input: string;
   /** 由差分通过标程计算的标准输出。 */
   output: string;
-  /** 自动分配的测试点分值。 */
-  score: number;
   /** 是否作为公开样例返回。 */
   sample: boolean;
 }

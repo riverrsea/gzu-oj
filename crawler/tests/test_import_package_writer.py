@@ -23,7 +23,7 @@ def test_writes_canonical_archive(tmp_path: Path) -> None:
                 time_limit_ms=1000,
                 memory_limit_mib=256,
                 statement_markdown="# 两数之和",
-                test_cases=[CanonicalTestCase(input="1 2\n", output="3\n", score=100, sample=True)],
+                test_cases=[CanonicalTestCase(input="1 2\n", output="3\n", sample=True)],
             ),
         ],
         target,
@@ -40,8 +40,8 @@ def test_writes_canonical_archive(tmp_path: Path) -> None:
         )
         assert "noobdream:1006,两数之和,贵州大学,2025,数组,EASY,,1000,256,statements/problem-1.md,tests/problem-1" in csv_text
         cases = archive.read("tests/problem-1/cases.csv").decode("utf-8")
-        assert cases.startswith("ordinal,inputPath,outputPath,score,sample")
-        assert "1,1.in,1.out,100,true" in cases
+        assert cases.startswith("ordinal,inputPath,outputPath,sample")
+        assert "1,1.in,1.out,true" in cases
 
 
 def test_writes_statement_only_archive(tmp_path: Path) -> None:

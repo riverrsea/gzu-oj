@@ -128,7 +128,7 @@ _ROW_WITH_SAMPLE = "noobdream:1,1,A+B,贵州大学,2025,EASY,模拟,1000,256,# A
 
 
 def test_uses_public_sample_as_only_test_case(tmp_path: Path) -> None:
-    """公开样例写成唯一测试点：分值 100、标记为公开样例。"""
+    """公开样例写成一个测试点，并标记为公开样例。"""
     source = tmp_path / "details.csv"
     source.write_text(_HEADER + "\n" + _ROW_WITH_SAMPLE, encoding="utf-8")
     target = tmp_path / "import.zip"
@@ -145,8 +145,8 @@ def test_uses_public_sample_as_only_test_case(tmp_path: Path) -> None:
         assert archive.read("tests/problem-1/1.in").decode("utf-8") == "1 2"
         assert archive.read("tests/problem-1/1.out").decode("utf-8") == "3"
         cases = archive.read("tests/problem-1/cases.csv").decode("utf-8")
-        assert cases.startswith("ordinal,inputPath,outputPath,score,sample")
-        assert "1,1.in,1.out,100,true" in cases
+        assert cases.startswith("ordinal,inputPath,outputPath,sample")
+        assert "1,1.in,1.out,true" in cases
         # dataPath 必须指向测试点目录，否则 API 导入会认为题目没有测试点。
         problems_csv = archive.read("problems.csv").decode("utf-8")
         assert "tests/problem-1" in problems_csv
@@ -209,15 +209,15 @@ def test_splits_sample_block_with_multiple_cases(tmp_path: Path) -> None:
         assert archive.read("tests/problem-1/2.in").decode("utf-8") == "2 22"
         assert archive.read("tests/problem-1/2.out").decode("utf-8") == "6"
         cases = archive.read("tests/problem-1/cases.csv").decode("utf-8")
-        assert "1,1.in,1.out,50,true" in cases
-        assert "2,2.in,2.out,50,true" in cases
-        # 未拆分的题目仍是整块一个满分测试点。
+        assert "1,1.in,1.out,true" in cases
+        assert "2,2.in,2.out,true" in cases
+        # 单组样例的题目整块作为一个测试点。
         assert archive.read("tests/problem-2/1.in").decode("utf-8") == "2\n1 2"
-        assert "1,1.in,1.out,100,true" in archive.read("tests/problem-2/cases.csv").decode("utf-8")
+        assert "1,1.in,1.out,true" in archive.read("tests/problem-2/cases.csv").decode("utf-8")
 
 
-def test_splits_four_case_sample_with_even_scores(tmp_path: Path) -> None:
-    """四组样例均分为 25 分，对应题目 1091 这种一 input 行对一 output 行的写法。"""
+def test_splits_four_case_sample_into_four_test_cases(tmp_path: Path) -> None:
+    """四组样例写四个测试点，对应题目 1091 这种一行输入对一行输出的写法。"""
     csv_text = (
         _HEADER
         + "\n"
@@ -231,16 +231,16 @@ def test_splits_four_case_sample_with_even_scores(tmp_path: Path) -> None:
     summary = NoobDreamImportConverter().convert(source, target)
 
     assert summary.multi_sample_problems == [("noobdream:1091", 4)]
+    assert summary.test_case_count == 4
     with zipfile.ZipFile(target) as archive:
         cases = archive.read("tests/problem-1/cases.csv").decode("utf-8").strip().splitlines()
-        scores = [int(line.split(",")[3]) for line in cases[1:]]
-        assert scores == [25, 25, 25, 25]
-        assert sum(scores) == 100
+        assert cases[0] == "ordinal,inputPath,outputPath,sample"
+        assert [line.split(",")[0] for line in cases[1:]] == ["1", "2", "3", "4"]
         assert archive.read("tests/problem-1/4.out").decode("utf-8") == "d=4"
 
 
-def test_split_scores_still_sum_to_one_hundred(tmp_path: Path) -> None:
-    """三组样例无法整除时余数补给前几组，总和必须仍是 100。"""
+def test_three_case_sample_keeps_sequential_ordinals(tmp_path: Path) -> None:
+    """三组样例写三个测试点，序号连续。"""
     csv_text = (
         _HEADER
         + "\n"
@@ -254,13 +254,16 @@ def test_split_scores_still_sum_to_one_hundred(tmp_path: Path) -> None:
 
     with zipfile.ZipFile(target) as archive:
         lines = archive.read("tests/problem-1/cases.csv").decode("utf-8").strip().splitlines()
-    scores = [int(line.split(",")[3]) for line in lines[1:]]
-    assert scores == [34, 33, 33]
-    assert sum(scores) == 100
+    assert lines == [
+        "ordinal,inputPath,outputPath,sample",
+        "1,1.in,1.out,true",
+        "2,2.in,2.out,true",
+        "3,3.in,3.out,true",
+    ]
 
 
-def test_sample_test_scores_sum_to_one_hundred(tmp_path: Path) -> None:
-    """导入契约要求测试点分值之和为 100，单样例测试点必须给满分。"""
+def test_test_case_rows_carry_no_score_column(tmp_path: Path) -> None:
+    """测试点不再关联任何分值，cases.csv 只有序号、路径与样例标记。"""
     source = tmp_path / "details.csv"
     source.write_text(_HEADER + "\n" + _ROW_WITH_SAMPLE, encoding="utf-8")
     target = tmp_path / "import.zip"
@@ -268,5 +271,6 @@ def test_sample_test_scores_sum_to_one_hundred(tmp_path: Path) -> None:
     NoobDreamImportConverter().convert(source, target)
 
     with zipfile.ZipFile(target) as archive:
-        cases = archive.read("tests/problem-1/cases.csv").decode("utf-8").strip().splitlines()
-    assert cases[1].endswith(",100,true")
+        text = archive.read("tests/problem-1/cases.csv").decode("utf-8")
+    assert "score" not in text
+    assert text.strip().splitlines()[1] == "1,1.in,1.out,true"

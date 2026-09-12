@@ -251,7 +251,6 @@ function codeSaveStatusIcon(state: WorkspacePanelContext["codeSaveState"]): Comp
           <div v-for="item in context.submitSubmission.testCases" :key="item.ordinal" class="submit-case-row">
             <span class="submit-case-name"><component :is="statusIcon(item.status)" :class="{ 'status-icon--loading': isPendingStatus(item.status) }" :size="15" aria-hidden="true" />测试点 {{ item.ordinal }}</span>
             <span :class="statusClass(item.status)">{{ statusText(item.status) }}</span>
-            <span>{{ item.score }} 分</span>
             <span>{{ item.timeMs }} ms</span>
           </div>
         </div>

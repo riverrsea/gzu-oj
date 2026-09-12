@@ -32,9 +32,6 @@ DEFAULT_SCHOOL = "未注明"
 #: 外部来源未提供年份时的占位值，也是数据库允许的最早年份。
 DEFAULT_YEAR = 1900
 
-#: 样例测试点的分值。导入契约要求测试点分值之和为 100，只放一个测试点时只能给满分。
-SAMPLE_TEST_SCORE = 100
-
 
 @dataclass(slots=True)
 class ConversionSummary:
@@ -166,16 +163,12 @@ def _to_canonical_problem(
 def _sample_test_cases(record: dict[str, str]) -> list[CanonicalTestCase]:
     """题面有几组样例，就写几个测试点。
 
-    导入契约要求测试点分值之和正好为 100，所以按样例组数均分，余数补给前几组。
+    测试点不再携带分值（得分由服务端按通过点数派生），所以这里只是逐组复制样例。
     样例不完整（缺输入或缺输出）时不生成测试点。
     """
-    cases = _sample_cases(record)
-    if not cases:
-        return []
-    scores = _even_scores(len(cases))
     return [
-        CanonicalTestCase(input=case_input, output=case_output, score=score, sample=True)
-        for (case_input, case_output), score in zip(cases, scores, strict=True)
+        CanonicalTestCase(input=case_input, output=case_output, sample=True)
+        for case_input, case_output in _sample_cases(record)
     ]
 
 
@@ -205,12 +198,6 @@ def _sample_cases(record: dict[str, str]) -> list[tuple[str, str]]:
 def _every_line_is_one_case(input_lines: list[str], output_lines: list[str]) -> bool:
     """判断样例是否是"一行输入对一行输出"的多组写法。"""
     return len(input_lines) > 1 and len(input_lines) == len(output_lines)
-
-
-def _even_scores(count: int) -> list[int]:
-    """把 100 分尽量均分给 ``count`` 个测试点，余数补给前几组，总和恒为 100。"""
-    base, remainder = divmod(SAMPLE_TEST_SCORE, count)
-    return [base + 1 if index < remainder else base for index in range(count)]
 
 
 def _map_difficulty(value: str) -> str:

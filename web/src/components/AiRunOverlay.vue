@@ -262,7 +262,7 @@ function onBackdrop(): void {
             <p v-if="generatedTestCases.length === 0" class="ai-overlay-empty">尚未生成通过校验的测试点。</p>
             <div v-else class="ai-case-list">
               <details v-for="tc in generatedTestCases" :key="tc.ordinal" class="ai-overlay-item" :open="tc.sample">
-                <summary><strong>测试点 {{ tc.ordinal }}</strong><small>种子 {{ tc.seed }} · {{ tc.score }} 分<template v-if="tc.sample"> · 公开样例</template></small></summary>
+                <summary><strong>测试点 {{ tc.ordinal }}</strong><small>种子 {{ tc.seed }}<template v-if="tc.sample"> · 公开样例</template></small></summary>
                 <div class="ai-overlay-item-cols"><div><strong>输入</strong><pre>{{ tc.input }}</pre></div><div><strong>标准输出</strong><pre>{{ tc.output }}</pre></div></div>
               </details>
             </div>

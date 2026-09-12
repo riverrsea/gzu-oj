@@ -7,6 +7,7 @@ import cn.gzuoj.shared.JudgeLanguage
 import cn.gzuoj.shared.JudgeLease
 import cn.gzuoj.shared.JudgeStatus
 import cn.gzuoj.shared.LanguageLimits
+import cn.gzuoj.shared.SubmissionScoring
 import jakarta.validation.Valid
 import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
@@ -350,16 +351,22 @@ class PostgresJudgeQueue(
         } else {
             saveSubmissionResults(job.submissionId, completion)
         }
+        // 得分由通过点数派生：公开运行不计分。
+        val score = if (job.executionMode == JudgeExecutionMode.RUN) {
+            0
+        } else {
+            SubmissionScoring.scoreOf(SubmissionScoring.passedCount(completion.testCases), completion.testCases.size)
+        }
         jdbc.update(
             "UPDATE submission SET status = ?, score = ?, compile_message = ?, finished_at = now() WHERE id = ?",
             completion.status.name,
-            completion.score,
+            score,
             completion.compileMessage?.take(16_384),
             job.submissionId,
         )
         jdbc.update("UPDATE judge_job SET status = 'COMPLETED', completed_at = now() WHERE id = ?", jobId)
         if (job.executionMode == JudgeExecutionMode.SUBMIT) {
-            updateWrongBook(job.submissionId, completion.score)
+            updateWrongBook(job.submissionId, score)
         }
         return CompleteLeaseResponse(accepted = true, requeued = false) to job.submissionId
     }
@@ -405,7 +412,6 @@ class PostgresJudgeQueue(
                     JudgeCaseLease(
                         caseId = result.getObject("id", UUID::class.java),
                         ordinal = result.getInt("ordinal"),
-                        score = 0,
                         inlineInput = result.getString("input_text"),
                         inlineExpectedOutput = result.getString("expected_output_text"),
                     )
@@ -416,7 +422,7 @@ class PostgresJudgeQueue(
         val jobId = claimed.jobId
         return jdbc.query(
         """
-        SELECT tc.id, tc.ordinal, tc.score,
+        SELECT tc.id, tc.ordinal,
                ia.id AS input_id, ia.sha256 AS input_sha,
                oa.id AS output_id, oa.sha256 AS output_sha
         FROM judge_job j
@@ -433,7 +439,6 @@ class PostgresJudgeQueue(
             JudgeCaseLease(
                 caseId = result.getObject("id", UUID::class.java),
                 ordinal = result.getInt("ordinal"),
-                score = result.getInt("score"),
                 inputUrl = "$base/${result.getObject("input_id", UUID::class.java)}?$query",
                 inputSha256 = result.getString("input_sha"),
                 expectedOutputUrl = "$base/${result.getObject("output_id", UUID::class.java)}?$query",
@@ -444,25 +449,22 @@ class PostgresJudgeQueue(
         )
     }
 
-    /** 检查 Worker 结果不伪造测试点、不越界计分。 */
+    /** 检查 Worker 结果不伪造测试点；得分由服务端按通过点数派生，不接受 Worker 上报。 */
     private fun validateCompletion(
         submissionId: UUID,
         executionMode: JudgeExecutionMode,
         completion: JudgeCompletion,
     ) {
-        if (completion.score !in 0..100) {
-            throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_JUDGE_RESULT", "提交得分不合法")
-        }
         val terminal = JudgeStatus.entries - setOf(JudgeStatus.QUEUED, JudgeStatus.COMPILING, JudgeStatus.JUDGING)
         if (completion.status !in terminal) {
             throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_JUDGE_RESULT", "提交终态不合法")
         }
-        if (completion.testCases.any { it.score !in 0..100 || it.timeMs < 0 || it.memoryKiB < 0 }) {
+        if (completion.testCases.any { it.timeMs < 0 || it.memoryKiB < 0 }) {
             throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_JUDGE_RESULT", "测点结果不合法")
         }
         if (completion.status in setOf(JudgeStatus.CE, JudgeStatus.SYSTEM_ERROR, JudgeStatus.CANCELED)) {
-            if (completion.score != 0 || completion.testCases.isNotEmpty()) {
-                throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_JUDGE_RESULT", "未执行测点的结果必须为零分")
+            if (completion.testCases.isNotEmpty()) {
+                throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_JUDGE_RESULT", "未执行的提交不能携带测点结果")
             }
             return
         }
@@ -473,51 +475,33 @@ class PostgresJudgeQueue(
         if (completion.testCases.any { it.actualOutput != null }) {
             throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_JUDGE_RESULT", "正式提交不能返回实际输出")
         }
-        val expectedScores = jdbc.query(
+        val expectedIds = jdbc.query(
             """
-            SELECT tc.id, tc.score
+            SELECT tc.id
             FROM submission s
             JOIN problem_test_case tc ON tc.problem_version_id = s.problem_version_id
             WHERE s.id = ?
             """.trimIndent(),
-            { result, _ -> result.getObject("id", UUID::class.java) to result.getInt("score") },
+            { result, _ -> result.getObject("id", UUID::class.java) },
             submissionId,
-        ).toMap()
+        ).toSet()
         val reportedIds = completion.testCases.map { it.caseId }
-        if (reportedIds.size != reportedIds.distinct().size || reportedIds.toSet() != expectedScores.keys) {
+        if (reportedIds.size != reportedIds.distinct().size || reportedIds.toSet() != expectedIds) {
             throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_JUDGE_RESULT", "测点结果与题目版本不一致")
         }
-        completion.testCases.forEach { result ->
-            val maximum = expectedScores.getValue(result.caseId)
-            if (result.score !in 0..maximum) {
-                throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_JUDGE_RESULT", "测点得分超过配置分值")
-            }
-            if ((result.status == JudgeStatus.AC && result.score != maximum) ||
-                (result.status != JudgeStatus.AC && result.score != 0)) {
-                throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_JUDGE_RESULT", "测点状态与得分不一致")
-            }
-        }
-        if (completion.testCases.sumOf { it.score } != completion.score) {
-            throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_JUDGE_RESULT", "逐点得分与提交总分不一致")
-        }
+        // 状态必须与逐点结果一致：全部通过为 AC，部分通过为 PARTIAL，否则取首个未通过测点的状态。
         val expectedStatus = when {
-            completion.score == 100 -> JudgeStatus.AC
-            completion.score > 0 -> JudgeStatus.PARTIAL
-            completion.status in setOf(
-                JudgeStatus.WA,
-                JudgeStatus.TLE,
-                JudgeStatus.MLE,
-                JudgeStatus.RE,
-                JudgeStatus.OLE,
-            ) -> completion.status
-            else -> null
+            completion.testCases.isEmpty() -> completion.status
+            completion.testCases.all { it.status == JudgeStatus.AC } -> JudgeStatus.AC
+            completion.testCases.any { it.status == JudgeStatus.AC } -> JudgeStatus.PARTIAL
+            else -> completion.testCases.first().status
         }
-        if (expectedStatus == null || completion.status != expectedStatus) {
-            throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_JUDGE_RESULT", "提交状态与得分不一致")
+        if (completion.status != expectedStatus) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_JUDGE_RESULT", "提交状态与测点结果不一致")
         }
     }
 
-    /** 校验公开运行结果只对应用户输入，且不携带分值。 */
+    /** 校验公开运行结果只对应用户输入。 */
     private fun validateRunCompletion(submissionId: UUID, completion: JudgeCompletion) {
         val expectedIds = jdbc.query(
             "SELECT id FROM submission_run_case WHERE submission_id = ?",
@@ -527,9 +511,6 @@ class PostgresJudgeQueue(
         val reportedIds = completion.testCases.map { it.caseId }
         if (reportedIds.size != reportedIds.distinct().size || reportedIds.toSet() != expectedIds) {
             throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_JUDGE_RESULT", "公开运行结果与输入不一致")
-        }
-        if (completion.score != 0 || completion.testCases.any { it.score != 0 }) {
-            throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_JUDGE_RESULT", "公开运行不能产生分值")
         }
         if (completion.testCases.any { (it.actualOutput ?: "").toByteArray(Charsets.UTF_8).size > 16 * 1024 * 1024 }) {
             throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_JUDGE_RESULT", "公开运行输出超过限制")
@@ -550,17 +531,16 @@ class PostgresJudgeQueue(
             jdbc.update(
                 """
                 INSERT INTO submission_case_result(
-                    id, submission_id, test_case_id, status, score, time_ms, memory_kib, message
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    id, submission_id, test_case_id, status, time_ms, memory_kib, message
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(submission_id, test_case_id) DO UPDATE SET
-                    status = EXCLUDED.status, score = EXCLUDED.score, time_ms = EXCLUDED.time_ms,
+                    status = EXCLUDED.status, time_ms = EXCLUDED.time_ms,
                     memory_kib = EXCLUDED.memory_kib, message = EXCLUDED.message
                 """.trimIndent(),
                 UUID.randomUUID(),
                 submissionId,
                 result.caseId,
                 result.status.name,
-                result.score,
                 result.timeMs,
                 result.memoryKiB,
                 result.message?.take(500),

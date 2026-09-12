@@ -119,9 +119,9 @@ uv run gzu-oj-crawler noobdream-problems \
 而不是"导入了但没法提交"。
 
 ```
-tests/problem-1/cases.csv    ordinal,inputPath,outputPath,score,sample
-                             1,1.in,1.out,50,true
-                             2,2.in,2.out,50,true
+tests/problem-1/cases.csv    ordinal,inputPath,outputPath,sample
+                             1,1.in,1.out,true
+                             2,2.in,2.out,true
 tests/problem-1/1.in         第一组样例的输入
 tests/problem-1/1.out        第一组样例的输出
 tests/problem-1/2.in         第二组样例的输入
@@ -129,8 +129,7 @@ tests/problem-1/2.out        第二组样例的输出
 ```
 
 * 每个测试点带 `sample=true` 标记，前端会当作公开样例展示；
-* **分值按样例组数均分**，总和恒为 100（导入契约要求）：1 组 → 100；2 组 → 50+50；
-  4 组 → 25×4；3 组 → 34+33+33（余数补给前几组）；
+* 测试点**不带分值**：得分由服务端按「通过点数 / 总点数」折算，与通过了哪几个测试点无关；
 * 题目没有样例（源站 `pre#input` / `pre#output` 为空）时不生成测试点，仍需人工补数据；
 * 用 `--no-sample-test` 可以退回"只写题面、不含测试点"的旧行为。
 
@@ -151,14 +150,17 @@ tests/problem-1/2.out        第二组样例的输出
 实测这三道题的结果：
 
 ```
-noobdream:1006  1 组 → #1 score=100 | in='Guiyang' -> out='gnayiuG'
-noobdream:1002  2 组 → #1 score= 50 | in='2 100' -> out='20'
-                       #2 score= 50 | in='2 22'  -> out='6'
-noobdream:1091  4 组 → #1 score= 25 | in='850'  -> out='discount=1,pay=850'
-                       #2 score= 25 | in='1230' -> out='discount=0.95,pay=1168.5'
-                       #3 score= 25 | in='5000' -> out='discount=0.8,pay=4000'
-                       #4 score= 25 | in='3560' -> out='discount=0.85,pay=3026'
+noobdream:1006  1 组样例 → 1 个测试点 | in='Guiyang' -> out='gnayiuG'
+noobdream:1002  2 组样例 → 2 个测试点 | in='2 100' -> out='20'
+                                      | in='2 22'  -> out='6'
+noobdream:1091  4 组样例 → 4 个测试点 | in='850'  -> out='discount=1,pay=850'
+                                      | in='1230' -> out='discount=0.95,pay=1168.5'
+                                      | in='5000' -> out='discount=0.8,pay=4000'
+                                      | in='3560' -> out='discount=0.85,pay=3026'
 ```
+
+判题时按通过点数折算提交得分：1 组全对是 100 分，1002 通过 1 组是 50 分，
+1091 通过 3 组是 75 分（四舍五入）。
 
 > **只从题面样例取数据**。转换器不会生成额外测试点，也不会凭空造期望输出——那需要可信的
 > 标程，否则产出的测试数据会让正确程序判 WA。需要更多测试点请走项目的 AI 测试点生成流程，

@@ -480,7 +480,7 @@ class ProblemService(
                     INSERT INTO problem_test_case(
                         id, problem_version_id, ordinal, input_artifact_id, output_artifact_id,
                         sample, generated_by_ai_run_id, generation_seed
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """.trimIndent(),
                     UUID.randomUUID(), versionId, index + 1, inputId, outputId, testCase.sample, runId, testCase.seed,
                 )
@@ -856,7 +856,7 @@ class ProblemService(
                 jdbc.update(
                     """
                     INSERT INTO problem_test_case(id, problem_version_id, ordinal, input_artifact_id, output_artifact_id, sample)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """.trimIndent(),
                     UUID.randomUUID(), versionId, index + 1, inputId, outputId, test.sample,
                 )
@@ -953,7 +953,7 @@ class ProblemService(
                 jdbc.update(
                     """
                     INSERT INTO problem_test_case(id, problem_version_id, ordinal, input_artifact_id, output_artifact_id, sample)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """.trimIndent(),
                     UUID.randomUUID(), versionId, index + 1, inputId, outputId, test.sample,
                 )

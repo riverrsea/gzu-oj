@@ -27,6 +27,20 @@ from .models import (
 # 每个编译门禁允许的编译次数：首次生成后最多再重生成两次。
 MAX_COMPILE_ATTEMPTS = 3
 
+# 生成顺序固定；修复时只重做失效的那一批产物，已通过门禁的产物继续复用。
+GENERATION_ORDER = (
+	SandboxFailureStage.TEST_DATA,
+	SandboxFailureStage.SOLUTIONS,
+	SandboxFailureStage.BRUTE_FORCE,
+)
+
+# 每批产物对应的生成节点名。
+COMPILE_GENERATOR = {
+	SandboxFailureStage.TEST_DATA: "test_data",
+	SandboxFailureStage.SOLUTIONS: "solutions",
+	SandboxFailureStage.BRUTE_FORCE: "brute_force",
+}
+
 # 编译门禁沿用生成节点的进度阶段名，便于复用同一个状态投影。
 COMPILE_PROGRESS_STAGE = {
 	SandboxFailureStage.TEST_DATA: "GENERATING_TEST_DATA",
@@ -102,6 +116,7 @@ class AgentState(TypedDict, total=False):
 	solution_b: dict[str, Any]
 	brute_force: dict[str, Any]
 	compile_result: dict[str, Any]
+	compiled_stages: list[str]
 	compile_stage: str
 	test_data_attempts: int
 	solutions_attempts: int
@@ -153,6 +168,11 @@ def compile_units(state: AgentState, stage: SandboxFailureStage) -> list[Sandbox
 		SandboxCompileUnit(label="测试生成器", source=test_data.generator_source),
 		SandboxCompileUnit(label="输入校验器", source=test_data.validator_source),
 	]
+
+
+def reusable_stages(state: AgentState, stage: SandboxFailureStage) -> list[str]:
+	"""返回重新生成某批产物后仍然有效的其他产物；重做的那一批必须重新过门禁。"""
+	return [name for name in state.get("compiled_stages", []) if name != stage.name]
 
 
 class Workflow:
@@ -244,7 +264,9 @@ class Workflow:
 		return {
 			"analysis": response,
 			"failure_reason": "",
-			"failure_target": ""
+			"failure_target": "",
+			# 题意分析变化后标程与暴力解都可能失效，必须全部重新生成。
+			"compiled_stages": []
 		}
 
 	async def solutions(self, state: AgentState) -> AgentState:
@@ -278,7 +300,11 @@ class Workflow:
 			"GENERATING_SOLUTIONS",
 			{"solution_a": a_dump, "solution_b": b_dump}
 		)
-		return {"solution_a": a_dump, "solution_b": b_dump}
+		return {
+			"solution_a": a_dump,
+			"solution_b": b_dump,
+			"compiled_stages": reusable_stages(state, SandboxFailureStage.SOLUTIONS)
+		}
 
 	async def test_data(self, state: AgentState) -> AgentState:
 		await self._progress(
@@ -298,7 +324,11 @@ class Workflow:
 		result = await self.model.generate(TestDataResult, SYSTEM_TEST_DATA, prompt)
 		response = result.model_dump()
 		await self._step(state, "test_data", "GENERATING_TESTS", response)
-		return {"test_data": response, "failure_reason": ""}
+		return {
+			"test_data": response,
+			"failure_reason": "",
+			"compiled_stages": reusable_stages(state, SandboxFailureStage.TEST_DATA)
+		}
 
 	async def brute_force(self, state: AgentState) -> AgentState:
 		await self._progress(
@@ -316,7 +346,10 @@ class Workflow:
 		result = await self.model.generate(SolutionResult, SYSTEM_BRUTE_FORCE, prompt)
 		response = result.model_dump()
 		await self._step(state, "brute_force", "GENERATING_SOLUTIONS", response)
-		return {"brute_force": response}
+		return {
+			"brute_force": response,
+			"compiled_stages": reusable_stages(state, SandboxFailureStage.BRUTE_FORCE)
+		}
 
 	async def compile_test_data(self, state: AgentState) -> AgentState:
 		"""编译生成器与输入校验器。"""
@@ -359,11 +392,18 @@ class Workflow:
 		result = validate_checkpoint(SandboxResult, resumed)
 		if str(result.sandbox_job_id) != str(job_id):
 			raise RuntimeError("编译门禁恢复结果与当前任务不一致")
-		failure = "" if result.status is SandboxStatus.PASSED else (result.failure_reason or "编译未通过")
+		passed = result.status is SandboxStatus.PASSED
+		failure = "" if passed else (result.failure_reason or "编译未通过")
+		compiled = set(reusable_stages(state, stage))
+		if passed:
+			compiled.add(stage.name)
+		# 统一按固定生成顺序落库，便于直接阅读检查点里的产物状态。
+		compiled_stages = [candidate.name for candidate in GENERATION_ORDER if candidate.name in compiled]
 		return {
 			"compile_result": result.model_dump(mode="json"),
 			"compile_stage": stage.name,
 			counter: attempt + 1,
+			"compiled_stages": compiled_stages,
 			"failure_reason": failure,
 			# 编译连续失败不可由"重新分析"自动恢复，交管理员处理。
 			"failure_target": "" if failure else state.get("failure_target", ""),
@@ -468,15 +508,23 @@ class Workflow:
 		}
 
 	@staticmethod
-	def after_compile(state: AgentState) -> Literal["continue", "retry", "fail"]:
-		"""编译通过则继续下游，未通过则在重试预算内重生成该产物。"""
+	def after_compile(state: AgentState) -> str:
+		"""编译通过就跳到下一批未就绪的产物；未通过则在重试预算内重做本批产物。
+
+		标程与暴力解互不依赖：差分把失败归到哪一批，就只重做哪一批，
+		不会因为重写标程而连带浪费一次暴力解生成。
+		"""
 		result = validate_checkpoint(SandboxResult, state["compile_result"])
-		if result.status is SandboxStatus.PASSED:
-			return "continue"
 		stage = SandboxFailureStage(state["compile_stage"])
-		if state.get(f"{stage.name.lower()}_attempts", 0) < MAX_COMPILE_ATTEMPTS:
-			return "retry"
-		return "fail"
+		if result.status is not SandboxStatus.PASSED:
+			if state.get(f"{stage.name.lower()}_attempts", 0) < MAX_COMPILE_ATTEMPTS:
+				return COMPILE_GENERATOR[stage]
+			return "fail"
+		compiled = set(state.get("compiled_stages", []))
+		for candidate in GENERATION_ORDER:
+			if candidate.name not in compiled:
+				return COMPILE_GENERATOR[candidate]
+		return "submit"
 
 	def compile(self, checkpointer: Any):
 		"""构造固定拓扑；沙箱节点通过 interrupt 持久化暂停。"""
@@ -498,21 +546,9 @@ class Workflow:
 		graph.add_edge("test_data", "compile_test_data")
 		graph.add_edge("solutions", "compile_solutions")
 		graph.add_edge("brute_force", "compile_brute_force")
-		graph.add_conditional_edges(
-			"compile_test_data",
-			self.after_compile,
-			{"continue": "solutions", "retry": "test_data", "fail": "fail"},
-		)
-		graph.add_conditional_edges(
-			"compile_solutions",
-			self.after_compile,
-			{"continue": "brute_force", "retry": "solutions", "fail": "fail"},
-		)
-		graph.add_conditional_edges(
-			"compile_brute_force",
-			self.after_compile,
-			{"continue": "submit", "retry": "brute_force", "fail": "fail"},
-		)
+		graph.add_conditional_edges("compile_test_data", self.after_compile)
+		graph.add_conditional_edges("compile_solutions", self.after_compile)
+		graph.add_conditional_edges("compile_brute_force", self.after_compile)
 		graph.add_conditional_edges("submit", self.after_sandbox)
 		graph.add_conditional_edges(
 			"repair",

@@ -4,7 +4,13 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from gzu_oj_agent.graph import MAX_COMPILE_ATTEMPTS, Workflow, compile_units, sandbox_payload
+from gzu_oj_agent.graph import (
+    MAX_COMPILE_ATTEMPTS,
+    Workflow,
+    compile_units,
+    reusable_stages,
+    sandbox_payload,
+)
 from gzu_oj_agent.models import (
     SandboxCompileTask,
     SandboxCompileUnit,
@@ -183,22 +189,49 @@ def test_compile_units_match_generated_stage_artifacts() -> None:
 
 
 def test_compile_gate_retries_then_fails() -> None:
-    """编译门禁只有通过才继续；未通过时在预算内重试，用尽后交人工接管。"""
+    """编译门禁只有通过才继续；未通过时在预算内重做本批产物，用尽后交人工接管。"""
     state = base_state()
     state["compile_stage"] = "SOLUTIONS"
 
-    def gate(status: SandboxStatus, attempts: int) -> str:
+    def gate(status: SandboxStatus, attempts: int, compiled: list[str]) -> str:
         state["compile_result"] = SandboxResult(
             event_id=uuid4(), run_id=uuid4(), sandbox_job_id=uuid4(), repair_round=0,
             status=status, failure_reason="标程 A 编译失败"
         ).model_dump(mode="json")
         state["solutions_attempts"] = attempts
+        state["compiled_stages"] = compiled
         return Workflow.after_compile(state)
 
-    assert gate(SandboxStatus.PASSED, 1) == "continue"
-    assert gate(SandboxStatus.VALIDATION_FAILED, 1) == "retry"
-    assert gate(SandboxStatus.VALIDATION_FAILED, MAX_COMPILE_ATTEMPTS - 1) == "retry"
-    assert gate(SandboxStatus.VALIDATION_FAILED, MAX_COMPILE_ATTEMPTS) == "fail"
+    assert gate(SandboxStatus.VALIDATION_FAILED, 1, ["TEST_DATA"]) == "solutions"
+    assert gate(SandboxStatus.VALIDATION_FAILED, MAX_COMPILE_ATTEMPTS - 1, ["TEST_DATA"]) == "solutions"
+    assert gate(SandboxStatus.VALIDATION_FAILED, MAX_COMPILE_ATTEMPTS, ["TEST_DATA"]) == "fail"
+
+
+def test_compile_gate_only_fills_missing_artifacts() -> None:
+    """编译通过后只补齐尚未就绪的产物，全部就绪才提交全量差分。"""
+    state = base_state()
+    state["compile_stage"] = "SOLUTIONS"
+    state["compile_result"] = SandboxResult(
+        event_id=uuid4(), run_id=uuid4(), sandbox_job_id=uuid4(), repair_round=0,
+        status=SandboxStatus.PASSED, failure_reason=None
+    ).model_dump(mode="json")
+    state["solutions_attempts"] = 1
+
+    # 刚过标程门禁：暴力解还没生成，必须继续生成它。
+    state["compiled_stages"] = ["TEST_DATA", "SOLUTIONS"]
+    assert Workflow.after_compile(state) == "brute_force"
+    # 三批产物都已就绪：直接提交差分，不再重复任何生成节点。
+    state["compiled_stages"] = ["TEST_DATA", "SOLUTIONS", "BRUTE_FORCE"]
+    assert Workflow.after_compile(state) == "submit"
+
+
+def test_regenerating_one_artifact_keeps_others_ready() -> None:
+    """重做某批产物只作废它自己，标程与暴力解不互相牵连。"""
+    state = base_state()
+    state["compiled_stages"] = ["TEST_DATA", "SOLUTIONS", "BRUTE_FORCE"]
+    assert reusable_stages(state, SandboxFailureStage.SOLUTIONS) == ["TEST_DATA", "BRUTE_FORCE"]
+    assert reusable_stages(state, SandboxFailureStage.BRUTE_FORCE) == ["TEST_DATA", "SOLUTIONS"]
+    assert reusable_stages(state, SandboxFailureStage.TEST_DATA) == ["SOLUTIONS", "BRUTE_FORCE"]
 
 
 def test_source_fields_strip_markdown_fences() -> None:

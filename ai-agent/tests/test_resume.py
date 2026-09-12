@@ -9,6 +9,7 @@ from langgraph.types import Command
 from gzu_oj_agent.graph import Workflow
 from gzu_oj_agent.models import (
     AnalysisResult,
+    SandboxFailureStage,
     SandboxResult,
     SandboxStatus,
     SolutionResult,
@@ -24,6 +25,7 @@ class FakeModel:
         self.ambiguous = ambiguous
         self.analyze_prompts: list[str] = []
         self.data_prompts: list[str] = []
+        self.solution_prompts: list[str] = []
 
     async def generate(self, schema, system, prompt):
         if schema is AnalysisResult:
@@ -35,6 +37,7 @@ class FakeModel:
             self.data_prompts.append(prompt)
             return DataResult(generator_source="int main(){}", validator_source="int main(){}")
         if schema is SolutionResult:
+            self.solution_prompts.append(system)
             return SolutionResult(summary="s", source_code="int main(){}")
         raise AssertionError(f"unexpected schema {schema}")
 
@@ -93,15 +96,23 @@ def initial_state(run_id, analysis=None) -> dict:
     }
 
 
-def sandbox_result(run_id, job_id, status=SandboxStatus.PASSED, reason=None) -> dict:
+def sandbox_result(
+    run_id,
+    job_id,
+    status=SandboxStatus.PASSED,
+    reason=None,
+    stage=None,
+    repair_round=0,
+) -> dict:
     """构造与当前中断任务匹配的 Worker 结算通知。"""
     return SandboxResult(
         event_id=uuid4(),
         run_id=run_id,
         sandbox_job_id=UUID(str(job_id)),
-        repair_round=0,
+        repair_round=repair_round,
         status=status,
         failure_reason=reason,
+        failed_stage=stage,
     ).model_dump(mode="json")
 
 
@@ -245,6 +256,98 @@ async def test_compile_exhaustion_goes_to_manual_review() -> None:
         ("TEST_DATA", 0, 2),
     ]
     assert len(kotlin.job_ids) == 3
+
+
+async def test_solutions_repair_skips_compiled_brute_force() -> None:
+    """差分把失败归到标程时只重做标程，已通过门禁的暴力解不再重新生成。"""
+    run_id = uuid4()
+    model = FakeModel(ambiguous=False)
+    kotlin = FakeKotlin()
+    graph = Workflow(model, kotlin).compile(InMemorySaver())
+    config = {"configurable": {"thread_id": str(run_id)}}
+
+    await graph.ainvoke(initial_state(run_id), config)
+    for _ in range(3):
+        payload = await pending_interrupt(graph, config)
+        await graph.ainvoke(Command(resume=sandbox_result(run_id, payload["sandboxJobId"])), config)
+    snap = await graph.aget_state(config)
+    assert snap.next == ("submit",)
+    assert snap.values["compiled_stages"] == ["TEST_DATA", "SOLUTIONS", "BRUTE_FORCE"]
+
+    # 全量差分判定两份标程输出不一致：只重做标程。
+    payload = await pending_interrupt(graph, config)
+    await graph.ainvoke(
+        Command(
+            resume=sandbox_result(
+                run_id,
+                payload["sandboxJobId"],
+                status=SandboxStatus.VALIDATION_FAILED,
+                reason="两份标程在第 1 个测试点（种子 1）输出不一致",
+                stage=SandboxFailureStage.SOLUTIONS,
+            )
+        ),
+        config,
+    )
+    snap = await graph.aget_state(config)
+    assert snap.next == ("compile_solutions",)
+    assert snap.values["repair_target"] == "solutions"
+    assert snap.values["compiled_stages"] == ["TEST_DATA", "BRUTE_FORCE"]
+    # 暴力解没有被重新生成：整个运行只调用过一次暴力解提示词。
+    assert sum(1 for system in model.solution_prompts if "暴力解" in system) == 1
+
+    payload = await pending_interrupt(graph, config)
+    await graph.ainvoke(
+        Command(resume=sandbox_result(run_id, payload["sandboxJobId"], repair_round=1)),
+        config,
+    )
+    snap = await graph.aget_state(config)
+    # 暴力解仍在有效集合里：修好标程后直接回到全量差分，不再走一遍暴力解。
+    assert snap.next == ("submit",)
+    assert snap.values["compiled_stages"] == ["TEST_DATA", "SOLUTIONS", "BRUTE_FORCE"]
+    assert sum(1 for system in model.solution_prompts if "暴力解" in system) == 1
+
+
+async def test_test_data_repair_skips_solutions_and_brute_force() -> None:
+    """测试数据被重做时，标程与暴力解都不依赖它，应当直接复用。"""
+    run_id = uuid4()
+    model = FakeModel(ambiguous=False)
+    kotlin = FakeKotlin()
+    graph = Workflow(model, kotlin).compile(InMemorySaver())
+    config = {"configurable": {"thread_id": str(run_id)}}
+
+    await graph.ainvoke(initial_state(run_id), config)
+    for _ in range(3):
+        payload = await pending_interrupt(graph, config)
+        await graph.ainvoke(Command(resume=sandbox_result(run_id, payload["sandboxJobId"])), config)
+
+    payload = await pending_interrupt(graph, config)
+    await graph.ainvoke(
+        Command(
+            resume=sandbox_result(
+                run_id,
+                payload["sandboxJobId"],
+                status=SandboxStatus.VALIDATION_FAILED,
+                reason="测试生成器在种子 1 下不能复现完全相同的输入",
+                stage=SandboxFailureStage.TEST_DATA,
+            )
+        ),
+        config,
+    )
+    snap = await graph.aget_state(config)
+    assert snap.next == ("compile_test_data",)
+    assert snap.values["compiled_stages"] == ["SOLUTIONS", "BRUTE_FORCE"]
+    assert len(model.data_prompts) == 2
+
+    payload = await pending_interrupt(graph, config)
+    await graph.ainvoke(
+        Command(resume=sandbox_result(run_id, payload["sandboxJobId"], repair_round=1)),
+        config,
+    )
+    snap = await graph.aget_state(config)
+    assert snap.next == ("submit",)
+    # 标程与暴力解各自只生成过一次。
+    assert len(model.solution_prompts) == 3
+    assert sum(1 for system in model.solution_prompts if "暴力解" in system) == 1
 
 
 def test_compile_gate_node_is_coroutine() -> None:

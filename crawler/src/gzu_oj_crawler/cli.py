@@ -3,7 +3,7 @@
 支持五个子命令；前四个与 Kotlin 版 ``crawler-cli`` 完全对齐：
 
 * ``local <canonical-problems.json> <output.zip>``
-* ``noobdream-import <details.csv> <output.zip> [--default-year YYYY]``
+* ``noobdream-import <details.csv> <output.zip> [--default-year YYYY] [--no-sample-test]``
 * ``noobdream-list <list-url> <output.csv> [--single-page] [--school 学校名]``
 * ``noobdream-problems <list-url> <output.csv> [--single-page] [--school 学校名]``
 * ``noobdream-problem <题号或地址> <output.md>``：单题体检，只写题面，便于核对公式
@@ -44,10 +44,16 @@ def build_parser() -> argparse.ArgumentParser:
     local.add_argument("source", help="CanonicalProblem JSON 文件")
     local.add_argument("target", help="输出 ZIP 路径")
 
-    convert = subparsers.add_parser("noobdream-import", help="把详情 CSV 转成无测试点导入包")
+    convert = subparsers.add_parser("noobdream-import", help="把详情 CSV 转成标准导入包")
     convert.add_argument("source", help="noobdream-problems 生成的详情 CSV")
     convert.add_argument("target", help="输出 ZIP 路径")
     convert.add_argument("--default-year", type=int, default=None, help="填充 CSV 中为空的年份")
+    convert.add_argument(
+        "--sample-test",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="把公开样例写成唯一测试点，让题目导入后立刻可判（默认开启）",
+    )
 
     listing = subparsers.add_parser("noobdream-list", help="采集题目列表 CSV")
     listing.add_argument("url", help="N 诺题库列表页地址")
@@ -79,7 +85,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "local":
             _run_local(Path(args.source), Path(args.target))
         elif args.command == "noobdream-import":
-            _run_import(Path(args.source), Path(args.target), args.default_year)
+            _run_import(Path(args.source), Path(args.target), args.default_year, args.sample_test)
         elif args.command == "noobdream-list":
             _run_list(args.url, Path(args.target), args.single_page, args.school)
         elif args.command == "noobdream-problems":
@@ -103,11 +109,32 @@ def _run_local(source: Path, target: Path) -> None:
     print(f"已生成标准导入包：{target_path}")
 
 
-def _run_import(source: Path, target: Path, default_year: int | None) -> None:
-    """详情 CSV → 无测试点标准导入包。"""
+def _run_import(
+    source: Path,
+    target: Path,
+    default_year: int | None,
+    sample_as_test: bool = True,
+) -> None:
+    """详情 CSV → 标准导入包。"""
     target_path = target.absolute()
-    NoobDreamImportConverter().convert(source.absolute(), target_path, default_year)
-    print(f"已生成无测试点标准导入包：{target_path}")
+    summary = NoobDreamImportConverter().convert(
+        source.absolute(),
+        target_path,
+        default_year,
+        sample_as_test,
+    )
+    print(f"已生成标准导入包：{target_path}")
+    if summary.sample_test_count:
+        print(
+            f"已把 {summary.sample_test_count}/{summary.problem_count} 道题的公开样例写成唯一测试点"
+            f"（分值 100，标记为公开样例）。",
+        )
+    if summary.multi_case_suspects:
+        print(
+            "注意：以下题目的样例块疑似包含多组用例，整块当成一个测试点会让只处理单组的程序判 WA，"
+            "需要人工在管理页面拆分：",
+        )
+        print("  " + "、".join(summary.multi_case_suspects))
 
 
 def _run_list(url: str, target: Path, single_page: bool, school: str | None = None) -> None:

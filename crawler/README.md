@@ -7,7 +7,7 @@ GZU OJ 的题库采集与标准导入包生成 CLI，是 Kotlin 版 `crawler-cli
 | 子命令 | 作用 |
 | --- | --- |
 | `local <canonical-problems.json> <output.zip>` | 把本地规范 JSON 转成标准导入包 |
-| `noobdream-import <details.csv> <output.zip> [--default-year YYYY]` | 把详情 CSV 转成无测试点导入包 |
+| `noobdream-import <details.csv> <output.zip> [--default-year YYYY] [--no-sample-test]` | 把详情 CSV 转成标准导入包（默认把公开样例写成唯一测试点） |
 | `noobdream-list <list-url> <output.csv> [--single-page] [--school 学校名]` | **只**抓列表页：题号、标题、难度、题型、学校 + `detailUrl`，**不含题面** |
 | `noobdream-problems <list-url> <output.csv> [--single-page] [--school 学校名]` | 列表 + 逐题详情，CSV 带完整题面（会逐题发请求，慢） |
 | `noobdream-problem <题号或地址> <output.md>` | 单题体检：只写题面 Markdown，便于核对公式 |
@@ -111,6 +111,31 @@ uv run gzu-oj-crawler noobdream-list \
 uv run gzu-oj-crawler noobdream-problems \
   https://noobdream.com/DreamJudge/Issue/page/0/ /absolute/noobdream-problems.csv --school 贵州大学
 ```
+
+### 样例即测试点
+
+`noobdream-import` 默认把题目的**公开样例**写成唯一测试点，这样导入后的题目立刻可判，
+而不是"导入了但没法提交"。
+
+* 测试点分值为 **100**：导入契约要求测试点分值之和正好为 100，只放一个测试点时它只能给满分；
+* 测试点带 `sample=true` 标记，前端会当作公开样例展示；
+* 题目没有样例（源站 `pre#input` / `pre#output` 为空）时不生成测试点，仍需人工补数据；
+* 用 `--no-sample-test` 可以退回"只写题面、不含测试点"的旧行为。
+
+**一个必须注意的坑**：源站会把**多组样例拼在同一个 `<pre>` 里**。例如题目 1002 的样例输入是
+`2 100` 和 `2 22` 两行、输出是 `20` 和 `6` 两行，实际是两组独立用例；整块当成一个测试点，
+只处理单组的正确程序会判 WA。
+
+所以转换器会按"输入输出行数相同且都大于 1"识别这种样例，并在命令结尾点名提示：
+
+```
+注意：以下题目的样例块疑似包含多组用例，整块当成一个测试点会让只处理单组的程序判 WA，
+需要人工在管理页面拆分：
+  noobdream:1091、noobdream:1002
+```
+
+实测在 20 道贵大真题里命中 1091（4 组）和 1002（2 组），其余 18 道没有误报。
+这只是一个**提示**，测试点仍会照常写入，是否拆分由你决定。
 
 ### 按学校筛选
 

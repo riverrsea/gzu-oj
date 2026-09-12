@@ -1,13 +1,25 @@
-"""把已登录采集的题目详情 CSV 转换为标准导入包。当前阶段不写入测试点目录。"""
+"""把已登录采集的题目详情 CSV 转换为标准导入包。
+
+默认会把公开样例写成唯一测试点，让导入后的题目立刻可判；样例块疑似包含多组用例时
+会在返回值里列出题号，交人工在管理页面拆分。
+
+注意导入契约要求测试点分值之和正好为 100，所以只放一个样例测试点时它必然是 100 分。
+"""
 
 from __future__ import annotations
 
 import csv
 import io
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
-from .canonical import CanonicalProblem, ImportPackageWriter, validate_canonical_problems
+from .canonical import (
+    CanonicalProblem,
+    CanonicalTestCase,
+    ImportPackageWriter,
+    validate_canonical_problems,
+)
 from .errors import CrawlerError, require
 from .problem_crawler import PROBLEM_HEADERS
 
@@ -20,14 +32,37 @@ DEFAULT_SCHOOL = "未注明"
 #: 外部来源未提供年份时的占位值，也是数据库允许的最早年份。
 DEFAULT_YEAR = 1900
 
+#: 样例测试点的分值。导入契约要求测试点分值之和为 100，只放一个测试点时只能给满分。
+SAMPLE_TEST_SCORE = 100
+
+
+@dataclass(slots=True)
+class ConversionSummary:
+    """详情 CSV → 导入包的转换结果，供 CLI 报告和人工复核。"""
+
+    #: 成功转换的题目数。
+    problem_count: int
+    #: 带样例测试点的题目数。
+    sample_test_count: int
+    #: 样例块疑似包含多组用例、需要人工拆分的题目标识。
+    multi_case_suspects: list[str]
+
 
 class NoobDreamImportConverter:
     """将详情 CSV 转换为标准导入包。"""
 
-    def convert(self, input_path: Path, target: Path, default_year: int | None = None) -> None:
+    def convert(
+        self,
+        input_path: Path,
+        target: Path,
+        default_year: int | None = None,
+        sample_as_test: bool = True,
+    ) -> ConversionSummary:
         """转换详情 CSV；``default_year`` 只填充空年份，不覆盖已有年份。
 
-        未显式指定时使用 1900 表示外部来源没有提供年份。
+        ``sample_as_test`` 为真时把公开样例写成唯一测试点（分值 100、标记为公开样例），
+        让题目导入后立刻可判；样例块疑似含多组用例的题号会写进返回值，供人工拆分。
+        未显式指定 default_year 时使用 1900 表示外部来源没有提供年份。
         转换失败时汇总全部行错误，避免只修正第一道题后重复试错。
         """
         require(input_path.is_file(), f"详情 CSV 不存在：{input_path}")
@@ -37,19 +72,29 @@ class NoobDreamImportConverter:
         require(records, "详情 CSV 没有题目记录")
         errors: list[str] = []
         problems: list[CanonicalProblem] = []
+        multi_case_suspects: list[str] = []
         for index, record in enumerate(records):
             try:
-                problems.append(_to_canonical_problem(record, default_year))
+                problem = _to_canonical_problem(record, default_year, sample_as_test)
             except CrawlerError as error:
                 key = (record.get("externalKey") or "").strip() or "?"
                 title = (record.get("title") or "").strip() or "未命名题目"
                 errors.append(f"第 {index + 2} 行（{key}，{title}）：{error}")
+                continue
+            problems.append(problem)
+            if problem.test_cases and _sample_looks_like_multiple_cases(problem.test_cases[0]):
+                multi_case_suspects.append(problem.external_key)
         if errors:
             raise CrawlerError(
                 f"详情 CSV 无法转换为标准导入包，共 {len(errors)} 行不完整：\n" + "\n".join(errors),
             )
         validate_canonical_problems(problems)
         ImportPackageWriter().write(problems, target)
+        return ConversionSummary(
+            problem_count=len(problems),
+            sample_test_count=sum(1 for problem in problems if problem.test_cases),
+            multi_case_suspects=multi_case_suspects,
+        )
 
 
 def _parse_records(input_path: Path) -> list[dict[str, str]]:
@@ -73,8 +118,12 @@ def _decode(raw: bytes, encoding: str) -> str | None:
         return None
 
 
-def _to_canonical_problem(record: dict[str, str], default_year: int | None) -> CanonicalProblem:
-    """将一行详情记录映射到标准导入模型；测试点暂时为空。"""
+def _to_canonical_problem(
+    record: dict[str, str],
+    default_year: int | None,
+    sample_as_test: bool = True,
+) -> CanonicalProblem:
+    """将一行详情记录映射到标准导入模型。"""
     external_key = _required(record, "externalKey")
     require(
         _external_key_valid(external_key),
@@ -105,8 +154,41 @@ def _to_canonical_problem(record: dict[str, str], default_year: int | None) -> C
         time_limit_ms=time_limit_ms,
         memory_limit_mib=memory_limit_mib,
         statement_markdown=statement,
-        test_cases=[],
+        test_cases=_sample_test_cases(record) if sample_as_test else [],
     )
+
+
+def _sample_test_cases(record: dict[str, str]) -> list[CanonicalTestCase]:
+    """把公开样例转成唯一测试点。
+
+    导入契约要求测试点分值之和正好为 100，所以只有一个测试点时它只能是满分。
+    样例标记为 ``sample=True``，前端会把它当作公开样例展示。
+    样例不完整（缺输入或缺输出）时不生成测试点，题目仍需人工补数据。
+    """
+    sample_input = _field(record, "sampleInput")
+    sample_output = _field(record, "sampleOutput")
+    if not sample_input or not sample_output:
+        return []
+    return [
+        CanonicalTestCase(
+            input=sample_input,
+            output=sample_output,
+            score=SAMPLE_TEST_SCORE,
+            sample=True,
+        ),
+    ]
+
+
+def _sample_looks_like_multiple_cases(test_case: CanonicalTestCase) -> bool:
+    """判断样例块是否疑似塞了多组用例。
+
+    站点把多组样例拼在同一个 ``<pre>`` 里：题目 1002 的输入是两行 ``2 100`` / ``2 22``，
+    输出也是两行 ``20`` / ``6``，实际是两组独立用例。整块当成一个测试点会让只处理单组的
+    正确程序判 WA，所以按“输入输出行数相同且都大于 1”给出疑似信号，交人工拆分。
+    """
+    input_lines = [line for line in test_case.input.splitlines() if line.strip()]
+    output_lines = [line for line in test_case.output.splitlines() if line.strip()]
+    return len(input_lines) > 1 and len(input_lines) == len(output_lines)
 
 
 def _map_difficulty(value: str) -> str:

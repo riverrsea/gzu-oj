@@ -265,6 +265,14 @@ class AiAgentController(
             runId,
         ).firstOrNull() ?: return
         if (current == AiWorkflowState.PUBLISHED || current == AiWorkflowState.CANCELED) return
+        // 已经在人工接管时不覆盖首次的失败原因与恢复目标。
+        // 后续上报通常是下游异常（例如重新提交沙箱任务被拒），若照写会同时抹掉根因和
+        // resume_target，管理员就无法按原阶段恢复；这里只把新的上报记入时间线。
+        if (current == AiWorkflowState.NEEDS_REVIEW) {
+            recordFailureHistory(runId, current, body.reason)
+            cancelPendingSandboxJobs(jdbc, runId)
+            return
+        }
         jdbc.update(
             """
             UPDATE ai_problem_run
@@ -275,8 +283,7 @@ class AiAgentController(
             body.resumeTarget?.take(32),
             runId,
         )
-        // 仅首次进入待审查时追加一条时间线，避免重复失败覆盖历史。
-        if (current != AiWorkflowState.NEEDS_REVIEW) recordFailureHistory(runId, current, body.reason)
+        recordFailureHistory(runId, current, body.reason)
         // 运行已经离开可领取状态，待结算的沙箱作业必须一起取消，否则会永远停在 QUEUED。
         cancelPendingSandboxJobs(jdbc, runId)
     }

@@ -126,15 +126,15 @@ def _run_import(
     print(f"已生成标准导入包：{target_path}")
     if summary.sample_test_count:
         print(
-            f"已把 {summary.sample_test_count}/{summary.problem_count} 道题的公开样例写成唯一测试点"
-            f"（分值 100，标记为公开样例）。",
+            f"已把 {summary.sample_test_count}/{summary.problem_count} 道题的公开样例写成测试点"
+            f"（共 {summary.test_case_count} 个，标记为公开样例）。",
         )
-    if summary.multi_case_suspects:
+    if summary.split_samples:
         print(
-            "注意：以下题目的样例块疑似包含多组用例，整块当成一个测试点会让只处理单组的程序判 WA，"
-            "需要人工在管理页面拆分：",
+            "以下题目的样例块是多组用例拼在一起的，已按行拆成多个测试点，请复核拆分是否正确：",
         )
-        print("  " + "、".join(summary.multi_case_suspects))
+        detail = "、".join(f"{key}（{count} 个）" for key, count in summary.split_samples)
+        print("  " + detail)
 
 
 def _run_list(url: str, target: Path, single_page: bool, school: str | None = None) -> None:

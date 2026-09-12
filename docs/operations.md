@@ -84,7 +84,7 @@ uv run gzu-oj-crawler noobdream-import /absolute/noobdream-problems.csv /absolut
 uv run gzu-oj-crawler noobdream-import /absolute/noobdream-problems.csv /absolute/noobdream-import.zip --default-year 2025
 ```
 
-转换后的 ZIP 包含 `problems.csv`、`statements/`，并在有公开样例时写入 `tests/`：样例会被当成唯一测试点（分值 100、标记为公开样例），让题目导入后立刻可判。源站会把多组样例拼在同一个 `<pre>` 里（例如 1002 的输入 `2 100` / `2 22` 对应输出 `20` / `6` 其实是两组用例），命令检测到"输入输出行数相同且都大于 1"时会点名提示需要人工拆分；不需要样例测试点时加 `--no-sample-test`。导入后题目为草稿，其余测试点在管理员编辑页面中继续录入。
+转换后的 ZIP 包含 `problems.csv`、`statements/`，并在有公开样例时写入 `tests/`：题面的公开样例会被提取成测试点（`sample=true`），让题目导入后立刻可判。测试点分值按数量均分且总和恒为 100（单点 100；2 组 50+50；4 组 25×4）。源站会把多组样例拼在同一个 `<pre>` 里（例如 1002 的输入 `2 100` / `2 22` 对应输出 `20` / `6` 其实是两组用例），转换器按「输入输出行数相同且都大于 1」识别并自动按行拆分，命令结尾会点名提示复核；不需要样例测试点时加 `--no-sample-test`。转换器只从样例取数据，不凭空生成期望输出——更多测试点请走 AI 测试点生成流程。导入后题目为草稿，其余测试点在管理员编辑页面中继续录入。
 源站的 `简单/中等/困难`（包括 `+/-` 后缀）会映射为项目难度。旧题中超出 MiB 范围的 KiB 数值会按 1024 换算，页面拼接值会保留合法的 MiB 前缀，低于系统下限的正数会提升到 16 MiB。
 
 ### 题面公式的处理

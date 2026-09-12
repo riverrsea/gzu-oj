@@ -44,8 +44,10 @@ class ConversionSummary:
     problem_count: int
     #: 带样例测试点的题目数。
     sample_test_count: int
-    #: 样例块可能含多组用例、需要留意判题口径的题目标识。
-    multi_case_warnings: list[str]
+    #: 实际写出的测试点总数；题面有几组样例就有几个测试点。
+    test_case_count: int
+    #: 题面含多组样例的题目：``(externalKey, 样例组数)``，供人工复核切分是否正确。
+    multi_sample_problems: list[tuple[str, int]]
 
 
 class NoobDreamImportConverter:
@@ -60,8 +62,9 @@ class NoobDreamImportConverter:
     ) -> ConversionSummary:
         """转换详情 CSV；``default_year`` 只填充空年份，不覆盖已有年份。
 
-        ``sample_as_test`` 为真时把公开样例写成唯一测试点（分值 100、标记为公开样例），
-        让题目导入后立刻可判；样例块疑似含多组用例的题号会写进返回值，供人工拆分。
+        ``sample_as_test`` 为真时把题面里的样例写成测试点：**有几组样例就写几个测试点**，
+        分值按组数均分且总和为 100，全部标记为公开样例，让题目导入后立刻可判。
+        含多组样例的题号会写进返回值，供人工复核切分是否符合题意。
         未显式指定 default_year 时使用 1900 表示外部来源没有提供年份。
         转换失败时汇总全部行错误，避免只修正第一道题后重复试错。
         """
@@ -72,7 +75,7 @@ class NoobDreamImportConverter:
         require(records, "详情 CSV 没有题目记录")
         errors: list[str] = []
         problems: list[CanonicalProblem] = []
-        multi_case_warnings: list[str] = []
+        multi_sample_problems: list[tuple[str, int]] = []
         for index, record in enumerate(records):
             try:
                 problem = _to_canonical_problem(record, default_year, sample_as_test)
@@ -82,9 +85,9 @@ class NoobDreamImportConverter:
                 errors.append(f"第 {index + 2} 行（{key}，{title}）：{error}")
                 continue
             problems.append(problem)
-            # 样例块里可能拼了多组用例；测试点结构保持不变，只提示判题口径风险。
-            if problem.test_cases and _record_looks_like_multiple_cases(record):
-                multi_case_warnings.append(problem.external_key)
+            # 题面含多组样例时会有多个测试点，单独列出供人工复核切分。
+            if len(problem.test_cases) > 1:
+                multi_sample_problems.append((problem.external_key, len(problem.test_cases)))
         if errors:
             raise CrawlerError(
                 f"详情 CSV 无法转换为标准导入包，共 {len(errors)} 行不完整：\n" + "\n".join(errors),
@@ -94,7 +97,8 @@ class NoobDreamImportConverter:
         return ConversionSummary(
             problem_count=len(problems),
             sample_test_count=sum(1 for problem in problems if problem.test_cases),
-            multi_case_warnings=multi_case_warnings,
+            test_case_count=sum(len(problem.test_cases) for problem in problems),
+            multi_sample_problems=multi_sample_problems,
         )
 
 
@@ -160,39 +164,53 @@ def _to_canonical_problem(
 
 
 def _sample_test_cases(record: dict[str, str]) -> list[CanonicalTestCase]:
-    """把题面的公开样例写成一个测试点。
+    """题面有几组样例，就写几个测试点。
 
-    样例输入与样例输出整块作为该测试点的输入和期望输出；导入契约要求测试点分值之和
-    正好为 100，只放这一个测试点时它便是 100 分。样例不完整（缺输入或缺输出）时
-    不生成测试点，题目仍需人工补数据。
+    导入契约要求测试点分值之和正好为 100，所以按样例组数均分，余数补给前几组。
+    样例不完整（缺输入或缺输出）时不生成测试点。
+    """
+    cases = _sample_cases(record)
+    if not cases:
+        return []
+    scores = _even_scores(len(cases))
+    return [
+        CanonicalTestCase(input=case_input, output=case_output, score=score, sample=True)
+        for (case_input, case_output), score in zip(cases, scores, strict=True)
+    ]
+
+
+def _sample_cases(record: dict[str, str]) -> list[tuple[str, str]]:
+    """从题面样例里切出每一组样例的 (输入, 输出)。
+
+    源站每个题目只有一个 ``pre#input`` / ``pre#output``，多组样例会拼在同一个块里：
+    题目 1002 的输入是 ``2 100`` / ``2 22`` 两行、输出是 ``20`` / ``6`` 两行，
+    实际是两组样例。多组样例的写法是每组一行输入对应一行输出，因此输入输出行数相同
+    且都大于 1 时按行切开。
+
+    单组样例的输入输出行数通常不相等（例如"第一行 n、第二行数组"对应"一行答案"），
+    这时整块作为一组。判据是启发式的，含多组样例的题号会由 :meth:`convert` 报出来，
+    建议在管理页面复核切分是否符合题意。
     """
     sample_input = _field(record, "sampleInput")
     sample_output = _field(record, "sampleOutput")
     if not sample_input or not sample_output:
         return []
-    return [
-        CanonicalTestCase(
-            input=sample_input,
-            output=sample_output,
-            score=SAMPLE_TEST_SCORE,
-            sample=True,
-        ),
-    ]
+    input_lines = [line for line in sample_input.splitlines() if line.strip()]
+    output_lines = [line for line in sample_output.splitlines() if line.strip()]
+    if _every_line_is_one_case(input_lines, output_lines):
+        return list(zip(input_lines, output_lines, strict=True))
+    return [(sample_input, sample_output)]
 
 
-def _record_looks_like_multiple_cases(record: dict[str, str]) -> bool:
-    """判断样例块是不是多组用例拼在一起。
-
-    站点会把多组样例拼在同一个 ``<pre>`` 里：题目 1002 的样例输入是 ``2 100`` / ``2 22``
-    两行、输出是 ``20`` / ``6`` 两行，实际是两组独立用例。多组用例的特征是每组一行输入
-    对应一行输出，因此输入输出行数相同且都大于 1。
-
-    这里只用于提示判题口径：样例整块作为单个测试点时，只处理单组的程序可能判 WA。
-    测试点结构不做改动，需要拆分由人工在管理页面处理。
-    """
-    input_lines = [line for line in _field(record, "sampleInput").splitlines() if line.strip()]
-    output_lines = [line for line in _field(record, "sampleOutput").splitlines() if line.strip()]
+def _every_line_is_one_case(input_lines: list[str], output_lines: list[str]) -> bool:
+    """判断样例是否是"一行输入对一行输出"的多组写法。"""
     return len(input_lines) > 1 and len(input_lines) == len(output_lines)
+
+
+def _even_scores(count: int) -> list[int]:
+    """把 100 分尽量均分给 ``count`` 个测试点，余数补给前几组，总和恒为 100。"""
+    base, remainder = divmod(SAMPLE_TEST_SCORE, count)
+    return [base + 1 if index < remainder else base for index in range(count)]
 
 
 def _map_difficulty(value: str) -> str:

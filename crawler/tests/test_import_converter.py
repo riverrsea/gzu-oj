@@ -137,7 +137,8 @@ def test_uses_public_sample_as_only_test_case(tmp_path: Path) -> None:
 
     assert summary.problem_count == 1
     assert summary.sample_test_count == 1
-    assert summary.multi_case_warnings == []
+    assert summary.test_case_count == 1
+    assert summary.multi_sample_problems == []
     with zipfile.ZipFile(target) as archive:
         names = archive.namelist()
         assert "tests/problem-1/cases.csv" in names
@@ -181,13 +182,15 @@ def test_missing_sample_produces_no_test_case(tmp_path: Path) -> None:
         assert "tests/problem-1/cases.csv" not in archive.namelist()
 
 
-def test_sample_block_stays_one_test_case(tmp_path: Path) -> None:
-    """样例输入输出整块作为**一个**测试点，不做拆分。"""
+def test_splits_sample_block_with_multiple_cases(tmp_path: Path) -> None:
+    """多组样例要按行拆成多个测试点，整块当成一个测试点会判错。"""
     csv_text = (
         _HEADER
         + "\n"
-        # 题目 1002 的样例：两行输入、两行输出。
+        # 题目 1002 的样例：两行输入、两行输出，实际是两组独立用例。
         + 'noobdream:1002,1002,数字统计,兰州大学,2025,EASY,数学,1000,256,# 数字统计,,,"2 100\n2 22","20\n6",\n'
+        # 题目 5387 的样例：两行输入、一行输出，是单组用例，不应被拆。
+        + 'noobdream:5387,5387,最大连续子序列和,贵州大学,2025,EASY,数学,1000,256,# 序列,,,"2\n1 2","3",\n'
     )
     source = tmp_path / "details.csv"
     source.write_text(csv_text, encoding="utf-8")
@@ -195,32 +198,65 @@ def test_sample_block_stays_one_test_case(tmp_path: Path) -> None:
 
     summary = NoobDreamImportConverter().convert(source, target)
 
-    assert summary.sample_test_count == 1
+    # 两道题都有样例测试点，但只有 1002 被拆成两组。
+    assert summary.sample_test_count == 2
+    assert summary.test_case_count == 3
+    assert summary.multi_sample_problems == [("noobdream:1002", 2)]
+
     with zipfile.ZipFile(target) as archive:
-        assert archive.read("tests/problem-1/1.in").decode("utf-8") == "2 100\n2 22"
-        assert archive.read("tests/problem-1/1.out").decode("utf-8") == "20\n6"
+        assert archive.read("tests/problem-1/1.in").decode("utf-8") == "2 100"
+        assert archive.read("tests/problem-1/1.out").decode("utf-8") == "20"
+        assert archive.read("tests/problem-1/2.in").decode("utf-8") == "2 22"
+        assert archive.read("tests/problem-1/2.out").decode("utf-8") == "6"
         cases = archive.read("tests/problem-1/cases.csv").decode("utf-8")
-        assert "1,1.in,1.out,100,true" in cases
-        assert "2,2.in" not in cases
+        assert "1,1.in,1.out,50,true" in cases
+        assert "2,2.in,2.out,50,true" in cases
+        # 未拆分的题目仍是整块一个满分测试点。
+        assert archive.read("tests/problem-2/1.in").decode("utf-8") == "2\n1 2"
+        assert "1,1.in,1.out,100,true" in archive.read("tests/problem-2/cases.csv").decode("utf-8")
 
 
-def test_warns_when_sample_holds_multiple_cases(tmp_path: Path) -> None:
-    """输入输出行数相同且都大于 1 时提示判题口径风险，但不改测试点结构。"""
+def test_splits_four_case_sample_with_even_scores(tmp_path: Path) -> None:
+    """四组样例均分为 25 分，对应题目 1091 这种一 input 行对一 output 行的写法。"""
     csv_text = (
         _HEADER
         + "\n"
-        # 1002：两行输入、两行输出，可能拼了两组用例。
-        + 'noobdream:1002,1002,数字统计,兰州大学,2025,EASY,数学,1000,256,# 数字统计,,,"2 100\n2 22","20\n6",\n'
-        # 5387：两行输入、一行输出，是单组用例，不应被提示。
-        + 'noobdream:5387,5387,最大连续子序列和,贵州大学,2025,EASY,数学,1000,256,# 序列,,,"2\n1 2","3",\n'
+        + 'noobdream:1091,1091,促销计算,兰州大学,2025,EASY,模拟,1000,256,# 促销,,,"850\n1230\n5000\n3560",'
+        + '"a=1\nb=2\nc=3\nd=4",\n'
     )
     source = tmp_path / "details.csv"
     source.write_text(csv_text, encoding="utf-8")
+    target = tmp_path / "import.zip"
 
-    summary = NoobDreamImportConverter().convert(source, tmp_path / "import.zip")
+    summary = NoobDreamImportConverter().convert(source, target)
 
-    assert summary.sample_test_count == 2
-    assert summary.multi_case_warnings == ["noobdream:1002"]
+    assert summary.multi_sample_problems == [("noobdream:1091", 4)]
+    with zipfile.ZipFile(target) as archive:
+        cases = archive.read("tests/problem-1/cases.csv").decode("utf-8").strip().splitlines()
+        scores = [int(line.split(",")[3]) for line in cases[1:]]
+        assert scores == [25, 25, 25, 25]
+        assert sum(scores) == 100
+        assert archive.read("tests/problem-1/4.out").decode("utf-8") == "d=4"
+
+
+def test_split_scores_still_sum_to_one_hundred(tmp_path: Path) -> None:
+    """三组样例无法整除时余数补给前几组，总和必须仍是 100。"""
+    csv_text = (
+        _HEADER
+        + "\n"
+        + 'noobdream:1,1,三组,贵州大学,2025,EASY,模拟,1000,256,# 三组,,,"1\n2\n3","a\nb\nc",\n'
+    )
+    source = tmp_path / "details.csv"
+    source.write_text(csv_text, encoding="utf-8")
+    target = tmp_path / "import.zip"
+
+    NoobDreamImportConverter().convert(source, target)
+
+    with zipfile.ZipFile(target) as archive:
+        lines = archive.read("tests/problem-1/cases.csv").decode("utf-8").strip().splitlines()
+    scores = [int(line.split(",")[3]) for line in lines[1:]]
+    assert scores == [34, 33, 33]
+    assert sum(scores) == 100
 
 
 def test_sample_test_scores_sum_to_one_hundred(tmp_path: Path) -> None:

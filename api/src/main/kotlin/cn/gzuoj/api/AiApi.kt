@@ -393,6 +393,8 @@ class AiRunService(
             runId,
         )
         recordStateTransition(runId, state, AiWorkflowState.NEEDS_REVIEW, reason)
+        // 交给人工复核后运行已离开可领取状态，待结算的作业必须一起取消，否则会永远停在 QUEUED。
+        cancelPendingSandboxJobs(jdbc, runId)
     }
 
     /** 前两轮差分失败交给 Python Agent 定向修复，第三轮才进入人工接管。 */
@@ -454,10 +456,7 @@ class AiRunService(
             """.trimIndent(),
             runId,
         )
-        jdbc.update(
-            "UPDATE ai_sandbox_job SET status = 'CANCELED', completed_at = now() WHERE run_id = ? AND status IN ('QUEUED', 'LEASED')",
-            runId,
-        )
+        cancelPendingSandboxJobs(jdbc, runId)
         // 取消通知也进入 outbox，Agent 暂时不可用时由调度器重试，不阻塞管理员请求。
         jdbc.update(
             """

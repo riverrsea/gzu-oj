@@ -129,6 +129,37 @@ Kotlin 版 `crawler-cli` 保留用于回归对照，命令形式与上面对应�
 当成手动测试点，下一次生成就无法替换它们，只能不断累积。该字段已经从
 `AdminTestCaseDetail`（读）、编辑页表单（改）、`CreateTestCaseRequest`（写）一路打通。
 
+## AI 沙箱队列与运行状态
+
+沙箱作业只有三种状态能被 Worker 领取：`GENERATING_TESTS`、`GENERATING_SOLUTIONS`、`DIFFERENTIAL_TESTING`
+（`AI_SANDBOX_CLAIMABLE_STATES`）。领取查询的 `IN` 列表由这份定义拼出，入队校验也用同一份，两边不会漂移。
+
+由此有两条必须遵守的规则：
+
+- **运行离开可领取状态后不能再入队作业**。否则作业会被正常插成 `QUEUED`，但永远没有 Worker 领取，
+  一直挂在队列里。`sandbox-jobs` 接口在运行不是生成阶段时返回 `409 AI_RUN_NOT_GENERATING`。
+- **运行离开可领取状态时必须取消待结算作业**。管理员取消运行、以及交给人工复核
+  （`NEEDS_REVIEW`，两条路径：Agent 上报失败、差分校验失败）都会调用
+  `cancelPendingSandboxJobs`，把该运行的 `QUEUED` / `LEASED` 作业置为 `CANCELED`。
+
+恢复运行时要特别注意：作业的唯一键是 `(run_id, repair_round, stage, attempt)`，`resume` 不会删除旧作业。
+如果这些作业已被取消，Agent 用同样的键重新提交时会命中幂等查询，拿回一条永远不会被执行的作业。
+因此 `sandbox-jobs` 在命中已取消的作业时会**复用该行**、写入新载荷并重置为 `QUEUED`，而不是直接返回。
+
+排查队列积压时的检查顺序：
+
+```sql
+-- 1. 有没有一直 QUEUED 的作业，以及它所属运行的状态
+SELECT j.id, j.stage, j.status, r.state, j.created_at
+FROM ai_sandbox_job j JOIN ai_problem_run r ON r.id = j.run_id
+WHERE j.status = 'QUEUED' ORDER BY j.created_at;
+
+-- 2. Worker 是否在正常心跳
+SELECT name, active, slots, ai_slots, now() - last_heartbeat_at FROM worker_node;
+```
+
+如果第 1 步查出来运行的 state 不在三个生成阶段里，就说明是上面第二条规则被漏掉了。
+
 ## 清空业务数据
 
 `api/src/main/resources/db/maintenance/wipe_business_data.sql` 是一次性清库脚本：清空全部业务数据

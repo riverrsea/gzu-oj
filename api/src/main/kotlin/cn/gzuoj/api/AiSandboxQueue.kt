@@ -8,6 +8,7 @@ import cn.gzuoj.shared.AiSandboxCompletionStatus
 import cn.gzuoj.shared.AiSandboxFailureStage
 import cn.gzuoj.shared.AiSandboxLease
 import cn.gzuoj.shared.AiSandboxTaskPayload
+import cn.gzuoj.shared.AiWorkflowState
 import jakarta.validation.Valid
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
@@ -153,6 +154,38 @@ object AiSandboxCompletionVerifier {
     private const val MAX_TOTAL_BYTES: Long = 64L * 1024L * 1024L
 }
 
+/**
+ * 沙箱作业可被 Worker 领取的运行状态。
+ *
+ * 领取查询和入队校验共用这一处定义：一旦运行离开这些状态（例如交给人工复核、进入校验或终态），
+ * 再入队的作业永远不会有人领取，只会以 `QUEUED` 永远留在队列里。
+ */
+internal val AI_SANDBOX_CLAIMABLE_STATES: Set<AiWorkflowState> = setOf(
+    AiWorkflowState.GENERATING_TESTS,
+    AiWorkflowState.GENERATING_SOLUTIONS,
+    AiWorkflowState.DIFFERENTIAL_TESTING,
+)
+
+/** 把可领取状态拼成 SQL 的 `IN` 列表；取值是枚举名而不是用户输入，直接内联即可。 */
+internal val AI_SANDBOX_CLAIMABLE_STATES_SQL: String =
+    AI_SANDBOX_CLAIMABLE_STATES.joinToString(",") { "'${it.name}'" }
+
+/** 运行处于可领取状态时才允许入队新的沙箱作业。 */
+internal fun canEnqueueSandboxJob(state: AiWorkflowState): Boolean = state in AI_SANDBOX_CLAIMABLE_STATES
+
+/**
+ * 取消某个运行尚未结算的沙箱作业。
+ *
+ * 运行离开可领取状态时必须调用，否则已经入队的作业会永远停在 `QUEUED`。
+ * 管理员取消运行和交给人工复核都走这里，避免两处各写一遍 SQL。
+ */
+internal fun cancelPendingSandboxJobs(jdbc: JdbcTemplate, runId: UUID) {
+    jdbc.update(
+        "UPDATE ai_sandbox_job SET status = 'CANCELED', completed_at = now() WHERE run_id = ? AND status IN ('QUEUED', 'LEASED')",
+        runId,
+    )
+}
+
 /** PostgreSQL 持久化 AI 生成与差分任务队列。 */
 @Service
 class AiSandboxQueue(
@@ -174,7 +207,7 @@ class AiSandboxQueue(
             SELECT j.id, j.run_id, r.problem_version_id, j.stage, j.payload::text
             FROM ai_sandbox_job j JOIN ai_problem_run r ON r.id = j.run_id
             WHERE j.available_at <= now()
-              AND r.state IN ('GENERATING_TESTS', 'GENERATING_SOLUTIONS', 'DIFFERENTIAL_TESTING')
+              AND r.state IN ($AI_SANDBOX_CLAIMABLE_STATES_SQL)
               AND (j.status = 'QUEUED' OR (j.status = 'LEASED' AND j.lease_expires_at < now()))
             ORDER BY j.priority DESC, j.created_at
             FOR UPDATE OF j SKIP LOCKED

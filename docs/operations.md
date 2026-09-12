@@ -113,18 +113,26 @@ Kotlin 版 `crawler-cli` 保留用于回归对照，命令形式与上面对应�
 - `submission.score` 仍然是提交结果的一部分，排名、套卷得分、错题本「已解决」判定都继续用它；
 - 导入包与管理员接口的测试点都只有 `input` / `output` / `sample`，不再有分值字段。
 
-## 清空题目数据
+## 清空业务数据
 
-`api/src/main/resources/db/maintenance/wipe_problem_data.sql` 是一次性清库脚本：清空全部题目相关数据，
-只保留用户账号、登录会话与 Worker 节点。它放在 `db/maintenance/` 而不是 `db/migration/`，
-**Flyway 不会自动执行**，必须手动运行：
+`api/src/main/resources/db/maintenance/wipe_business_data.sql` 是一次性清库脚本：清空全部业务数据
+（题目、提交、AI 运行、练习、比赛与套卷、导入批次），只保留账号与基础设施状态。它放在
+`db/maintenance/` 而不是 `db/migration/`，**Flyway 不会自动执行**，必须手动运行：
 
 ```bash
 psql -h 127.0.0.1 -U riversea -d gzu_oj -v ON_ERROR_STOP=1 \
-  -f api/src/main/resources/db/maintenance/wipe_problem_data.sql
+  -f api/src/main/resources/db/maintenance/wipe_business_data.sql
 ```
+
+保留的表：`app_user`、`email_verification`、`password_reset`、`spring_session`、
+`spring_session_attributes`、`worker_node`、`flyway_schema_history`。
+
+其中 **`worker_node` 必须保留**：它的 `token_hash` 就是判题 Worker 的认证凭据，删掉之后正在运行的
+Worker 会在下一次心跳拿到 401，且无法自行重新注册（明文令牌只在创建时返回一次）。
 
 脚本内的 `TRUNCATE` 明确列出全部表而不使用 `CASCADE`：万一漏了某张表，PostgreSQL 会直接因为外键报错，
 而不是静默连带清掉未预期的数据。执行前请先备份。
 
-注意脚本只清数据库行，ArtifactStore 在磁盘上的制品文件不会被删除；孤儿文件需要按存储目录另行清理。
+注意脚本只清数据库行，ArtifactStore 在磁盘上的制品文件不会被删除。制品根目录由
+`GZU_OJ_ARTIFACT_ROOT` 配置（默认 `./artifacts`），清库后 `imports/` 与 `test-data/` 下会留下孤儿文件，
+需要按目录另行清理。

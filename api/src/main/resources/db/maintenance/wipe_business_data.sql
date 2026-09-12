@@ -1,18 +1,22 @@
--- 一次性清库脚本：清空全部题目相关数据，只保留用户账号。
+-- 一次性清库脚本：清空全部业务数据，只保留账号与基础设施状态。
 --
 -- 这是**手动执行**的维护脚本，故意放在 db/maintenance/ 而不是 db/migration/，
 -- 因此部署时不会被 Flyway 自动执行。执行方式见 docs/operations.md。
 --
--- 保留：app_user、spring_session、spring_session_attributes、email_verification、
---       password_reset、worker_node、contest、contest_participant、timed_paper、
---       timed_paper_attempt、artifact 表本身。
+-- 保留（都属于账号或基础设施，不属于业务数据）：
+--   app_user、email_verification、password_reset、spring_session、
+--   spring_session_attributes、worker_node、flyway_schema_history
+--
+-- 特别注意 worker_node **必须保留**：它的 token_hash 就是判题 Worker 的认证凭据，
+-- 删掉之后正在运行的 Worker 会在下一次心跳拿到 401，而且无法自行重新注册
+-- （明文令牌只在创建时返回一次）。
 --
 -- 注意：本脚本只清数据库行。ArtifactStore 在磁盘上的制品文件（题目测试数据、
 --       AI 源码与日志、导入包）不会被删除，孤儿文件的磁盘清理需要另行处理。
 
 BEGIN;
 
--- 1. 题目本体、提交、AI 运行、练习/比赛/套卷引用、导入批次一次性清空。
+-- 1. 题目、提交、AI 运行、练习、比赛与套卷、导入批次一次性清空。
 --    这里明确列出全部表而不用 CASCADE：万一漏了某张表，TRUNCATE 会直接因为外键报错，
 --    而不是静默连带清掉未预期的数据。
 TRUNCATE TABLE
@@ -21,6 +25,8 @@ TRUNCATE TABLE
     ai_problem_step,
     ai_run_log,
     ai_sandbox_job,
+    contest,
+    contest_participant,
     contest_problem,
     favorite_problem,
     idempotency_record,
@@ -35,6 +41,8 @@ TRUNCATE TABLE
     submission,
     submission_case_result,
     submission_run_case,
+    timed_paper,
+    timed_paper_attempt,
     timed_paper_problem,
     wrong_problem;
 

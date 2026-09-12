@@ -25,7 +25,7 @@ class ImportPackageWriterTest {
                         timeLimitMs = 1_000,
                         memoryLimitMiB = 256,
                         statementMarkdown = "# 两数之和",
-                        testCases = listOf(CanonicalTestCase("1 2\n", "3\n", 100, true)),
+                        testCases = listOf(CanonicalTestCase("1 2\n", "3\n", sample = true)),
                     ),
                 ),
                 target,

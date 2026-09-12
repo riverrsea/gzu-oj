@@ -22,8 +22,6 @@ data class CanonicalTestCase(
     val input: String,
     /** 由可信标程生成的标准输出。 */
     val output: String,
-    /** 测试点分值。 */
-    val score: Int,
     /** 是否公开为样例。 */
     val sample: Boolean = false,
 )
@@ -93,9 +91,6 @@ class LocalSampleAdapter(
             require(problem.timeLimitMs in 100..60_000) { "时间限制超出范围" }
             require(problem.memoryLimitMiB in 16..2048) { "内存限制超出范围" }
             require(problem.statementMarkdown.isNotBlank()) { "题面不能为空" }
-            if (problem.testCases.isNotEmpty()) {
-                require(problem.testCases.sumOf { it.score } == 100) { "测试点分值之和必须为 100" }
-            }
         }
     }
 }
@@ -157,12 +152,12 @@ class ImportPackageWriter {
         val output = ByteArrayOutputStream()
         BufferedWriter(OutputStreamWriter(output, StandardCharsets.UTF_8)).use { writer ->
             CSVPrinter(writer, CSVFormat.DEFAULT).use { csv ->
-                csv.printRecord("ordinal", "inputPath", "outputPath", "score", "sample")
+                csv.printRecord("ordinal", "inputPath", "outputPath", "sample")
                 problem.testCases.forEachIndexed { index, test ->
                     val ordinal = index + 1
                     val inputName = "$ordinal.in"
                     val outputName = "$ordinal.out"
-                    csv.printRecord(ordinal, inputName, outputName, test.score, test.sample)
+                    csv.printRecord(ordinal, inputName, outputName, test.sample)
                     add(zip, "$prefix/$inputName", test.input.toByteArray(StandardCharsets.UTF_8))
                     add(zip, "$prefix/$outputName", test.output.toByteArray(StandardCharsets.UTF_8))
                 }

@@ -8,8 +8,9 @@
 - `ai-agent`：Python FastAPI、LangGraph 和 OpenAI 兼容模型适配；不读取 OJ 业务表。
 - `worker`：异地判题节点，领取租约并调用同机 go-judge。
 - `shared`：判题、计分、排名和 AI 状态机公共契约。
-- `web`：Vue 3 用户端与管理员端。
-- `crawler-cli`：`SourceAdapter -> CanonicalProblem -> 标准 ZIP` 采集框架。
+- `web`：Vue 3 用户端与管理员端，题面用 marked + KaTeX 渲染 Markdown 与公式。
+- `crawler`：Python 采集 CLI（`SourceAdapter -> CanonicalProblem -> 标准 ZIP`），输出契约与 `crawler-cli` 一致。
+- `crawler-cli`：迁移前的 Kotlin 采集实现，保留用于回归对照。
 - `infra`：控制端、判题端、一体化 Compose，以及 Caddy、备份和预检。
 
 ## 本地开发

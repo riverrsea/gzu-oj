@@ -87,8 +87,6 @@ data class JudgeCaseLease(
     val caseId: UUID,
     /** 测试点显示序号。 */
     val ordinal: Int,
-    /** 该测试点分值。 */
-    val score: Int,
     /** 输入制品的租约绑定下载地址。 */
     val inputUrl: String? = null,
     /** 输入制品 SHA-256。 */
@@ -135,8 +133,6 @@ data class JudgeCaseResult(
     val caseId: UUID,
     /** 测点状态。 */
     val status: JudgeStatus,
-    /** 获得分值。 */
-    val score: Int,
     /** 实际 CPU 时间，单位毫秒。 */
     val timeMs: Long,
     /** 峰值内存，单位 KiB。 */
@@ -155,11 +151,9 @@ data class JudgeCompletion(
     val leaseToken: String,
     /** 最终提交状态。 */
     val status: JudgeStatus,
-    /** 最终得分，范围为 0 到 100。 */
-    val score: Int,
     /** 编译器输出，仅在编译失败时对用户可见。 */
     val compileMessage: String? = null,
-    /** 各隐藏测试点的脱敏结果。 */
+    /** 各隐藏测试点的脱敏结果；提交得分由服务端按通过点数派生。 */
     val testCases: List<JudgeCaseResult> = emptyList(),
     /** 基础设施异常摘要，用于审计和重试判定。 */
     val systemMessage: String? = null,

@@ -88,8 +88,6 @@ data class SubmissionCaseResponse(
     val ordinal: Int,
     /** 判题状态。 */
     val status: JudgeStatus,
-    /** 测试点得分。 */
-    val score: Int,
     /** CPU 时间，单位毫秒。 */
     val timeMs: Long,
     /** 峰值内存，单位 KiB。 */
@@ -522,7 +520,7 @@ class SubmissionService(
     /** 读取脱敏测点结果。 */
     private fun loadCaseResults(submissionId: UUID): List<SubmissionCaseResponse> = jdbc.query(
         """
-        SELECT tc.ordinal, r.status, r.score, r.time_ms, r.memory_kib, r.message
+        SELECT tc.ordinal, r.status, r.time_ms, r.memory_kib, r.message
         FROM submission_case_result r
         JOIN problem_test_case tc ON tc.id = r.test_case_id
         WHERE r.submission_id = ? ORDER BY tc.ordinal
@@ -531,7 +529,6 @@ class SubmissionService(
             SubmissionCaseResponse(
                 ordinal = result.getInt("ordinal"),
                 status = JudgeStatus.valueOf(result.getString("status")),
-                score = result.getInt("score"),
                 timeMs = result.getLong("time_ms"),
                 memoryKiB = result.getLong("memory_kib"),
                 message = result.getString("message"),
@@ -550,7 +547,6 @@ class SubmissionService(
             SubmissionCaseResponse(
                 ordinal = result.getInt("ordinal"),
                 status = JudgeStatus.valueOf(result.getString("status")),
-                score = 0,
                 timeMs = result.getLong("time_ms"),
                 memoryKiB = result.getLong("memory_kib"),
                 message = result.getString("message"),

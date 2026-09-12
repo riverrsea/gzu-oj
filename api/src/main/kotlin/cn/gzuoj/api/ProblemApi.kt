@@ -46,10 +46,6 @@ data class CreateTestCaseRequest(
     /** 标准输出；必须来自可信标程，不应由模型直接猜测。 */
     @field:Size(max = 16 * 1024 * 1024, message = "单个输出文件不能超过 16 MiB")
     val output: String,
-    /** 测试点分值。 */
-    @field:Min(0)
-    @field:Max(100)
-    val score: Int,
     /** 是否作为公开样例返回。 */
     val sample: Boolean = false,
 )
@@ -258,8 +254,6 @@ data class AdminProblemSummary(
     val status: String,
     /** 测试点数量。 */
     val testCaseCount: Int,
-    /** 测试点分值总和。 */
-    val scoreSum: Int,
     /** 公开样例数量。 */
     val sampleCount: Int,
     /** 创建时间。 */
@@ -288,8 +282,6 @@ data class AdminTestCaseDetail(
     val input: String,
     /** 标准输出。 */
     val output: String,
-    /** 测试点分值。 */
-    val score: Int,
     /** 是否公开为样例。 */
     val sample: Boolean,
 )
@@ -385,8 +377,6 @@ data class AiGeneratedTestCase(
     val input: String,
     /** 两份标程及小数据暴力解一致的标准输出。 */
     val output: String,
-    /** 自动分配且全部测试点合计为一百分的分值。 */
-    val score: Int,
     /** 是否作为公开样例返回。 */
     val sample: Boolean = false,
 )
@@ -488,11 +478,11 @@ class ProblemService(
                 jdbc.update(
                     """
                     INSERT INTO problem_test_case(
-                        id, problem_version_id, ordinal, score, input_artifact_id, output_artifact_id,
+                        id, problem_version_id, ordinal, input_artifact_id, output_artifact_id,
                         sample, generated_by_ai_run_id, generation_seed
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """.trimIndent(),
-                    UUID.randomUUID(), versionId, index + 1, testCase.score, inputId, outputId, testCase.sample, runId, testCase.seed,
+                    UUID.randomUUID(), versionId, index + 1, inputId, outputId, testCase.sample, runId, testCase.seed,
                 )
             }
             val dataNotice = AI_DATA_NOTICE
@@ -508,7 +498,7 @@ class ProblemService(
                     timeLimitMs = version.timeLimitMs,
                     memoryLimitMiB = version.memoryLimitMiB,
                     externalKey = version.externalKey,
-                    testCases = testCases.map { CreateTestCaseRequest(it.input, it.output, it.score, it.sample) },
+                    testCases = testCases.map { CreateTestCaseRequest(it.input, it.output, it.sample) },
                     dataNotice = dataNotice,
                 ),
             )
@@ -527,7 +517,7 @@ class ProblemService(
     /** 读取某次 AI 运行实际写入版本的测试点，供管理员查看生成数量和内容。 */
     fun aiGeneratedTestCases(runId: UUID): List<AiGeneratedTestCaseResponse> = jdbc.query(
         """
-        SELECT tc.ordinal, tc.generation_seed, tc.score, tc.sample, ia.storage_key AS input_key, oa.storage_key AS output_key
+        SELECT tc.ordinal, tc.generation_seed, tc.sample, ia.storage_key AS input_key, oa.storage_key AS output_key
         FROM problem_test_case tc
         JOIN artifact ia ON ia.id = tc.input_artifact_id
         JOIN artifact oa ON oa.id = tc.output_artifact_id
@@ -540,7 +530,6 @@ class ProblemService(
                 seed = result.getLong("generation_seed"),
                 input = artifactStore.open(result.getString("input_key")).bufferedReader().use { it.readText() },
                 output = artifactStore.open(result.getString("output_key")).bufferedReader().use { it.readText() },
-                score = result.getInt("score"),
                 sample = result.getBoolean("sample"),
             )
         },
@@ -588,7 +577,6 @@ class ProblemService(
             SELECT p.id AS problem_id, pv.id AS version_id, p.external_key, pv.title, pv.school, pv.year,
                    pv.tags, pv.difficulty, pv.version_number, pv.status,
                    count(tc.id) AS test_case_count,
-                   coalesce(sum(tc.score), 0) AS score_sum,
                    count(tc.id) FILTER (WHERE tc.sample) AS sample_count,
                    pv.created_at, pv.published_at
             FROM problem p
@@ -745,7 +733,7 @@ class ProblemService(
         ).firstOrNull() ?: throw ApiException(HttpStatus.NOT_FOUND, "VERSION_NOT_FOUND", "题目版本不存在")
         val testCases = jdbc.query(
             """
-            SELECT tc.ordinal, tc.score, tc.sample, ia.storage_key AS input_key, oa.storage_key AS output_key
+            SELECT tc.ordinal, tc.sample, ia.storage_key AS input_key, oa.storage_key AS output_key
             FROM problem_test_case tc
             JOIN artifact ia ON ia.id = tc.input_artifact_id
             JOIN artifact oa ON oa.id = tc.output_artifact_id
@@ -756,8 +744,7 @@ class ProblemService(
                     ordinal = result.getInt("ordinal"),
                     input = artifactStore.open(result.getString("input_key")).bufferedReader().use { it.readText() },
                     output = artifactStore.open(result.getString("output_key")).bufferedReader().use { it.readText() },
-                    score = result.getInt("score"),
-                    sample = result.getBoolean("sample"),
+                        sample = result.getBoolean("sample"),
                 )
             },
             versionId,
@@ -868,10 +855,10 @@ class ProblemService(
                 val outputId = insertArtifact(stored[index * 2 + 1], creator)
                 jdbc.update(
                     """
-                    INSERT INTO problem_test_case(id, problem_version_id, ordinal, score, input_artifact_id, output_artifact_id, sample)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO problem_test_case(id, problem_version_id, ordinal, input_artifact_id, output_artifact_id, sample)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """.trimIndent(),
-                    UUID.randomUUID(), versionId, index + 1, test.score, inputId, outputId, test.sample,
+                    UUID.randomUUID(), versionId, index + 1, inputId, outputId, test.sample,
                 )
             }
             if (request.publish) {
@@ -965,10 +952,10 @@ class ProblemService(
                 val outputId = insertArtifact(stored[index * 2 + 1], creator)
                 jdbc.update(
                     """
-                    INSERT INTO problem_test_case(id, problem_version_id, ordinal, score, input_artifact_id, output_artifact_id, sample)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO problem_test_case(id, problem_version_id, ordinal, input_artifact_id, output_artifact_id, sample)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """.trimIndent(),
-                    UUID.randomUUID(), versionId, index + 1, test.score, inputId, outputId, test.sample,
+                    UUID.randomUUID(), versionId, index + 1, inputId, outputId, test.sample,
                 )
             }
             if (request.publish) {
@@ -1168,7 +1155,6 @@ class ProblemService(
             request.testCases.forEach {
                 appendLine(SecureValues.sha256(it.input))
                 appendLine(SecureValues.sha256(it.output))
-                appendLine(it.score)
                 appendLine(it.sample)
             }
         }
@@ -1200,7 +1186,6 @@ class ProblemService(
         versionNumber = result.getInt("version_number"),
         status = result.getString("status"),
         testCaseCount = result.getInt("test_case_count"),
-        scoreSum = result.getInt("score_sum"),
         sampleCount = result.getInt("sample_count"),
         createdAt = result.getTimestamp("created_at").toInstant(),
         publishedAt = result.getTimestamp("published_at")?.toInstant(),

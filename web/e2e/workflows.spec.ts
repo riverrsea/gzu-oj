@@ -81,7 +81,7 @@ async function mockApi(page: Page): Promise<{ lastRunTimedAttemptId?: string }> 
       items: [{
         problemId: problem.id, versionId: problem.versionId, externalKey: problem.externalKey, title: problem.title,
         school: problem.school, year: problem.year, tags: problem.tags, difficulty: problem.difficulty,
-        versionNumber: 1, status: "PUBLISHED", testCaseCount: 8, scoreSum: 100, sampleCount: 1,
+        versionNumber: 1, status: "PUBLISHED", testCaseCount: 8, sampleCount: 1,
         createdAt: "2026-08-05T09:00:00Z", publishedAt: "2026-08-05T09:10:00Z",
       }],
       page: 0,
@@ -106,7 +106,7 @@ async function mockApi(page: Page): Promise<{ lastRunTimedAttemptId?: string }> 
       contentSha256: "a".repeat(64),
       activeAiRun: false,
       dataNotice: null,
-      testCases: [{ ordinal: 1, input: "1 2\n", output: "3\n", score: 100, sample: true }],
+      testCases: [{ ordinal: 1, input: "1 2\n", output: "3\n", sample: true }],
     });
     if (path === "/api/v1/problems") return json([problem, secondProblem]);
     if (path === "/api/v1/problems/" + problem.id || path === "/api/v1/problems/versions/" + problem.versionId) return json(problemDetail);
@@ -155,11 +155,11 @@ async function mockApi(page: Page): Promise<{ lastRunTimedAttemptId?: string }> 
     });
     if (path === "/api/v1/submissions/55555555-5555-4555-8555-555555555555") return json({
       id: "55555555-5555-4555-8555-555555555555", problemId: problem.id, problemVersionId: problem.versionId, executionMode: "RUN", language: "CPP17", status: "AC", score: 0, compileMessage: null, createdAt: "2026-08-05T09:00:00Z", finishedAt: "2026-08-05T09:00:01Z",
-      testCases: [{ ordinal: 1, status: "AC", score: 0, timeMs: 1, memoryKiB: 1024, message: null, input: "1 2\n", actualOutput: "3\n" }],
+      testCases: [{ ordinal: 1, status: "AC", timeMs: 1, memoryKiB: 1024, message: null, input: "1 2\n", actualOutput: "3\n" }],
     });
     if (path === "/api/v1/submissions/66666666-6666-4666-8666-666666666666") return json({
       id: "66666666-6666-4666-8666-666666666666", problemId: problem.id, problemVersionId: problem.versionId, executionMode: "SUBMIT", language: "CPP17", status: "WA", score: 40, compileMessage: null, createdAt: "2026-08-05T09:01:00Z", finishedAt: "2026-08-05T09:01:01Z",
-      testCases: [{ ordinal: 1, status: "AC", score: 40, timeMs: 1, memoryKiB: 1024, message: "判题完成", input: null, actualOutput: null }],
+      testCases: [{ ordinal: 1, status: "AC", timeMs: 1, memoryKiB: 1024, message: "判题完成", input: null, actualOutput: null }],
     });
     return json({ code: "UNMOCKED", message: "未配置的浏览器测试请求", timestamp: "2026-08-05T09:00:00Z" }, 404);
   });

@@ -6,7 +6,6 @@ import cn.gzuoj.shared.AiSandboxFailureStage
 import cn.gzuoj.shared.AiSandboxTaskPayload
 import cn.gzuoj.shared.AiWorkflow
 import cn.gzuoj.shared.AiWorkflowState
-import cn.gzuoj.shared.JudgePriority
 import jakarta.validation.Valid
 import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
@@ -28,7 +27,6 @@ import org.springframework.web.bind.annotation.RestController
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import java.time.Instant
-import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 /** 管理员启动 AI 录题请求。 */
@@ -239,7 +237,6 @@ private fun displayMajorState(state: AiWorkflowState, publicationGatePassed: Boo
     AiWorkflowState.DRAFT -> "DRAFT"
     AiWorkflowState.ANALYZING -> "ANALYZING"
     AiWorkflowState.GENERATING_SOLUTIONS -> "GENERATING_SOLUTIONS"
-    AiWorkflowState.REVIEWING -> "REVIEWING"
     AiWorkflowState.GENERATING_TESTS, AiWorkflowState.DIFFERENTIAL_TESTING -> "TESTS_GENERATING"
     AiWorkflowState.VALIDATING -> if (publicationGatePassed) "PASSING" else "VALIDATING"
     AiWorkflowState.PUBLISHED -> "PUBLISHED"
@@ -358,8 +355,6 @@ class AiRunService(
         val gate = AiPublicationGate(
             solutionsAgree = completion.solutionsAgree,
             bruteForcePassed = completion.bruteForcePassed,
-            // 该字段只兼容历史 JSON，AI 流程不再把总分作为通过条件。
-            scoreSumIsOneHundred = true,
             deterministic = completion.deterministic,
             resourceMarginPassed = verified.maximumTimePercent <= RESOURCE_MARGIN_PERCENT &&
                 verified.maximumMemoryPercent <= RESOURCE_MARGIN_PERCENT,
@@ -570,7 +565,7 @@ class AiRunService(
             runId,
             mapper.writeValueAsString(mapOf("action" to request.action, "correction" to correctionNode)),
         )
-        recordStateTransition(runId, AiWorkflowState.NEEDS_REVIEW, target, "管理员已修复，重新执行题意分析或对抗审查")
+        recordStateTransition(runId, AiWorkflowState.NEEDS_REVIEW, target, "管理员已修复，重新执行题意分析")
         return get(runId)
     }
 

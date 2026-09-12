@@ -78,7 +78,7 @@ data class AiAgentStepRequest(
     /** 执行角色。 */
     @field:NotBlank
     val role: String,
-    /** 对应的小状态名，如 ANALYZING、REVIEWING。 */
+    /** 对应的小状态名，如 ANALYZING、GENERATING_SOLUTIONS。 */
     @field:NotBlank
     val state: String,
     /** 模型返回的结构化响应 JSON。 */
@@ -193,7 +193,7 @@ class AiAgentController(
             // 只有全量差分任务代表进入差分阶段；编译门禁仍停留在当前生成阶段。
             if (compile == null) {
                 jdbc.update(
-                    "UPDATE ai_problem_run SET state = 'DIFFERENTIAL_TESTING', updated_at = now() WHERE id = ? AND state IN ('ANALYZING', 'GENERATING_SOLUTIONS', 'REVIEWING', 'GENERATING_TESTS')",
+                    "UPDATE ai_problem_run SET state = 'DIFFERENTIAL_TESTING', updated_at = now() WHERE id = ? AND state IN ('ANALYZING', 'GENERATING_SOLUTIONS', 'GENERATING_TESTS')",
                     runId,
                 )
             }

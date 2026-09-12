@@ -26,7 +26,6 @@ const majorLabels: Record<AiMajorState, string> = {
   DRAFT: "草稿",
   ANALYZING: "分析题意",
   GENERATING_SOLUTIONS: "生成标程",
-  REVIEWING: "审查标程",
   TESTS_GENERATING: "生成测试",
   VALIDATING: "校验门禁",
   PASSING: "门禁通过",
@@ -38,7 +37,6 @@ const majorLabels: Record<AiMajorState, string> = {
 const minorLabels: Record<string, string> = {
   ANALYZING: "分析题意",
   GENERATING_SOLUTIONS: "生成标程/暴力解",
-  REVIEWING: "对抗审查",
   GENERATING_TESTS: "生成测试数据",
   DIFFERENTIAL_TESTING: "差分测试",
   VALIDATING: "校验发布门禁",
@@ -62,9 +60,6 @@ const fieldLabels: Record<string, string> = {
   summary: "题意概述",
   constraints: "约束",
   ambiguities: "歧义",
-  findings: "审查发现",
-  test_plan: "测试计划",
-  seeds: "固定种子",
   source_code: "源码",
   solution_a: "标程 A",
   solution_b: "标程 B",
@@ -185,7 +180,7 @@ function flattenResponse(obj: Record<string, unknown>, prefix = ""): DisplayItem
 }
 function responseItems(step: AiStepResponse | null): DisplayItem[] {
   if (!step?.response) return [];
-  return flattenResponse(step.response as unknown as Record<string, unknown>);
+  return flattenResponse(step.response);
 }
 
 /** 进度步骤点状态。 */
@@ -303,7 +298,7 @@ function onBackdrop(): void {
                 </div>
                 <div v-if="responseItems(selectedStep).length === 0" class="ai-overlay-empty">该步骤没有可展示的结构化返回。</div>
                 <div v-else class="ai-step-fields">
-                  <div v-for="item in responseItems(selectedStep)" :key="item.label" class="ai-step-field" :class="{ 'ai-step-field--warning': item.label.includes('歧义') || item.label.includes('审查') }">
+                  <div v-for="item in responseItems(selectedStep)" :key="item.label" class="ai-step-field" :class="{ 'ai-step-field--warning': item.label.includes('歧义') }">
                     <span class="ai-step-label">{{ item.label }}</span>
                     <template v-if="item.kind === 'code'"><pre class="ai-step-code">{{ item.value }}</pre></template>
                     <ul v-else-if="item.kind === 'list'"><li v-for="v in item.value" :key="v">{{ v }}</li></ul>

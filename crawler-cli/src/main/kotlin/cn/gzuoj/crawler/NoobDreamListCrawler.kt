@@ -3,7 +3,6 @@ package cn.gzuoj.crawler
 import org.apache.commons.csv.CSVFormat
 import org.apache.commons.csv.CSVPrinter
 import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
 import java.io.BufferedWriter
 import java.io.ByteArrayOutputStream
 import java.io.OutputStreamWriter

@@ -45,6 +45,18 @@ uv run gzu-oj-crawler noobdream-problems https://noobdream.com/DreamJudge/Issue/
 
 调试时可以在两个命令末尾追加 `--single-page`。详情 CSV 不是管理员批量导入 ZIP；标准导入仍需通过 `problems.csv`、`statements/` 和可选 `tests/` 目录组织 ZIP，并补齐学校、年份和测试点。
 
+只采集某个学校的题目时追加 `--school`。它走源站的 `problem_source` 查询参数做**服务端筛选**，
+所以只需要抓目标学校的那几页；该参数是包含匹配，多校来源的题也会命中（CSV 的 `school` 列仍保留原文识别的结果），翻页会自动保留该条件：
+
+```bash
+uv run gzu-oj-crawler noobdream-list \
+  https://noobdream.com/DreamJudge/Issue/page/0/ /absolute/guizhou.csv --school 贵州大学
+uv run gzu-oj-crawler noobdream-problems \
+  https://noobdream.com/DreamJudge/Issue/page/0/ /absolute/guizhou-problems.csv --school 贵州大学
+```
+
+筛选条件没有匹配到题目时命令会明确提示“筛选条件没有匹配到题目”，不会误报为页面结构变化。
+
 单题体检：只抓一道题并写出题面 Markdown，用于确认登录、解析和公式都没问题。参数支持题号或详情页地址，命令也会回报公式定界符数量。注意题库第一页几乎不含公式，验证公式请用 `5382`（`$...$` 行内公式）、`10102`（公式紧贴中文）、`1017`（HTML 上标 `<sup>`）这类题号：
 
 ```bash

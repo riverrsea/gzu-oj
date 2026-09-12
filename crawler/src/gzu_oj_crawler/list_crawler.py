@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, quote, urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup, Comment, NavigableString, Tag
@@ -28,6 +28,13 @@ _LIST_HEADERS = {
 
 #: 详情页链接选择器；站点地址形如 ``/DreamJudge/Issue/page/1006/``。
 _DETAIL_LINK_SELECTOR = 'a[href*="/DreamJudge/Issue/page/"]'
+
+#: 列表页支持的筛选查询参数，以及它们对应的中文名（用于报错提示）。
+_FILTER_PARAMETERS = {
+    "problem_source": "学校",
+    "problem_id_name": "题号或题名",
+    "algorithm_type": "题型",
+}
 
 #: 学校名称常见结尾；允许一个来源同时包含多所学校。
 _SCHOOL_REGEX = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbfA-Za-z0-9]+?(?:大学|学院|研究所|科学院)")
@@ -90,7 +97,7 @@ class NoobDreamListParser:
         """同时解析题目行和列表页的分页总数。"""
         document = BeautifulSoup(html, "html.parser")
         rows = document.select("table tbody tr")
-        require(rows, f"列表页没有找到题目表格：{page_uri}")
+        require(rows, _empty_page_message(page_uri))
         items: list[NoobDreamListItem] = []
         for index, row in enumerate(rows):
             cells = row.select("td")
@@ -194,6 +201,29 @@ def write_list_csv(items: list[NoobDreamListItem], target: Path) -> None:
     )
 
 
+def with_school_filter(page_uri: str, school: str | None) -> str:
+    """把学校名写进列表页的 ``problem_source`` 查询参数。
+
+    源站题库侧边栏的“请输入学校全称”筛选框对应的就是这个参数，由**服务端做包含匹配**，
+    因此可以只抓目标学校的题目，不必先抓完整题库再本地过滤。已有的同名参数会被覆盖，
+    其余筛选条件（题型等）保持不变；``page`` 参数不影响，翻页时会按原条件继续。
+    """
+    name = (school or "").strip()
+    if not name:
+        return page_uri
+    without_fragment = page_uri.split("#", 1)[0]
+    base = without_fragment.split("?", 1)[0]
+    query = without_fragment.partition("?")[2]
+    parts = [
+        part
+        for part in query.split("&")
+        if part and part.split("=", 1)[0] != "problem_source"
+    ]
+    # safe="" 保证学校名里的 / 等字符也被编码，避免被当成额外的路径或参数分隔符。
+    parts.append("problem_source=" + quote(name, safe=""))
+    return f"{base}?{'&'.join(parts)}"
+
+
 def extract_noobdream_school(source_description: str | None) -> str | None:
     """从来源文字中提取一个或多个学校名；“真题”等站点标签不会作为学校。"""
     if not source_description or not source_description.strip():
@@ -217,6 +247,23 @@ def extract_noobdream_year(source_description: str | None) -> int | None:
 def parse_noobdream_list_html(html: str, page_uri: str) -> list[NoobDreamListItem]:
     """读取 HTML 文本并复用同一解析器，供离线测试和人工复核使用。"""
     return NoobDreamListParser().parse(html, page_uri)
+
+
+def _empty_page_message(page_uri: str) -> str:
+    """列表页没有题目行时的提示。
+
+    带筛选条件时站点会返回空的 ``<tbody>``，这时说“没有找到题目表格”会让人以为是选择器失效，
+    所以按实际生效的筛选参数给出更贴近原因的提示。
+    """
+    params = parse_qs(urlparse(page_uri).query)
+    applied = [
+        label
+        for key, label in _FILTER_PARAMETERS.items()
+        if (params.get(key) or [""])[0].strip()
+    ]
+    if applied:
+        return f"筛选条件没有匹配到题目（{'、'.join(applied)}）：{page_uri}"
+    return f"列表页没有找到题目表格：{page_uri}"
 
 
 def _page_uri(first_page_uri: str, page_number: int) -> str:

@@ -8,8 +8,8 @@ GZU OJ 的题库采集与标准导入包生成 CLI，是 Kotlin 版 `crawler-cli
 | --- | --- |
 | `local <canonical-problems.json> <output.zip>` | 把本地规范 JSON 转成标准导入包 |
 | `noobdream-import <details.csv> <output.zip> [--default-year YYYY]` | 把详情 CSV 转成无测试点导入包 |
-| `noobdream-list <list-url> <output.csv> [--single-page]` | 采集 N 诺题库列表 |
-| `noobdream-problems <list-url> <output.csv> [--single-page]` | 采集 N 诺题目详情（含完整题面） |
+| `noobdream-list <list-url> <output.csv> [--single-page] [--school 学校名]` | 采集 N 诺题库列表 |
+| `noobdream-problems <list-url> <output.csv> [--single-page] [--school 学校名]` | 采集 N 诺题目详情（含完整题面） |
 | `noobdream-problem <题号或地址> <output.md>` | 单题体检：只写题面 Markdown，便于核对公式 |
 
 输出契约与 Kotlin 版完全一致：CSV 表头、ZIP 结构（`problems.csv` + `statements/` + 可选 `tests/`）
@@ -78,6 +78,10 @@ uv run gzu-oj-crawler noobdream-problem 5382 /absolute/p5382.md
 uv run gzu-oj-crawler noobdream-problems \
   https://noobdream.com/DreamJudge/Issue/page/0/ /absolute/noobdream-problems.csv
 
+# 按学校筛选：只抓贵州大学的真题
+uv run gzu-oj-crawler noobdream-list \
+  https://noobdream.com/DreamJudge/Issue/page/0/ /absolute/guizhou.csv --school 贵州大学
+
 # 转成标准导入包
 uv run gzu-oj-crawler noobdream-import \
   /absolute/noobdream-problems.csv /absolute/noobdream-import.zip --default-year 2025
@@ -85,6 +89,28 @@ uv run gzu-oj-crawler noobdream-import \
 
 登录配置从项目根目录的 `.env.crawler` 读取，支持 `user_name` / `user_password`
 以及兼容别名 `noobdream_account` / `noobdream_pwd`。该文件已被 `.gitignore` 忽略。
+
+### 按学校筛选
+
+`--school` 对应源站题库侧边栏的“请输入学校全称”筛选框，走的是 `problem_source` 查询参数：
+
+* **服务端筛选**，只抓目标学校的题目。例如 `--school 贵州大学` 只有 2 页 30 题，
+  而不是全库 82 页，比抓完再本地过滤省得多；
+* 是**包含匹配**，匹配的是源站的“题目来源”原文，因此多校来源的题也会被带上
+  （`兰州大学/贵州大学机试` 在 `--school 贵州大学` 下会命中，CSV 里的 `school` 列仍是 `兰州大学/贵州大学`）；
+* 翻页会自动保留该条件，不会出现“第一页是贵大、第二页变成全库”的情况；
+* 如果筛选条件没有匹配到任何题目，命令会明确提示“筛选条件没有匹配到题目（学校）”，
+  而不是报成选择器失效。
+
+也可以直接把手写好的筛选地址传给命令，效果等价：
+
+```bash
+uv run gzu-oj-crawler noobdream-list \
+  "https://noobdream.com/DreamJudge/Issue/page/0/?problem_source=%E8%B4%B5%E5%B7%9E%E5%A4%A7%E5%AD%A6" \
+  /absolute/guizhou.csv
+```
+
+`--school` 只是把这个参数拼进地址，两种写法可以混用；同时指定时以 `--school` 为准。
 
 ## 测试
 

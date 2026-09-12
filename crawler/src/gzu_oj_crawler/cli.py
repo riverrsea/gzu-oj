@@ -4,9 +4,11 @@
 
 * ``local <canonical-problems.json> <output.zip>``
 * ``noobdream-import <details.csv> <output.zip> [--default-year YYYY]``
-* ``noobdream-list <list-url> <output.csv> [--single-page]``
-* ``noobdream-problems <list-url> <output.csv> [--single-page]``
+* ``noobdream-list <list-url> <output.csv> [--single-page] [--school 学校名]``
+* ``noobdream-problems <list-url> <output.csv> [--single-page] [--school 学校名]``
 * ``noobdream-problem <题号或地址> <output.md>``：单题体检，只写题面，便于核对公式
+
+``--school`` 使用源站 ``problem_source`` 查询参数做服务端筛选，只抓目标学校的题目。
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from .auth import NoobDreamCrawlerConfig, NoobDreamLoginClient
 from .canonical import ImportPackageWriter, LocalSampleAdapter
 from .errors import CrawlerError
 from .import_converter import NoobDreamImportConverter
-from .list_crawler import NoobDreamListClient, write_list_csv
+from .list_crawler import NoobDreamListClient, with_school_filter, write_list_csv
 from .problem_crawler import (
     NoobDreamProblemClient,
     build_detail_item,
@@ -51,11 +53,13 @@ def build_parser() -> argparse.ArgumentParser:
     listing.add_argument("url", help="N 诺题库列表页地址")
     listing.add_argument("target", help="输出 CSV 路径")
     listing.add_argument("--single-page", action="store_true", help="只抓取给定页面，不翻页")
+    listing.add_argument("--school", default=None, help="只采集指定学校的题目，例如 --school 贵州大学")
 
     problems = subparsers.add_parser("noobdream-problems", help="采集题目详情 CSV")
     problems.add_argument("url", help="N 诺题库列表页地址")
     problems.add_argument("target", help="输出 CSV 路径")
     problems.add_argument("--single-page", action="store_true", help="只抓取给定页面，不翻页")
+    problems.add_argument("--school", default=None, help="只采集指定学校的题目，例如 --school 贵州大学")
 
     single = subparsers.add_parser(
         "noobdream-problem",
@@ -77,9 +81,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "noobdream-import":
             _run_import(Path(args.source), Path(args.target), args.default_year)
         elif args.command == "noobdream-list":
-            _run_list(args.url, Path(args.target), args.single_page)
+            _run_list(args.url, Path(args.target), args.single_page, args.school)
         elif args.command == "noobdream-problems":
-            _run_problems(args.url, Path(args.target), args.single_page)
+            _run_problems(args.url, Path(args.target), args.single_page, args.school)
         elif args.command == "noobdream-problem":
             _run_problem(args.problem, Path(args.output))
         else:  # pragma: no cover - argparse 已保证命令合法
@@ -106,26 +110,41 @@ def _run_import(source: Path, target: Path, default_year: int | None) -> None:
     print(f"已生成无测试点标准导入包：{target_path}")
 
 
-def _run_list(url: str, target: Path, single_page: bool) -> None:
+def _run_list(url: str, target: Path, single_page: bool, school: str | None = None) -> None:
     """采集列表页并写入 CSV；采集结束后登出。"""
     target_path = target.absolute()
+    page_uri = with_school_filter(url, school)
     with _LoggedInSession() as (_, cookie_header):
         client = NoobDreamListClient(cookie_header=cookie_header)
-        items = client.fetch(url) if single_page else client.fetch_all(url)
+        items = client.fetch(page_uri) if single_page else client.fetch_all(page_uri)
         write_list_csv(items, target_path)
-        scope = "（单页）" if single_page else "（全部分页）"
-        print(f"已采集 {len(items)} 道题目列表{scope}并写入 CSV：{target_path}")
+        print(f"已采集 {len(items)} 道题目列表{_scope_text(single_page, school)}并写入 CSV：{target_path}")
 
 
-def _run_problems(url: str, target: Path, single_page: bool) -> None:
+def _run_problems(
+    url: str,
+    target: Path,
+    single_page: bool,
+    school: str | None = None,
+) -> None:
     """先采集列表，再逐题抓取详情并写入 CSV；采集结束后登出。"""
     target_path = target.absolute()
+    page_uri = with_school_filter(url, school)
     with _LoggedInSession() as (_, cookie_header):
         list_client = NoobDreamListClient(cookie_header=cookie_header)
-        list_items = list_client.fetch(url) if single_page else list_client.fetch_all(url)
+        list_items = list_client.fetch(page_uri) if single_page else list_client.fetch_all(page_uri)
         problems = NoobDreamProblemClient(cookie_header=cookie_header).fetch_all(list_items)
         write_problem_csv(problems, target_path)
-        print(f"已抓取 {len(problems)} 道题目详情并写入 CSV：{target_path}")
+        print(f"已抓取 {len(problems)} 道题目详情{_scope_text(single_page, school)}并写入 CSV：{target_path}")
+
+
+def _scope_text(single_page: bool, school: str | None) -> str:
+    """拼出采集范围描述，把翻页范围和学校筛选都写清楚。"""
+    parts = ["单页" if single_page else "全部分页"]
+    name = (school or "").strip()
+    if name:
+        parts.append(f"学校={name}")
+    return "（" + "，".join(parts) + "）"
 
 
 def _run_problem(problem_reference: str, output: Path) -> None:

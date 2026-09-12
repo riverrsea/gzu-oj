@@ -1,11 +1,12 @@
 """爬虫 CLI 入口。
 
-支持四个子命令，与 Kotlin 版 ``crawler-cli`` 完全对齐：
+支持五个子命令；前四个与 Kotlin 版 ``crawler-cli`` 完全对齐：
 
 * ``local <canonical-problems.json> <output.zip>``
 * ``noobdream-import <details.csv> <output.zip> [--default-year YYYY]``
 * ``noobdream-list <list-url> <output.csv> [--single-page]``
 * ``noobdream-problems <list-url> <output.csv> [--single-page]``
+* ``noobdream-problem <题号或地址> <output.md>``：单题体检，只写题面，便于核对公式
 """
 
 from __future__ import annotations
@@ -20,7 +21,13 @@ from .canonical import ImportPackageWriter, LocalSampleAdapter
 from .errors import CrawlerError
 from .import_converter import NoobDreamImportConverter
 from .list_crawler import NoobDreamListClient, write_list_csv
-from .problem_crawler import NoobDreamProblemClient, write_problem_csv
+from .problem_crawler import (
+    NoobDreamProblemClient,
+    build_detail_item,
+    resolve_problem_reference,
+    write_problem_csv,
+    write_statement,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -50,6 +57,13 @@ def build_parser() -> argparse.ArgumentParser:
     problems.add_argument("target", help="输出 CSV 路径")
     problems.add_argument("--single-page", action="store_true", help="只抓取给定页面，不翻页")
 
+    single = subparsers.add_parser(
+        "noobdream-problem",
+        help="单题体检：抓取一道题的题面 Markdown，便于核对公式",
+    )
+    single.add_argument("problem", help="题号（如 5382）或详情页地址")
+    single.add_argument("output", help="输出 Markdown 路径")
+
     return parser
 
 
@@ -66,6 +80,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             _run_list(args.url, Path(args.target), args.single_page)
         elif args.command == "noobdream-problems":
             _run_problems(args.url, Path(args.target), args.single_page)
+        elif args.command == "noobdream-problem":
+            _run_problem(args.problem, Path(args.output))
         else:  # pragma: no cover - argparse 已保证命令合法
             parser.error(f"未知子命令：{args.command}")
     except CrawlerError as error:
@@ -110,6 +126,25 @@ def _run_problems(url: str, target: Path, single_page: bool) -> None:
         problems = NoobDreamProblemClient(cookie_header=cookie_header).fetch_all(list_items)
         write_problem_csv(problems, target_path)
         print(f"已抓取 {len(problems)} 道题目详情并写入 CSV：{target_path}")
+
+
+def _run_problem(problem_reference: str, output: Path) -> None:
+    """单题体检：抓取一道题的详情并写成 Markdown，便于核对公式。
+
+    先解析题号再登录：参数写错时不必白跑一次登录请求。
+    """
+    problem_id, detail_url = resolve_problem_reference(problem_reference)
+    output_path = output.absolute()
+    with _LoggedInSession() as (_, cookie_header):
+        client = NoobDreamProblemClient(cookie_header=cookie_header)
+        problem = client.fetch(build_detail_item(problem_id, detail_url))
+        write_statement(problem, output_path)
+    delimiters = problem.statement_markdown.count("$")
+    print(
+        f"已抓取题目 {problem_id}：{problem.title}"
+        f"（公式定界符 {delimiters} 个，时限 {problem.time_limit_ms}ms，内存 {problem.memory_limit_mib}MiB），"
+        f"已写入：{output_path}",
+    )
 
 
 class _LoggedInSession:

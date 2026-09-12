@@ -45,6 +45,12 @@ uv run gzu-oj-crawler noobdream-problems https://noobdream.com/DreamJudge/Issue/
 
 调试时可以在两个命令末尾追加 `--single-page`。详情 CSV 不是管理员批量导入 ZIP；标准导入仍需通过 `problems.csv`、`statements/` 和可选 `tests/` 目录组织 ZIP，并补齐学校、年份和测试点。
 
+单题体检：只抓一道题并写出题面 Markdown，用于确认登录、解析和公式都没问题。参数支持题号或详情页地址，命令也会回报公式定界符数量。注意题库第一页几乎不含公式，验证公式请用 `5382`、`10102`、`10298` 这类题号：
+
+```bash
+uv run gzu-oj-crawler noobdream-problem 5382 /absolute/p5382.md
+```
+
 本地规范 JSON 转标准导入 ZIP：
 
 ```bash

@@ -10,6 +10,7 @@ GZU OJ 的题库采集与标准导入包生成 CLI，是 Kotlin 版 `crawler-cli
 | `noobdream-import <details.csv> <output.zip> [--default-year YYYY]` | 把详情 CSV 转成无测试点导入包 |
 | `noobdream-list <list-url> <output.csv> [--single-page]` | 采集 N 诺题库列表 |
 | `noobdream-problems <list-url> <output.csv> [--single-page]` | 采集 N 诺题目详情（含完整题面） |
+| `noobdream-problem <题号或地址> <output.md>` | 单题体检：只写题面 Markdown，便于核对公式 |
 
 输出契约与 Kotlin 版完全一致：CSV 表头、ZIP 结构（`problems.csv` + `statements/` + 可选 `tests/`）
 都保持原样，可以直接喂给 `POST /api/admin/imports` 的暂存导入流程。
@@ -31,6 +32,19 @@ Python 版的做法是：
 
 > 配套改动：前端 `web/` 使用 KaTeX 渲染 `$...$` / `$$...$$`，否则入库的公式只会原样显示源码。
 
+### 怎么验证公式没被破坏
+
+注意题库第一页大多是入门题，**几乎不含公式**（数学符号用的是 `≤` 这类 Unicode 字符），
+拿第一页测不出问题。已知含 LaTeX 的题号：`5382`、`10102`、`10298`。
+
+```bash
+uv run gzu-oj-crawler noobdream-problem 5382 /tmp/p5382.md
+head -12 /tmp/p5382.md
+```
+
+预期输出里能看到 `$m$`、`$|a-b|$`、`$2 \le m \le 10^4$` 原样保留，
+命令也会回报 `公式定界符 36 个` 这类统计。
+
 ## 使用
 
 ```bash
@@ -40,6 +54,9 @@ uv sync
 # 采集列表
 uv run gzu-oj-crawler noobdream-list \
   https://noobdream.com/DreamJudge/Issue/page/0/ /absolute/noobdream-list.csv
+
+# 单题体检：只看一道题的题面，用来确认公式没有被破坏
+uv run gzu-oj-crawler noobdream-problem 5382 /absolute/p5382.md
 
 # 采集题面（需要项目根目录的 .env.crawler）
 uv run gzu-oj-crawler noobdream-problems \

@@ -1,4 +1,4 @@
-"""N 诺题目详情页的解析、抓取与 CSV 写出。
+"""N 诺题目详情页的解析、抓取与 CSV / 单题 Markdown 写出。
 
 题面里的公式在服务器返回的 HTML 中是原始 TeX 源码（MathJax 只在浏览器端渲染），
 因此这里用 :mod:`gzu_oj_crawler.html_markdown` 做结构化转换，
@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup, Tag
@@ -31,6 +32,15 @@ _DETAIL_HEADERS = {
     "Accept-Language": "zh-CN,zh;q=0.9",
     "User-Agent": USER_AGENT,
 }
+
+#: 只给题号时使用的站点详情页地址模板。
+_DETAIL_URL_TEMPLATE = "https://noobdream.com/DreamJudge/Issue/page/{problem_id}/"
+
+#: 从详情页地址里提取题号。
+_DETAIL_PATH_REGEX = re.compile(r"/DreamJudge/Issue/page/(?P<problem_id>\d+)/?")
+
+#: 单题参数无法识别时的统一提示，引导用户改用题号。
+_REFERENCE_HINT = "无法从「{reference}」识别题号，请使用题号（如 5382）或详情页地址"
 
 #: 页面限制文本的兼容匹配。
 _LIMIT_REGEX = re.compile(r"Time\s*Limit\s*:\s*(\d+)\s*ms", re.IGNORECASE)
@@ -225,6 +235,51 @@ def write_problem_csv(problems: list[NoobDreamProblem], target: Path) -> None:
             for problem in problems
         ],
     )
+
+
+def resolve_problem_reference(reference: str) -> tuple[str, str]:
+    """把题号或详情页地址解析成 ``(题号, 详情页地址)``。
+
+    支持两种写法：纯题号 ``5382``，或任意镜像上的详情页地址
+    ``https://noobdream.com/DreamJudge/Issue/page/5382/``。传入地址时保留原样，
+    方便对着测试环境或镜像站做单题体检。
+    """
+    text = reference.strip()
+    require(text, "题号不能为空")
+    if re.fullmatch(r"\d+", text):
+        return text, _DETAIL_URL_TEMPLATE.format(problem_id=text)
+    parsed = urlparse(text)
+    if parsed.scheme:
+        require(parsed.scheme in {"http", "https"}, "题目地址必须是 HTTP(S) URL")
+        match = _DETAIL_PATH_REGEX.search(parsed.path)
+        require(match is not None, _REFERENCE_HINT.format(reference=reference))
+        return match.group("problem_id"), text
+    fail(_REFERENCE_HINT.format(reference=reference))
+
+
+def build_detail_item(problem_id: str, detail_url: str) -> NoobDreamListItem:
+    """为单题采集构造最小列表记录。
+
+    难度和题型只存在于列表页，单题模式下拿不到，因此留空；
+    标题、学校、年份和来源由详情页解析补全，不影响题面输出。
+    """
+    return NoobDreamListItem(
+        external_key=f"noobdream:{problem_id}",
+        problem_id=problem_id,
+        title="",
+        difficulty="",
+        problem_type="",
+        school=None,
+        source_description=None,
+        detail_url=detail_url,
+    )
+
+
+def write_statement(problem: NoobDreamProblem, target: Path) -> None:
+    """把单题题面写成 Markdown，并在末尾补一个换行。"""
+    normalized = target.absolute()
+    normalized.parent.mkdir(parents=True, exist_ok=True)
+    normalized.write_text(problem.statement_markdown + "\n", encoding="utf-8")
 
 
 def _build_markdown(

@@ -4,7 +4,7 @@ import pytest
 
 from gzu_oj_agent.config import Settings, StructuredOutputMode
 from gzu_oj_agent.llm import ModelClient
-from gzu_oj_agent.models import AnalysisResult
+from gzu_oj_agent.models import AnalysisResult, SolutionResult
 
 
 class FlakyModel:
@@ -88,3 +88,37 @@ async def test_json_schema_mode_also_sends_json_hint() -> None:
     assert result.summary == "ok"
     assert model.messages is not None
     assert any("json" in str(message.content).lower() for message in model.messages)
+
+
+class LinkThenCodeModel:
+    """第一次用链接代替源码，第二次才给出合法源码。"""
+
+    def __init__(self) -> None:
+        self.calls: list[list] = []
+
+    def bind(self, **_kwargs):
+        return self
+
+    async def ainvoke(self, messages):
+        self.calls.append(list(messages))
+        if len(self.calls) == 1:
+            return SimpleNamespace(content='{"summary":"s","source_code":"https://example.com/a.cpp"}')
+        return SimpleNamespace(content='{"summary":"s","source_code":"int main(){return 0;}"}')
+
+
+@pytest.mark.asyncio
+async def test_rejected_source_reason_is_fed_back_on_retry() -> None:
+    """返回链接代替源码时必须重试，并把被拒绝的原因回喂给模型。"""
+    settings = Settings(
+        agent_internal_token="test-token",
+        llm_structured_output_mode=StructuredOutputMode.JSON_OBJECT,
+        llm_max_retries=1,
+    )
+    model = LinkThenCodeModel()
+    result = await ModelClient(settings, model=model).generate(SolutionResult, "system", "prompt")
+
+    assert result.source_code == "int main(){return 0;}"
+    assert len(model.calls) == 2
+    feedback = " ".join(str(message.content) for message in model.calls[1])
+    assert "被拒绝的原因" in feedback
+    assert "链接" in feedback

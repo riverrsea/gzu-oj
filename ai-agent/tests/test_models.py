@@ -35,7 +35,7 @@ def base_state() -> dict:
             "repair_round": 0,
         },
         "test_data": {
-            "generator_source": "int main(){}",
+            "generator_source": "int main(int argc, char** argv) { return atoi(argv[1]); }",
             "validator_source": "int main(){}",
         },
         "solution_a": {"summary": "A", "source_code": "int main(){}"},
@@ -58,7 +58,7 @@ def test_sandbox_payload_uses_fixed_seeds() -> None:
     assert payload.seeds == [1, 2]
     assert payload.brute_force_case_count == 2
     assert payload.solution_a_source == "int main(){}"
-    assert payload.generator_source == "int main(){}"
+    assert payload.generator_source == "int main(int argc, char** argv) { return atoi(argv[1]); }"
     assert payload.brute_force_source == "int main(){}"
 
 
@@ -171,20 +171,23 @@ def test_compile_task_uses_kotlin_camel_aliases_and_bounded_units() -> None:
 def test_compile_units_match_generated_stage_artifacts() -> None:
     """每个门禁只取本阶段刚生成的源码，标签与 Worker 报错一致。"""
     state = base_state()
-    state["test_data"] = {"generator_source": "gen", "validator_source": "val"}
-    state["solution_a"] = {"summary": "A", "source_code": "a"}
-    state["solution_b"] = {"summary": "B", "source_code": "b"}
-    state["brute_force"] = {"summary": "BF", "source_code": "bf"}
+    state["test_data"] = {
+        "generator_source": "int main(int argc, char** argv) { return atoi(argv[1]); }",
+        "validator_source": "int main(){}",
+    }
+    state["solution_a"] = {"summary": "A", "source_code": "int main(){/*A*/}"}
+    state["solution_b"] = {"summary": "B", "source_code": "int main(){/*B*/}"}
+    state["brute_force"] = {"summary": "BF", "source_code": "int main(){/*BF*/}"}
     assert [(u.label, u.source) for u in compile_units(state, SandboxFailureStage.TEST_DATA)] == [
-        ("测试生成器", "gen"),
-        ("输入校验器", "val"),
+        ("测试生成器", "int main(int argc, char** argv) { return atoi(argv[1]); }"),
+        ("输入校验器", "int main(){}"),
     ]
     assert [(u.label, u.source) for u in compile_units(state, SandboxFailureStage.SOLUTIONS)] == [
-        ("标程 A", "a"),
-        ("标程 B", "b"),
+        ("标程 A", "int main(){/*A*/}"),
+        ("标程 B", "int main(){/*B*/}"),
     ]
     assert [(u.label, u.source) for u in compile_units(state, SandboxFailureStage.BRUTE_FORCE)] == [
-        ("暴力解", "bf")
+        ("暴力解", "int main(){/*BF*/}")
     ]
 
 
@@ -234,6 +237,43 @@ def test_regenerating_one_artifact_keeps_others_ready() -> None:
     assert reusable_stages(state, SandboxFailureStage.TEST_DATA) == ["SOLUTIONS", "BRUTE_FORCE"]
 
 
+def test_source_rejects_link_instead_of_code() -> None:
+    """模型用链接或说明文字代替源码时必须在返回边界拒绝，而不是送进沙箱。"""
+    with pytest.raises(ValidationError, match="链接"):
+        SolutionResult(summary="s", source_code="https://pastebin.com/raw/abc123")
+    # 围栏里只有链接也要被识别出来。
+    with pytest.raises(ValidationError, match="链接"):
+        SolutionResult(summary="s", source_code="```\n见 https://example.com/solution.cpp\n```")
+    # 不是链接但同样不是完整程序：必须给出可编译的 main。
+    with pytest.raises(ValidationError, match="main"):
+        SolutionResult(summary="s", source_code="#include <bits/stdc++.h>\n// 具体实现此处省略")
+
+
+def test_generator_must_read_seed_from_argv() -> None:
+    """生成器不读命令行参数说明模型写错了角色，必须在返回边界拒绝并让它重写。"""
+    with pytest.raises(ValidationError, match="命令行参数"):
+        DataResult(
+            generator_source="int main(){ std::cout << 1 << '\\n'; }",
+            validator_source="int main(){ return 0; }",
+        )
+    # 角色互换：把只读 stdin 的程序写成了生成器。
+    with pytest.raises(ValidationError, match="命令行参数"):
+        DataResult(
+            generator_source="int main(){ int n; std::cin >> n; std::cout << n << '\\n'; }",
+            validator_source="int main(){ return 0; }",
+        )
+    accepted = DataResult(
+        generator_source="int main(int argc, char** argv){ return atoi(argv[1]); }",
+        validator_source="int main(){ return 0; }",
+    )
+    assert "argv" in accepted.generator_source
+    # 参数名不叫 argv 也不该被误判：只要保留了命令行入口即可。
+    assert DataResult(
+        generator_source="int main(int argc, char** args){ return atoi(args[1]); }",
+        validator_source="int main(){ return 0; }",
+    ).generator_source.endswith("}")
+
+
 def test_source_fields_strip_markdown_fences() -> None:
     """模型带 ``` 围栏的源码必须在进入沙箱前被剥掉，否则 Worker 编译失败。"""
     fenced = "```cpp\n#include <bits/stdc++.h>\nint main() { return 0; }\n```"
@@ -243,11 +283,11 @@ def test_source_fields_strip_markdown_fences() -> None:
     assert SolutionResult(summary="s", source_code="int main(){}").source_code == "int main(){}"
 
     data = DataResult(
-        generator_source="```cpp\nint g(){}\n```",
-        validator_source="```\nint v(){}\n```",
+        generator_source="```cpp\nint main(int argc, char** argv){ return atoi(argv[1]); }\n```",
+        validator_source="```\nint main(){ return 0; }\n```",
     )
-    assert data.generator_source == "int g(){}"
-    assert data.validator_source == "int v(){}"
+    assert data.generator_source == "int main(int argc, char** argv){ return atoi(argv[1]); }"
+    assert data.validator_source == "int main(){ return 0; }"
 
     # sandbox_payload 重新校验状态时也应得到干净源码。
     state = base_state()

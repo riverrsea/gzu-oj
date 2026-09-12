@@ -35,7 +35,10 @@ class FakeModel:
             return AnalysisResult(summary="原始分析", constraints=["c"], ambiguities=["题面歧义"])
         if schema is DataResult:
             self.data_prompts.append(prompt)
-            return DataResult(generator_source="int main(){}", validator_source="int main(){}")
+            return DataResult(
+                generator_source="int main(int argc, char** argv){return atoi(argv[1]);}",
+                validator_source="int main(){return 0;}",
+            )
         if schema is SolutionResult:
             self.solution_prompts.append(system)
             return SolutionResult(summary="s", source_code="int main(){}")

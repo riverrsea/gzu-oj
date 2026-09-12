@@ -56,7 +56,32 @@ def strip_markdown_fence(value: object) -> object:
     return "\n".join(lines).strip("\n")
 
 
-Source = Annotated[str, BeforeValidator(strip_markdown_fence), Field(min_length=1, max_length=131_072)]
+# 匹配源码里出现的链接；模型偶尔用"见这个链接"代替代码。
+_URL_RE = re.compile(r"https?://|www\.", re.IGNORECASE)
+
+
+def reject_non_source(value: object) -> object:
+    """拒绝不是完整 C++ 程序的源码字段：链接、解释性文字、片段。
+
+    模型偶尔会返回链接或说明文字代替源码，这类输出送进沙箱必然编译失败并浪费
+    一整轮修复，因此在模型返回边界直接拒绝，并由重试把原因回喂给它重写。
+    """
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if "main" in text:
+        return value
+    if _URL_RE.search(text):
+        raise ValueError("源码字段是链接而不是代码，必须给出可直接编译的完整程序")
+    raise ValueError("源码字段缺少 main 函数，必须给出可直接编译的完整程序")
+
+
+Source = Annotated[
+    str,
+    BeforeValidator(strip_markdown_fence),
+    BeforeValidator(reject_non_source),
+    Field(min_length=1, max_length=131_072),
+]
 
 
 
@@ -88,6 +113,19 @@ class TestDataResult(StrictModel):
 
     generator_source: Source
     validator_source: Source
+
+    @field_validator("generator_source")
+    @classmethod
+    def require_seed_argument(cls, value: str) -> str:
+        """生成器必须带命令行入口；不读参数的实现说明模型写成了别的角色。
+
+        沙箱用 `程序 <seed>` 调用生成器并把标准输入留空，因此完全没有 argc/argv 的
+        "生成器"（例如把标程或从 stdin 读入的程序写进了这个字段）必然在下游差分才
+        暴露，代价很高。这里只做最低限度的角色判别，不校验参数的写法。
+        """
+        if "argv" not in value and "argc" not in value:
+            raise ValueError("输入生成器必须是读取命令行参数的程序，不能从 stdin 读取输入")
+        return value
 
 
 class StartRunRequest(StrictModel):

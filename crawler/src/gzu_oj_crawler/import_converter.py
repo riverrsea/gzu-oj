@@ -44,10 +44,8 @@ class ConversionSummary:
     problem_count: int
     #: 带样例测试点的题目数。
     sample_test_count: int
-    #: 实际写出的测试点总数（多组样例会拆成多个）。
-    test_case_count: int
-    #: 被判定为多组样例并拆分的题目：``(externalKey, 拆出的测试点数)``。
-    split_samples: list[tuple[str, int]]
+    #: 样例块可能含多组用例、需要留意判题口径的题目标识。
+    multi_case_warnings: list[str]
 
 
 class NoobDreamImportConverter:
@@ -74,7 +72,7 @@ class NoobDreamImportConverter:
         require(records, "详情 CSV 没有题目记录")
         errors: list[str] = []
         problems: list[CanonicalProblem] = []
-        split_samples: list[tuple[str, int]] = []
+        multi_case_warnings: list[str] = []
         for index, record in enumerate(records):
             try:
                 problem = _to_canonical_problem(record, default_year, sample_as_test)
@@ -84,9 +82,9 @@ class NoobDreamImportConverter:
                 errors.append(f"第 {index + 2} 行（{key}，{title}）：{error}")
                 continue
             problems.append(problem)
-            # 多组样例会拆成多个测试点，单独列出来供人工复核拆分是否正确。
-            if len(problem.test_cases) > 1:
-                split_samples.append((problem.external_key, len(problem.test_cases)))
+            # 样例块里可能拼了多组用例；测试点结构保持不变，只提示判题口径风险。
+            if problem.test_cases and _record_looks_like_multiple_cases(record):
+                multi_case_warnings.append(problem.external_key)
         if errors:
             raise CrawlerError(
                 f"详情 CSV 无法转换为标准导入包，共 {len(errors)} 行不完整：\n" + "\n".join(errors),
@@ -96,8 +94,7 @@ class NoobDreamImportConverter:
         return ConversionSummary(
             problem_count=len(problems),
             sample_test_count=sum(1 for problem in problems if problem.test_cases),
-            test_case_count=sum(len(problem.test_cases) for problem in problems),
-            split_samples=split_samples,
+            multi_case_warnings=multi_case_warnings,
         )
 
 
@@ -163,27 +160,16 @@ def _to_canonical_problem(
 
 
 def _sample_test_cases(record: dict[str, str]) -> list[CanonicalTestCase]:
-    """把公开样例转成测试点。
+    """把题面的公开样例写成一个测试点。
 
-    站点会把**多组样例拼在同一个 ``<pre>`` 里**：题目 1002 的输入是两行 ``2 100`` /
-    ``2 22``、输出是两行 ``20`` / ``6``，实际是两组独立用例。这种样例整块当成一个
-    测试点会让只处理单组的正确程序判 WA，所以按行拆成多个测试点。
-
-    导入契约要求测试点分值之和正好为 100：整块单点时给满分，拆成 N 组时把 100 尽量
-    均分，余数补给前几组。样例不完整（缺输入或缺输出）时不生成测试点。
+    样例输入与样例输出整块作为该测试点的输入和期望输出；导入契约要求测试点分值之和
+    正好为 100，只放这一个测试点时它便是 100 分。样例不完整（缺输入或缺输出）时
+    不生成测试点，题目仍需人工补数据。
     """
     sample_input = _field(record, "sampleInput")
     sample_output = _field(record, "sampleOutput")
     if not sample_input or not sample_output:
         return []
-    input_lines = [line for line in sample_input.splitlines() if line.strip()]
-    output_lines = [line for line in sample_output.splitlines() if line.strip()]
-    if _looks_like_multiple_cases(input_lines, output_lines):
-        scores = _even_scores(len(input_lines))
-        return [
-            CanonicalTestCase(input=line, output=output, score=score, sample=True)
-            for line, output, score in zip(input_lines, output_lines, scores, strict=True)
-        ]
     return [
         CanonicalTestCase(
             input=sample_input,
@@ -194,21 +180,19 @@ def _sample_test_cases(record: dict[str, str]) -> list[CanonicalTestCase]:
     ]
 
 
-def _looks_like_multiple_cases(input_lines: list[str], output_lines: list[str]) -> bool:
+def _record_looks_like_multiple_cases(record: dict[str, str]) -> bool:
     """判断样例块是不是多组用例拼在一起。
 
-    多组样例的特征是每组一行输入对应一行输出，因此输入输出行数相同且都大于 1。
-    单组用例即使输入输出各有多行，行数通常也不相等（例如“第一行 n、第二行数组”
-    对应“一行答案”）。这个判断只用于决定是否拆分，拆出的测试点仍带公开样例标记，
-    方便人工在管理页面复核。
+    站点会把多组样例拼在同一个 ``<pre>`` 里：题目 1002 的样例输入是 ``2 100`` / ``2 22``
+    两行、输出是 ``20`` / ``6`` 两行，实际是两组独立用例。多组用例的特征是每组一行输入
+    对应一行输出，因此输入输出行数相同且都大于 1。
+
+    这里只用于提示判题口径：样例整块作为单个测试点时，只处理单组的程序可能判 WA。
+    测试点结构不做改动，需要拆分由人工在管理页面处理。
     """
+    input_lines = [line for line in _field(record, "sampleInput").splitlines() if line.strip()]
+    output_lines = [line for line in _field(record, "sampleOutput").splitlines() if line.strip()]
     return len(input_lines) > 1 and len(input_lines) == len(output_lines)
-
-
-def _even_scores(count: int) -> list[int]:
-    """把 100 分尽量均分给 ``count`` 个测试点，余数补给前几组，总和恒为 100。"""
-    base, remainder = divmod(SAMPLE_TEST_SCORE, count)
-    return [base + 1 if index < remainder else base for index in range(count)]
 
 
 def _map_difficulty(value: str) -> str:

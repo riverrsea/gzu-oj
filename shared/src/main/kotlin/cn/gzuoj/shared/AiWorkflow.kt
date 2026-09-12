@@ -8,8 +8,6 @@ enum class AiWorkflowState {
     ANALYZING,
     /** 并行生成两份独立标程。 */
     GENERATING_SOLUTIONS,
-    /** 对抗审查标程与测试计划。 */
-    REVIEWING,
     /** 生成确定性测试数据。 */
     GENERATING_TESTS,
     /** 执行暴力与双标程差分。 */
@@ -32,8 +30,6 @@ data class AiPublicationGate(
     val solutionsAgree: Boolean,
     /** 小数据是否通过暴力解差分。 */
     val bruteForcePassed: Boolean,
-    /** 旧运行的分值审计结果；保留字段兼容历史 JSON，不参与 AI 发布判断。 */
-    val scoreSumIsOneHundred: Boolean,
     /** 固定种子是否能复现全部输入。 */
     val deterministic: Boolean,
     /** 资源消耗是否留有规定余量。 */

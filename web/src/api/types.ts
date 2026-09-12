@@ -267,7 +267,6 @@ export type AiMajorState =
   | "DRAFT"
   | "ANALYZING"
   | "GENERATING_SOLUTIONS"
-  | "REVIEWING"
   | "TESTS_GENERATING"
   | "VALIDATING"
   | "PASSING"
@@ -283,22 +282,12 @@ export interface AiStateHistoryEntry {
   createdAt: string;
 }
 
-export interface AiAgentResponse {
-  summary: string;
-  ambiguities: string[];
-  sourceCode: string | null;
-  generatorSource: string | null;
-  validatorSource: string | null;
-  testPlan: string[];
-  seeds: number[];
-  findings: string[];
-}
-
 export interface AiStepResponse {
   id: string;
   role: string;
   state: string;
-  response: AiAgentResponse | null;
+  /** Agent 回传的结构化返回，键名由 Agent 的 model_dump() 决定（snake_case）。 */
+  response: Record<string, unknown> | null;
   rawResponse: string | null;
   costMicrounits: number;
   contentSha256: string | null;

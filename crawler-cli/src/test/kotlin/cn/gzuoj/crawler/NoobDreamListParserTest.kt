@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.net.URI
 import java.nio.file.Files
-import java.util.zip.ZipFile
 
 /** N 诺题库列表解析和 CSV 写入测试。 */
 class NoobDreamListParserTest {

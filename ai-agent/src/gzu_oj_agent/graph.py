@@ -48,8 +48,7 @@ COMPILE_PROGRESS_STAGE = {
 	SandboxFailureStage.BRUTE_FORCE: "GENERATING_BRUTE_FORCE",
 }
 
-# 通用守则：绝不猜测标准输出、输入与源码必须确定性可复现。
-_NEVER_GUESS_OUTPUT = "不得猜测标准输出：标准输出只能由后续 Worker 沙箱计算。"
+# 通用守则：源码必须完整、可编译且确定性可复现。
 _DETERMINISTIC_SOURCE = "所有源码必须是完整、可编译且确定性可复现的 GNU C++17 程序。"
 
 # 源码输出契约：模型偶尔用链接、伪代码或解释文字代替代码，这类输出在沙箱里必然编译失败。
@@ -100,7 +99,7 @@ _VALIDATOR_SKELETON = """  #include <bits/stdc++.h>
   }"""
 
 # 题意分析角色：拆解题面为"约束"与"歧义"两类，并用 one-shot 示例校准判别。
-SYSTEM_ANALYZE = """你是 OJ 题目的题意分析者。把题面拆解为 约束（constraints）与 歧义（ambiguities）两类，供后续标程与测试设计使用。
+SYSTEM_ANALYZE = """你是 OJ 题目的题意分析者。把题面拆解为 约束（constraints）与 歧义（ambiguities）两类，供后续标程与测试数据生成使用。
 
 判别规则：
 - 约束：题面明确写出的、可直接用于实现的事实，例如 数据规模、取值类型与范围、输入/输出格式、题目保证的性质。

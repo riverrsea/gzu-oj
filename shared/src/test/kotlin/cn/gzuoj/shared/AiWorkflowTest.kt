@@ -30,7 +30,7 @@ class AiWorkflowTest {
     /** 任一确定性门禁失败都应阻止自动发布。 */
     @Test
     fun `requires every publication gate`() {
-        val passed = AiPublicationGate(true, true, true, true, true, true)
+        val passed = AiPublicationGate(true, true, true, true, true)
         assertTrue(passed.allowsPublication())
         assertFalse(passed.copy(deterministic = false).allowsPublication())
     }

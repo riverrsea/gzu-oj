@@ -219,12 +219,6 @@
   flex-wrap: wrap;
 }
 
-.admin-panel-hint {
-  margin: 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-
 /* ===== 题库管理页 ===== */
 
 /* 筛选区：12 列网格，字段按重要度分配跨度。 */
@@ -283,9 +277,9 @@
   border-bottom: 1px solid var(--border);
   background: var(--surface-subtle);
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   text-align: left;
   white-space: nowrap;
 }
@@ -294,6 +288,11 @@
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
+}
+
+/* 操作列表头与右对齐的图标按钮对齐。 */
+.admin-th-actions {
+  text-align: right;
 }
 
 .admin-table tbody tr {
@@ -343,9 +342,11 @@
   white-space: nowrap;
 }
 
+/* 操作列右对齐，配合纯图标按钮保持列宽紧凑。 */
 .admin-table-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 2px;
   flex-wrap: nowrap;
 }
@@ -745,9 +746,5 @@
 
   .admin-form-bar {
     flex-wrap: wrap;
-  }
-
-  .admin-form-bar .admin-panel-hint {
-    display: none;
   }
 }

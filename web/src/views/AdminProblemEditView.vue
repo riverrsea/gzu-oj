@@ -289,7 +289,7 @@ onMounted(async () => {
       <section class="admin-panel">
         <header class="admin-panel-head">
           <span class="admin-panel-icon"><FileText :size="17" /></span>
-          <div class="admin-panel-titles"><h2>题目元数据</h2><p>标题、来源与难度等基础信息</p></div>
+          <div class="admin-panel-titles"><h2>题目元数据</h2></div>
         </header>
         <div class="admin-panel-body">
           <div class="admin-form-grid">
@@ -308,7 +308,7 @@ onMounted(async () => {
       <section class="admin-panel">
         <header class="admin-panel-head">
           <span class="admin-panel-icon"><BookOpen :size="17" /></span>
-          <div class="admin-panel-titles"><h2>题面与限制</h2><p>结构化题面内容与基准资源限制</p></div>
+          <div class="admin-panel-titles"><h2>题面与限制</h2></div>
         </header>
         <div class="admin-panel-body">
           <div class="form-field statement-form-item"><UiLabel>题面内容</UiLabel><ProblemStatementEditor v-model="form.statementMarkdown" :disabled="aiLocked" /></div>
@@ -323,7 +323,7 @@ onMounted(async () => {
       <section class="admin-panel">
         <header class="admin-panel-head">
           <span class="admin-panel-icon"><ListChecks :size="17" /></span>
-          <div class="admin-panel-titles"><h2>测试点</h2><p>输入输出成对出现，得分按通过的测试点数折算</p></div>
+          <div class="admin-panel-titles"><h2>测试点</h2></div>
           <div class="admin-panel-head-actions">
             <UiButton variant="outline" size="sm" :disabled="aiLocked" @click="addCase"><Plus :size="15" />添加测试点</UiButton>
           </div>
@@ -349,7 +349,6 @@ onMounted(async () => {
       </section>
 
       <footer class="admin-form-bar">
-        <p class="admin-panel-hint">得分按通过的测试点数折算，测试点不带分值</p>
         <div class="admin-form-bar-actions">
           <UiButton variant="outline" :disabled="aiLocked" :loading="saving" @click="save(false)"><Save :size="16" />保存草稿</UiButton>
           <UiButton :disabled="aiLocked" :loading="saving" @click="save(true)"><Send :size="16" />保存并发布</UiButton>

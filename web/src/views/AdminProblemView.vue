@@ -111,7 +111,7 @@ onMounted(() => void loadBaseVersion());
       <section class="admin-panel">
         <header class="admin-panel-head">
           <span class="admin-panel-icon"><FileText :size="17" /></span>
-          <div class="admin-panel-titles"><h2>题目元数据</h2><p>标题、来源与难度等基础信息</p></div>
+          <div class="admin-panel-titles"><h2>题目元数据</h2></div>
         </header>
         <div class="admin-panel-body">
           <div class="admin-form-grid admin-form-grid--three">
@@ -131,7 +131,7 @@ onMounted(() => void loadBaseVersion());
       <section class="admin-panel">
         <header class="admin-panel-head">
           <span class="admin-panel-icon"><BookOpen :size="17" /></span>
-          <div class="admin-panel-titles"><h2>题面与限制</h2><p>结构化题面内容与基准资源限制</p></div>
+          <div class="admin-panel-titles"><h2>题面与限制</h2></div>
         </header>
         <div class="admin-panel-body">
           <div class="form-field statement-form-item"><UiLabel>题面内容</UiLabel><ProblemStatementEditor v-model="form.statementMarkdown" /></div>
@@ -144,7 +144,6 @@ onMounted(() => void loadBaseVersion());
       </section>
 
       <footer class="admin-form-bar">
-        <p class="admin-panel-hint">创建草稿后将进入编辑页录入测试点</p>
         <div class="admin-form-bar-actions">
           <UiButton type="submit" :loading="saving"><Save :size="16" />创建草稿并继续</UiButton>
         </div>

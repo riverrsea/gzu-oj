@@ -88,7 +88,7 @@ async function commitImport(): Promise<void> {
     <section class="admin-panel">
       <header class="admin-panel-head">
         <span class="admin-panel-icon"><FileArchive :size="17" /></span>
-        <div class="admin-panel-titles"><h2>标准 ZIP 导入</h2><p>导入包需包含题面与测试点，服务端会逐项安全校验</p></div>
+        <div class="admin-panel-titles"><h2>标准 ZIP 导入</h2></div>
       </header>
       <div class="admin-panel-body">
         <label
@@ -140,7 +140,6 @@ async function commitImport(): Promise<void> {
         </table>
       </div>
       <footer class="admin-panel-foot">
-        <p class="admin-panel-hint">{{ hasInvalidItems ? "存在无效条目，修正后可重新校验" : "确认无误后提交导入，将为有效条目创建草稿版本" }}</p>
         <UiButton :loading="committing" :disabled="hasInvalidItems || batch.status !== 'VALIDATED'" @click="commitImport">提交导入</UiButton>
       </footer>
     </section>

@@ -136,7 +136,7 @@ onMounted(() => {
     <form class="admin-panel" @submit.prevent="search">
       <header class="admin-panel-head">
         <span class="admin-panel-icon"><ListFilter :size="17" /></span>
-        <div class="admin-panel-titles"><h2>筛选条件</h2><p>按标题、来源或状态缩小版本范围</p></div>
+        <div class="admin-panel-titles"><h2>筛选条件</h2></div>
       </header>
       <div class="admin-panel-body">
         <div class="admin-filters-grid">
@@ -176,12 +176,12 @@ onMounted(() => {
       <div v-if="loading" class="loading-overlay"><span class="loading-spinner" aria-label="加载中" /></div>
       <header class="admin-panel-head">
         <span class="admin-panel-icon"><BookOpen :size="17" /></span>
-        <div class="admin-panel-titles"><h2>版本列表</h2><p>每道题目可包含多个不可变版本</p></div>
+        <div class="admin-panel-titles"><h2>版本列表</h2></div>
       </header>
       <div class="admin-table-scroll">
         <table class="admin-table">
           <thead>
-            <tr><th>题目</th><th>学校</th><th>年份</th><th>版本</th><th>状态</th><th>测点</th><th>难度</th><th>创建时间</th><th>操作</th></tr>
+            <tr><th>题目</th><th>学校</th><th>年份</th><th>版本</th><th>状态</th><th>测点</th><th>难度</th><th>创建时间</th><th class="admin-th-actions">操作</th></tr>
           </thead>
           <tbody>
             <tr v-for="row in problems" :key="row.versionId">
@@ -204,14 +204,14 @@ onMounted(() => {
               <td>
                 <div class="admin-table-actions">
                   <template v-if="row.status === 'PUBLISHED'">
-                    <UiButton variant="ghost" size="sm" @click.stop="$router.push('/problems/' + row.problemId)"><ExternalLink :size="14" />查看</UiButton>
-                    <UiButton variant="ghost" size="sm" @click.stop="createNextVersion(row)"><CopyPlus :size="14" />新版本</UiButton>
+                    <UiButton variant="ghost" size="icon" title="查看" aria-label="查看" @click.stop="$router.push('/problems/' + row.problemId)"><ExternalLink :size="15" /></UiButton>
+                    <UiButton variant="ghost" size="icon" title="基于此版本新建草稿" aria-label="基于此版本新建草稿" @click.stop="createNextVersion(row)"><CopyPlus :size="15" /></UiButton>
                   </template>
                   <template v-else-if="row.status === 'DRAFT'">
-                    <UiButton variant="ghost" size="sm" @click.stop="editDraft(row.versionId)"><Edit3 :size="14" />编辑</UiButton>
-                    <UiButton variant="ghost" size="sm" @click.stop="publishDraft(row.versionId)"><Send :size="14" />发布</UiButton>
+                    <UiButton variant="ghost" size="icon" title="编辑" aria-label="编辑" @click.stop="editDraft(row.versionId)"><Edit3 :size="15" /></UiButton>
+                    <UiButton variant="ghost" size="icon" title="发布" aria-label="发布" @click.stop="publishDraft(row.versionId)"><Send :size="15" /></UiButton>
                   </template>
-                  <UiButton v-else variant="ghost" size="sm" @click.stop="createNextVersion(row)"><CopyPlus :size="14" />新版本</UiButton>
+                  <UiButton v-else variant="ghost" size="icon" title="基于此版本新建草稿" aria-label="基于此版本新建草稿" @click.stop="createNextVersion(row)"><CopyPlus :size="15" /></UiButton>
                 </div>
               </td>
             </tr>

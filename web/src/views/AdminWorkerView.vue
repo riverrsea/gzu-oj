@@ -86,7 +86,7 @@ async function copyToken(): Promise<void> {
       <section class="admin-panel">
         <header class="admin-panel-head">
           <span class="admin-panel-icon"><ServerCog :size="17" /></span>
-          <div class="admin-panel-titles"><h2>创建 Worker 凭据</h2><p>名称全局唯一，槽位决定节点并发能力</p></div>
+          <div class="admin-panel-titles"><h2>创建 Worker 凭据</h2></div>
         </header>
 
         <form class="admin-panel-body" @submit.prevent="createWorker">
@@ -126,7 +126,7 @@ async function copyToken(): Promise<void> {
         <section class="admin-panel">
           <header class="admin-panel-head">
             <span class="admin-panel-icon"><ShieldCheck :size="17" /></span>
-            <div class="admin-panel-titles"><h2>启动前检查</h2><p>逐项确认判题主机的运行环境</p></div>
+            <div class="admin-panel-titles"><h2>启动前检查</h2></div>
           </header>
           <div class="admin-panel-body">
             <ul class="admin-checklist">

@@ -310,10 +310,18 @@ test("移动端工作区可切换且没有水平溢出", async ({ page }, testIn
 test("管理员录题与训练中心可加载", async ({ page }) => {
   await mockApi(page);
   await page.goto("/admin/problems/new");
-  await expect(page.getByRole("heading", { name: "新建题目草稿" })).toBeVisible();
-  await expect(page.locator(".statement-builder")).toBeVisible();
+  // 题面是主内容，默认铺满页面
+  await expect(page.locator(".markdown-editor")).toBeVisible();
   await expect(page.getByText("题目描述", { exact: true }).first()).toBeVisible();
-  await expect(page.locator(".statement-preview")).toContainText("题目描述");
+  await expect(page.locator(".markdown-preview-pane")).toContainText("题目描述");
+  // 题目信息抽屉默认收起，通过底部操作条开关，悬浮不挤压题面区域
+  await expect(page.locator(".admin-meta-drawer")).toHaveCount(0);
+  await page.getByRole("button", { name: "题目信息" }).click();
+  const drawer = page.locator(".admin-meta-drawer");
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByText("标题", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".admin-meta-drawer")).toHaveCount(0);
   await page.goto("/training");
   await expect(page.getByRole("heading", { name: "训练", exact: true })).toBeVisible();
   await expect(page.getByText("公开训练赛")).toBeVisible();

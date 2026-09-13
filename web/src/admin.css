@@ -123,17 +123,6 @@
   letter-spacing: -0.02em;
 }
 
-/* 标题区左上角的小型分类标签。 */
-.admin-eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 7px;
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 750;
-}
-
 .admin-page-actions {
   display: flex;
   align-items: center;
@@ -486,7 +475,177 @@
   flex-wrap: wrap;
 }
 
-/* 测试点编辑区：双列卡片，序号徽章 + 输入输出对照。 */
+/* 底部操作条左侧的浮层开关组，间距与右侧操作按钮一致。 */
+.admin-form-bar-toggles {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 元数据抽屉遮罩层：覆盖整屏，点击空白处收起抽屉。 */
+.admin-meta-drawer-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: color-mix(in srgb, #0b1020 22%, transparent);
+}
+
+/* 元数据抽屉本体：从右侧滑入，悬浮于页面之上，不挤压题面编辑区。 */
+.admin-meta-drawer {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(400px, calc(100vw - 28px));
+  height: 100%;
+  margin-left: auto;
+  overflow: hidden;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: -14px 0 40px color-mix(in srgb, #0b1020 16%, transparent);
+}
+
+.admin-meta-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 60px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-meta-drawer-head strong {
+  font-size: 15px;
+}
+
+.admin-meta-drawer-body {
+  display: grid;
+  min-height: 0;
+  gap: 14px;
+  align-content: start;
+  padding: 16px;
+  overflow: auto;
+}
+
+/* 测试点遮罩层：整屏遮罩，点击空白处收起面板。 */
+.admin-cases-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 48px 24px;
+  background: color-mix(in srgb, #0b1020 55%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+/* 测试点面板：居中大面板，高度随内容自适应，超高时内部滚动。 */
+.admin-cases-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(1100px, 100%);
+  max-height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-elevated);
+}
+
+.admin-cases-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 60px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-cases-panel-head strong {
+  font-size: 15px;
+}
+
+.admin-cases-panel-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.admin-cases-panel-body {
+  display: grid;
+  min-height: 0;
+  gap: 14px;
+  align-content: start;
+  padding: 16px;
+  overflow: auto;
+}
+
+/* 遮罩进出动画：背景淡入淡出，面板轻微上浮。 */
+.admin-cases-fade-enter-active {
+  animation: admin-meta-drawer-backdrop-in 180ms ease both;
+}
+
+.admin-cases-fade-leave-active {
+  animation: admin-meta-drawer-backdrop-out 180ms ease both;
+}
+
+.admin-cases-fade-enter-active .admin-cases-panel {
+  animation: admin-cases-panel-in 220ms cubic-bezier(0.12, 0.82, 0.18, 1) both;
+}
+
+.admin-cases-fade-leave-active .admin-cases-panel {
+  animation: admin-cases-panel-out 160ms ease both;
+}
+
+@keyframes admin-cases-panel-in {
+  from { transform: translateY(14px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes admin-cases-panel-out {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(14px); opacity: 0; }
+}
+
+/* 抽屉进出动画：遮罩淡入淡出，面板横向滑动。 */
+.admin-meta-drawer-fade-enter-active {
+  animation: admin-meta-drawer-backdrop-in 180ms ease both;
+}
+
+.admin-meta-drawer-fade-leave-active {
+  animation: admin-meta-drawer-backdrop-out 180ms ease both;
+}
+
+.admin-meta-drawer-fade-enter-active .admin-meta-drawer {
+  animation: admin-meta-drawer-slide-in 280ms cubic-bezier(0.12, 0.82, 0.18, 1) both;
+}
+
+.admin-meta-drawer-fade-leave-active .admin-meta-drawer {
+  animation: admin-meta-drawer-slide-out 180ms cubic-bezier(0.55, 0.08, 0.68, 0.53) both;
+}
+
+@keyframes admin-meta-drawer-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes admin-meta-drawer-backdrop-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes admin-meta-drawer-slide-in {
+  from { transform: translateX(40px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes admin-meta-drawer-slide-out {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(40px); opacity: 0; }
+}
+
+/* 测试点编辑区：双列卡片，序号徽章 + 输入输出对照；卡片外观由 UiCard 提供。 */
 .admin-case-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -498,9 +657,6 @@
   min-width: 0;
   gap: 12px;
   padding: 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
 }
 
 .admin-case-card-head {

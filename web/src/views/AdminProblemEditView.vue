@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ArrowLeft, BookOpen, Bot, FileText, ListChecks, Plus, Save, Send, Trash2 } from "@lucide/vue";
+import { Bot, ListChecks, Plus, Save, Send, SlidersHorizontal, Trash2, X } from "@lucide/vue";
 import { confirmAction, toast } from "../lib/notify";
 import { api } from "../api/client";
 import type { AdminProblemVersionDetail, AiRun, Difficulty } from "../api/types";
-import ProblemStatementEditor from "../components/ProblemStatementEditor.vue";
+import MarkdownEditor from "../components/MarkdownEditor.vue";
 import AiRunOverlay from "../components/AiRunOverlay.vue";
 import UiAlert from "../components/ui/Alert.vue";
 import UiButton from "../components/ui/Button.vue";
+import UiCard from "../components/ui/Card.vue";
 import UiCheckbox from "../components/ui/Checkbox.vue";
 import UiEmptyState from "../components/ui/EmptyState.vue";
 import UiInput from "../components/ui/Input.vue";
@@ -34,6 +35,23 @@ const aiLoading = ref(false);
 const aiRun = ref<AiRun>();
 /** AI 生成测试点遮罩是否打开。 */
 const overlayOpen = ref(false);
+
+/** 可开关浮层的种类：题目信息抽屉或测试点遮罩。 */
+type AdminPanel = "meta" | "cases";
+
+/** 当前展开的浮层；悬浮于页面之上，不挤压题面编辑区，同一时间只展开一个。 */
+const activePanel = ref<AdminPanel | null>(null);
+
+/** 切换浮层开关；再次点击同一按钮时收起。 */
+function togglePanel(panel: AdminPanel): void {
+  activePanel.value = activePanel.value === panel ? null : panel;
+}
+
+/** Esc 键收起浮层。 */
+function onGlobalKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape" && activePanel.value) activePanel.value = null;
+}
+
 const tagText = ref("");
 /** 难度下拉选项；无占位空值项，难度必选。 */
 const difficultyOptions = [
@@ -41,6 +59,23 @@ const difficultyOptions = [
   { value: "MEDIUM", label: "综合" },
   { value: "HARD", label: "高难" },
 ];
+
+/** 年份下拉选项：从当年回溯到 2000 年，倒序排列；与题库目录的年份筛选保持一致。 */
+const yearOptions = computed(() => {
+  const current = new Date().getFullYear();
+  return Array.from({ length: current - 2000 + 1 }, (_, index) => {
+    const year = current - index;
+    return { value: String(year), label: String(year) };
+  });
+});
+
+/** 年份下拉的字符串桥接：UiSelectMenu 使用字符串值，表单中保存为数字。 */
+const yearSelect = computed<string>({
+  get: () => String(form.year),
+  set: (value) => {
+    form.year = Number(value);
+  },
+});
 
 const form = reactive({
   title: "",
@@ -274,89 +309,89 @@ watch(() => aiRun.value?.state, (state) => {
 
 onMounted(async () => {
   await load();
+  window.addEventListener("keydown", onGlobalKeydown);
 });
+
+onBeforeUnmount(() => window.removeEventListener("keydown", onGlobalKeydown));
 </script>
 
 <template>
-  <section class="admin-page admin-page--narrow loading-shell" :aria-busy="loading">
+  <section class="admin-page loading-shell" :aria-busy="loading">
     <div v-if="loading" class="loading-overlay"><span class="loading-spinner" aria-label="加载中" /></div>
-    <div class="admin-page-head">
-      <div>
-        <h1>编辑题目草稿</h1>
-      </div>
-      <div class="admin-page-actions">
-        <UiButton @click="overlayOpen = true"><Bot :size="16" />AI 生成测试点</UiButton>
-        <UiButton variant="ghost" @click="router.push('/admin/problems')"><ArrowLeft :size="16" />返回题库</UiButton>
-      </div>
-    </div>
 
     <UiAlert v-if="aiLocked" variant="warning" title="该草稿存在进行中的 AI 流程，内容暂时锁定；流程结束或取消后可继续编辑。" />
     <UiAlert v-else-if="detail && form.testCases.length === 0" variant="info" title="当前草稿还没有测试点；请添加测试点并保存后才能发布。" />
     <form class="admin-form" @submit.prevent="save(false)">
-      <section class="admin-panel">
-        <header class="admin-panel-head">
-          <span class="admin-panel-icon"><FileText :size="17" /></span>
-          <div class="admin-panel-titles"><h2>题目元数据</h2></div>
-        </header>
-        <div class="admin-panel-body">
-          <div class="admin-form-grid">
-            <div class="form-field"><UiLabel>学校</UiLabel><UiInput v-model="form.school" maxlength="200" :disabled="aiLocked" /></div>
-            <div class="form-field"><UiLabel>年份</UiLabel><UiNumberField v-model="form.year" :min="1900" :max="2200" :disabled="aiLocked" /></div>
-          </div>
-          <div class="form-field"><UiLabel>标题</UiLabel><UiInput v-model="form.title" maxlength="200" :disabled="aiLocked" /></div>
-          <div class="admin-form-grid admin-form-grid--three">
-            <div class="form-field"><UiLabel>难度</UiLabel><UiSelectMenu v-model="form.difficulty" :options="difficultyOptions" placeholder="" :disabled="aiLocked" aria-label="难度" /></div>
-            <div class="form-field"><UiLabel>标签（逗号分隔）</UiLabel><UiInput v-model="tagText" :disabled="aiLocked" /></div>
-            <div class="form-field"><UiLabel>来源链接</UiLabel><UiInput v-model="form.sourceUrl" placeholder="https://..." :disabled="aiLocked" /></div>
-          </div>
-        </div>
-      </section>
+      <!-- 题面编辑区为主内容，铺满页面宽度 -->
+      <MarkdownEditor v-model="form.statementMarkdown" :disabled="aiLocked" />
+      <div class="admin-form-grid admin-form-grid--three">
+        <div class="form-field"><UiLabel>基准时间限制（ms）</UiLabel><UiNumberField v-model="form.timeLimitMs" :min="100" :max="60000" :step="100" :disabled="aiLocked" /></div>
+        <div class="form-field"><UiLabel>基准内存限制（MiB）</UiLabel><UiNumberField v-model="form.memoryLimitMiB" :min="16" :max="2048" :step="16" :disabled="aiLocked" /></div>
+        <div class="form-field"><UiLabel>数据声明</UiLabel><UiInput v-model="form.dataNotice" maxlength="200" :disabled="aiLocked" /></div>
+      </div>
 
-      <section class="admin-panel">
-        <header class="admin-panel-head">
-          <span class="admin-panel-icon"><BookOpen :size="17" /></span>
-          <div class="admin-panel-titles"><h2>题面与限制</h2></div>
-        </header>
-        <div class="admin-panel-body">
-          <div class="form-field statement-form-item"><UiLabel>题面内容</UiLabel><ProblemStatementEditor v-model="form.statementMarkdown" :disabled="aiLocked" /></div>
-          <div class="admin-form-grid admin-form-grid--three">
-            <div class="form-field"><UiLabel>基准时间限制（ms）</UiLabel><UiNumberField v-model="form.timeLimitMs" :min="100" :max="60000" :step="100" :disabled="aiLocked" /></div>
-            <div class="form-field"><UiLabel>基准内存限制（MiB）</UiLabel><UiNumberField v-model="form.memoryLimitMiB" :min="16" :max="2048" :step="16" :disabled="aiLocked" /></div>
-            <div class="form-field"><UiLabel>数据声明</UiLabel><UiInput v-model="form.dataNotice" maxlength="200" :disabled="aiLocked" /></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="admin-panel">
-        <header class="admin-panel-head">
-          <span class="admin-panel-icon"><ListChecks :size="17" /></span>
-          <div class="admin-panel-titles"><h2>测试点</h2></div>
-          <div class="admin-panel-head-actions">
-            <UiButton variant="outline" size="sm" :disabled="aiLocked" @click="addCase"><Plus :size="15" />添加测试点</UiButton>
-          </div>
-        </header>
-        <div class="admin-panel-body">
-          <div class="admin-case-grid">
-            <article v-for="(item, index) in form.testCases" :key="index" class="admin-case-card">
-              <header class="admin-case-card-head">
-                <span class="admin-case-ordinal"><i>{{ index + 1 }}</i>测试点 {{ index + 1 }}</span>
-                <button class="icon-button" type="button" title="删除测试点" :disabled="aiLocked" @click="removeCase(index)"><Trash2 :size="16" /></button>
-              </header>
-              <div class="admin-case-io">
-                <div class="form-field"><UiLabel>输入</UiLabel><UiTextarea v-model="item.input" :rows="5" :disabled="aiLocked" /></div>
-                <div class="form-field"><UiLabel>标准输出</UiLabel><UiTextarea v-model="item.output" :rows="5" :disabled="aiLocked" /></div>
+      <!-- 元数据抽屉：悬浮于页面右侧，展开时不挤压题面编辑区；点击遮罩空白处或按 Esc 收起 -->
+      <Transition name="admin-meta-drawer-fade">
+        <div v-if="activePanel === 'meta'" class="admin-meta-drawer-layer" @click.self="activePanel = null">
+          <aside class="admin-meta-drawer" role="dialog" aria-modal="true" aria-label="题目信息">
+            <div class="admin-meta-drawer-head">
+              <strong>题目信息</strong>
+              <button type="button" class="icon-button" aria-label="收起题目信息" @click="activePanel = null"><X :size="16" /></button>
+            </div>
+            <div class="admin-meta-drawer-body">
+              <div class="form-field"><UiLabel>标题</UiLabel><UiInput v-model="form.title" maxlength="200" :disabled="aiLocked" /></div>
+              <div class="admin-form-grid">
+                <div class="form-field"><UiLabel>学校</UiLabel><UiInput v-model="form.school" maxlength="200" :disabled="aiLocked" /></div>
+                <div class="form-field"><UiLabel>年份</UiLabel><UiSelectMenu v-model="yearSelect" :options="yearOptions" placeholder="" :disabled="aiLocked" aria-label="年份" /></div>
               </div>
-              <footer class="admin-case-foot">
-                <label class="checkbox-field"><UiCheckbox v-model="item.sample" :disabled="aiLocked" />公开样例</label>
-              </footer>
-            </article>
-          </div>
-          <UiEmptyState v-if="form.testCases.length === 0" description="还没有测试点，点击右上角“添加测试点”开始录入" />
+              <div class="form-field"><UiLabel>难度</UiLabel><UiSelectMenu v-model="form.difficulty" :options="difficultyOptions" placeholder="" :disabled="aiLocked" aria-label="难度" /></div>
+              <div class="form-field"><UiLabel>标签（逗号分隔）</UiLabel><UiInput v-model="tagText" :disabled="aiLocked" /></div>
+              <div class="form-field"><UiLabel>来源链接</UiLabel><UiInput v-model="form.sourceUrl" placeholder="https://..." :disabled="aiLocked" /></div>
+            </div>
+          </aside>
         </div>
-      </section>
+      </Transition>
+
+      <!-- 测试点遮罩：居中大面板，输入输出对照有充足空间；点击遮罩空白处或按 Esc 收起 -->
+      <Transition name="admin-cases-fade">
+        <div v-if="activePanel === 'cases'" class="admin-cases-overlay" @click.self="activePanel = null">
+          <section class="admin-cases-panel" role="dialog" aria-modal="true" aria-label="测试点">
+            <div class="admin-cases-panel-head">
+              <strong>测试点（{{ form.testCases.length }}）</strong>
+              <div class="admin-cases-panel-head-actions">
+                <UiButton variant="outline" size="sm" :disabled="aiLocked" @click="addCase"><Plus :size="15" />添加测试点</UiButton>
+                <button type="button" class="icon-button" aria-label="收起测试点" @click="activePanel = null"><X :size="16" /></button>
+              </div>
+            </div>
+            <div class="admin-cases-panel-body">
+              <div class="admin-case-grid">
+                <UiCard v-for="(item, index) in form.testCases" :key="index" class="admin-case-card">
+                  <header class="admin-case-card-head">
+                    <span class="admin-case-ordinal"><i>{{ index + 1 }}</i>测试点 {{ index + 1 }}</span>
+                    <UiButton variant="ghost" size="icon" title="删除测试点" :disabled="aiLocked" @click="removeCase(index)"><Trash2 :size="16" /></UiButton>
+                  </header>
+                  <div class="admin-case-io">
+                    <div class="form-field"><UiLabel>输入</UiLabel><UiTextarea v-model="item.input" :rows="5" :disabled="aiLocked" /></div>
+                    <div class="form-field"><UiLabel>标准输出</UiLabel><UiTextarea v-model="item.output" :rows="5" :disabled="aiLocked" /></div>
+                  </div>
+                  <footer class="admin-case-foot">
+                    <label class="checkbox-field"><UiCheckbox v-model="item.sample" :disabled="aiLocked" />公开样例</label>
+                  </footer>
+                </UiCard>
+              </div>
+              <UiEmptyState v-if="form.testCases.length === 0" description="还没有测试点，点击右上角“添加测试点”开始录入" />
+            </div>
+          </section>
+        </div>
+      </Transition>
 
       <footer class="admin-form-bar">
+        <div class="admin-form-bar-toggles">
+          <UiButton type="button" variant="outline" :aria-expanded="activePanel === 'meta'" @click="togglePanel('meta')"><SlidersHorizontal :size="15" />题目信息</UiButton>
+          <UiButton type="button" variant="outline" :aria-expanded="activePanel === 'cases'" @click="togglePanel('cases')"><ListChecks :size="15" />测试点（{{ form.testCases.length }}）</UiButton>
+        </div>
         <div class="admin-form-bar-actions">
+          <UiButton variant="outline" @click="overlayOpen = true"><Bot :size="16" />AI 生成测试点</UiButton>
           <UiButton variant="outline" :disabled="aiLocked" :loading="saving" @click="save(false)"><Save :size="16" />保存草稿</UiButton>
           <UiButton :disabled="aiLocked" :loading="saving" @click="save(true)"><Send :size="16" />保存并发布</UiButton>
         </div>

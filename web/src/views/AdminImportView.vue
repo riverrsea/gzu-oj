@@ -79,12 +79,6 @@ async function commitImport(): Promise<void> {
 
 <template>
   <section class="admin-page admin-page--narrow">
-    <div class="admin-page-head">
-      <div>
-        <h1>批量导入</h1>
-      </div>
-    </div>
-
     <section class="admin-panel">
       <header class="admin-panel-head">
         <span class="admin-panel-icon"><FileArchive :size="17" /></span>

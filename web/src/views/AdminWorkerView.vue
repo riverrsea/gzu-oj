@@ -75,13 +75,6 @@ async function copyToken(): Promise<void> {
 
 <template>
   <section class="admin-page">
-    <div class="admin-page-head">
-      <div>
-        <div class="admin-eyebrow"><ServerCog :size="15" />节点凭据</div>
-        <h1>判题 Worker</h1>
-      </div>
-    </div>
-
     <div class="admin-worker-layout">
       <section class="admin-panel">
         <header class="admin-panel-head">

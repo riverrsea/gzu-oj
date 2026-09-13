@@ -223,6 +223,10 @@
 
 /* 筛选卡片：单行弹性排布，字段按需伸缩，窄屏自动换行。 */
 .admin-filters {
+  /* 吸顶：滚动时贴在顶栏（64px）下方，层级低于顶栏与下拉浮层。 */
+  position: sticky;
+  top: 64px;
+  z-index: 20;
   display: flex;
   align-items: flex-end;
   gap: 10px 12px;
@@ -263,11 +267,11 @@
   overflow: hidden;
 }
 
-/* 列表顶部工具栏：分页右对齐。 */
+/* 列表顶部分页条：分页居中。 */
 .admin-table-bar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
 }

@@ -139,6 +139,7 @@ async def test_analyze_ambiguity_fail_then_resume_reanalyze() -> None:
     snap = await graph.aget_state(config)
     assert snap.next == ("fail",)
     assert snap.values.get("failure_target") == "ANALYZING"
+    assert len(kotlin.fails) == 1
     assert kotlin.fails[-1][2] == "ANALYZING"
     assert len(model.analyze_prompts) == 1
 
@@ -150,7 +151,9 @@ async def test_analyze_ambiguity_fail_then_resume_reanalyze() -> None:
     # 重跑 analyze 应携带人工澄清、清除歧义并继续到第一个编译门禁的瞬断点。
     assert snap2.next == ("compile_test_data",)
     assert "人工澄清内容" in model.analyze_prompts[1]
-    # fail 节点恢复时会从开头重跑（幂等重复通知 Kotlin），首次通知必须携带 ANALYZING 目标。
+    # 恢复时 fail 节点会从开头重跑，但上报已经移到 analyze，因此不会重复通知 Kotlin。
+    # 这一点很关键：重复上报会把 /resume 刚推进的 ANALYZING 又打回 NEEDS_REVIEW。
+    assert len(kotlin.fails) == 1
     assert kotlin.fails[0][2] == "ANALYZING"
     analyze_steps = [s for s in kotlin.steps if s[0] == "analyze"]
     assert len(analyze_steps) == 2
@@ -351,6 +354,67 @@ async def test_test_data_repair_skips_solutions_and_brute_force() -> None:
     # 标程与暴力解各自只生成过一次。
     assert len(model.solution_prompts) == 3
     assert sum(1 for system in model.solution_prompts if "暴力解" in system) == 1
+
+
+async def test_sandbox_exhaustion_reports_failure_once() -> None:
+    """差分重做两轮仍失败时交人工接管，且只上报一次（不再由 fail 节点重复通知）。"""
+    run_id = uuid4()
+    model = FakeModel(ambiguous=False)
+    kotlin = FakeKotlin()
+    graph = Workflow(model, kotlin).compile(InMemorySaver())
+    config = {"configurable": {"thread_id": str(run_id)}}
+
+    await graph.ainvoke(initial_state(run_id), config)
+    # 走完三个编译门禁，进入全量差分。
+    for _ in range(3):
+        payload = await pending_interrupt(graph, config)
+        await graph.ainvoke(Command(resume=sandbox_result(run_id, payload["sandboxJobId"])), config)
+
+    # 每一轮差分失败都定向重做标程，修好后重新提交差分；第三轮仍失败才算耗尽修复预算。
+    for repair_round in (0, 1):
+        payload = await pending_interrupt(graph, config)
+        assert payload["repairRound"] == repair_round
+        await graph.ainvoke(
+            Command(
+                resume=sandbox_result(
+                    run_id,
+                    payload["sandboxJobId"],
+                    status=SandboxStatus.VALIDATION_FAILED,
+                    reason="两份标程输出不一致",
+                    stage=SandboxFailureStage.SOLUTIONS,
+                    repair_round=repair_round,
+                )
+            ),
+            config,
+        )
+        payload = await pending_interrupt(graph, config)
+        await graph.ainvoke(
+            Command(resume=sandbox_result(run_id, payload["sandboxJobId"], repair_round=repair_round + 1)),
+            config,
+        )
+
+    payload = await pending_interrupt(graph, config)
+    assert payload["repairRound"] == 2
+    await graph.ainvoke(
+        Command(
+            resume=sandbox_result(
+                run_id,
+                payload["sandboxJobId"],
+                status=SandboxStatus.VALIDATION_FAILED,
+                reason="两份标程输出不一致",
+                stage=SandboxFailureStage.SOLUTIONS,
+                repair_round=2,
+            )
+        ),
+        config,
+    )
+
+    snap = await graph.aget_state(config)
+    assert snap.next == ("fail",)
+    # 上报由 submit 负责：只发生一次，且不携带 resume_target（差分失败不可由重新分析恢复）。
+    assert len(kotlin.fails) == 1
+    assert kotlin.fails[0][1] == "两份标程输出不一致"
+    assert not kotlin.fails[0][2]
 
 
 def test_compile_gate_node_is_coroutine() -> None:

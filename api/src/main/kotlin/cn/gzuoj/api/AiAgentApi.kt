@@ -26,6 +26,7 @@ import tools.jackson.databind.ObjectMapper
 import java.util.UUID
 import cn.gzuoj.shared.AiWorkflow
 import cn.gzuoj.shared.AiWorkflowState
+import org.slf4j.LoggerFactory
 
 /** Python Agent 回传的模型无关进度事件。 */
 data class AiAgentEventRequest(
@@ -119,6 +120,9 @@ class AiAgentController(
     /** Agent 地址和共享令牌配置。 */
     private val properties: AppProperties,
 ) {
+    /** 记录被状态机丢弃的阶段投影，避免"Agent 在跑、Kotlin 状态不动"只能靠倒推排查。 */
+    private val log = LoggerFactory.getLogger(javaClass)
+
     /** 记录事件；重复 eventId 直接视为成功。 */
     @PostMapping("/events")
     @Transactional
@@ -152,7 +156,11 @@ class AiAgentController(
             { result, _ -> AiWorkflowState.valueOf(result.getString("state")) },
             event.runId,
         ).firstOrNull() ?: return
-        if (current == target || !AiWorkflow.canTransition(current, target)) return
+        if (current == target || !AiWorkflow.canTransition(current, target)) {
+            // 静默丢弃会让"Agent 已经往下跑、Kotlin 状态却停在上一个状态"完全无迹可循。
+            log.warn("丢弃 AI 阶段投影 runId={} {} -> {}（当前状态不允许该转换）", event.runId, current, target)
+            return
+        }
         jdbc.update(
             "UPDATE ai_problem_run SET state = ?, updated_at = now() WHERE id = ?",
             target.name,
@@ -184,31 +192,70 @@ class AiAgentController(
         if ((compile == null) == (body.task == null)) {
             throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_AI_SANDBOX_TASK", "沙箱任务必须且只能提供差分参数或编译门禁参数")
         }
-        val stage = compile?.stage?.name ?: AI_DIFFERENTIAL_SANDBOX_STAGE
-        val jobId = jdbc.query(
-            "SELECT id FROM ai_sandbox_job WHERE run_id = ? AND repair_round = ? AND stage = ? AND attempt = ?",
-            { result, _ -> result.getObject("id", UUID::class.java) },
-            runId, body.repairRound, stage, body.attempt,
-        ).firstOrNull() ?: UUID.randomUUID().also { id ->
-            // 只有全量差分任务代表进入差分阶段；编译门禁仍停留在当前生成阶段。
-            if (compile == null) {
-                jdbc.update(
-                    "UPDATE ai_problem_run SET state = 'DIFFERENTIAL_TESTING', updated_at = now() WHERE id = ? AND state IN ('ANALYZING', 'GENERATING_SOLUTIONS', 'GENERATING_TESTS')",
-                    runId,
-                )
-            }
-            jdbc.update(
-                "INSERT INTO ai_sandbox_job(id, run_id, repair_round, stage, attempt, payload, priority) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?)",
-                id,
-                runId,
-                body.repairRound,
-                stage,
-                body.attempt,
-                mapper.writeValueAsString(compile ?: body.task),
-                10,
+        // 运行离开可领取状态后不再接受新作业：这类作业没有 Worker 会领取，
+        // 只会以 QUEUED 永远留在队列里。这里显式拒绝，让 Agent 立即停下来。
+        val runState = jdbc.query(
+            "SELECT state FROM ai_problem_run WHERE id = ? FOR UPDATE",
+            { result, _ -> AiWorkflowState.valueOf(result.getString("state")) },
+            runId,
+        ).firstOrNull() ?: throw ApiException(HttpStatus.NOT_FOUND, "AI_RUN_NOT_FOUND", "AI 运行不存在")
+        if (!canEnqueueSandboxJob(runState)) {
+            throw ApiException(
+                HttpStatus.CONFLICT,
+                "AI_RUN_NOT_GENERATING",
+                "运行已离开可生成状态（$runState），不再接受沙箱任务",
             )
         }
+        val stage = compile?.stage?.name ?: AI_DIFFERENTIAL_SANDBOX_STAGE
+        val payload = mapper.writeValueAsString(compile ?: body.task)
+        val existing = jdbc.query(
+            "SELECT id, status FROM ai_sandbox_job WHERE run_id = ? AND repair_round = ? AND stage = ? AND attempt = ?",
+            { result, _ -> result.getObject("id", UUID::class.java) to result.getString("status") },
+            runId, body.repairRound, stage, body.attempt,
+        ).firstOrNull()
+        val jobId = when {
+            // 作业曾被取消（例如交给人工复核时清理过），恢复运行后 Agent 会重新提交同一个键。
+            // 这里复用该行并写入新载荷，否则幂等查询会把已取消的作业还给 Agent，让它一直等结果。
+            existing != null && existing.second == "CANCELED" -> existing.first.also { id ->
+                jdbc.update(
+                    """
+                    UPDATE ai_sandbox_job
+                    SET payload = ?::jsonb, priority = ?, status = 'QUEUED', available_at = now(),
+                        attempt_id = NULL, lease_token_hash = NULL, leased_by = NULL, lease_expires_at = NULL,
+                        result_json = NULL, failure_reason = NULL, completed_at = NULL
+                    WHERE id = ?
+                    """.trimIndent(),
+                    payload,
+                    10,
+                    id,
+                )
+                enterDifferentialStageIfNeeded(compile != null, runId)
+            }
+            existing != null -> existing.first
+            else -> UUID.randomUUID().also { id ->
+                enterDifferentialStageIfNeeded(compile != null, runId)
+                jdbc.update(
+                    "INSERT INTO ai_sandbox_job(id, run_id, repair_round, stage, attempt, payload, priority) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?)",
+                    id,
+                    runId,
+                    body.repairRound,
+                    stage,
+                    body.attempt,
+                    payload,
+                    10,
+                )
+            }
+        }
         return mapOf("sandboxJobId" to jobId)
+    }
+
+    /** 只有全量差分任务代表进入差分阶段；编译门禁仍停留在当前生成阶段。 */
+    private fun enterDifferentialStageIfNeeded(hasCompile: Boolean, runId: UUID) {
+        if (hasCompile) return
+        jdbc.update(
+            "UPDATE ai_problem_run SET state = 'DIFFERENTIAL_TESTING', updated_at = now() WHERE id = ? AND state IN ('ANALYZING', 'GENERATING_SOLUTIONS', 'GENERATING_TESTS')",
+            runId,
+        )
     }
 
     /** 将模型或结构化校验失败交给管理员处理。 */
@@ -226,6 +273,14 @@ class AiAgentController(
             runId,
         ).firstOrNull() ?: return
         if (current == AiWorkflowState.PUBLISHED || current == AiWorkflowState.CANCELED) return
+        // 已经在人工接管时不覆盖首次的失败原因与恢复目标。
+        // 后续上报通常是下游异常（例如重新提交沙箱任务被拒），若照写会同时抹掉根因和
+        // resume_target，管理员就无法按原阶段恢复；这里只把新的上报记入时间线。
+        if (current == AiWorkflowState.NEEDS_REVIEW) {
+            recordFailureHistory(runId, current, body.reason)
+            cancelPendingSandboxJobs(jdbc, runId)
+            return
+        }
         jdbc.update(
             """
             UPDATE ai_problem_run
@@ -236,8 +291,9 @@ class AiAgentController(
             body.resumeTarget?.take(32),
             runId,
         )
-        // 仅首次进入待审查时追加一条时间线，避免重复失败覆盖历史。
-        if (current != AiWorkflowState.NEEDS_REVIEW) recordFailureHistory(runId, current, body.reason)
+        recordFailureHistory(runId, current, body.reason)
+        // 运行已经离开可领取状态，待结算的沙箱作业必须一起取消，否则会永远停在 QUEUED。
+        cancelPendingSandboxJobs(jdbc, runId)
     }
 
     /** 持久化 Agent 单个角色的结构化响应供管理员审计与人工接管。 */

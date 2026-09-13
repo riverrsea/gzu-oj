@@ -101,7 +101,6 @@ onMounted(() => void loadBaseVersion());
     <div class="admin-page-head">
       <div>
         <h1>{{ creatingNextVersion ? '新建题目版本草稿' : '新建题目草稿' }}</h1>
-        <p>{{ creatingNextVersion ? '已复制原版本的元数据与题面，保存后成为同一题目的新草稿。' : '先创建草稿并录入元数据与题面，测试点在下一步单独维护。' }}</p>
       </div>
       <div class="admin-page-actions">
         <UiButton variant="ghost" @click="router.push('/admin/problems')"><ArrowLeft :size="16" />返回题库</UiButton>

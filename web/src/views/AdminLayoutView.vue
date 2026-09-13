@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import type { Component } from "vue";
+import { computed } from "vue";
 import { useRoute } from "vue-router";
-import { BookOpen, FileArchive, House, Plus, ServerCog, SquareTerminal } from "@lucide/vue";
+import { BookOpen, ChevronRight, FileArchive, House, Plus, ServerCog } from "@lucide/vue";
 
-/** 当前路由，用于跨子路由保持侧栏导航高亮。 */
+/** 当前路由，用于面包屑当前页与顶部 Tab 的高亮匹配。 */
 const route = useRoute();
 
-/** 侧栏导航项；matches 决定该项在哪些路径下高亮。 */
+/** 顶部 Tab 导航项；matches 决定该项在哪些路径下保持高亮。 */
 interface AdminNavItem {
   to: string;
   label: string;
@@ -14,57 +15,56 @@ interface AdminNavItem {
   matches: (path: string) => boolean;
 }
 
-/** 管理中心的分组导航：题库相关与基础设施分开，便于后续扩展。 */
-const navGroups: { label: string; items: AdminNavItem[] }[] = [
+/** 管理中心的顶部 Tab 导航；草稿编辑页属于题库目录的下级页面，保持目录项高亮。 */
+const navItems: AdminNavItem[] = [
   {
-    label: "题库",
-    items: [
-      {
-        to: "/admin/problems",
-        label: "题库目录",
-        icon: BookOpen,
-        // 草稿编辑页属于题库目录的下级页面，保持目录项高亮。
-        matches: (path) => path === "/admin/problems" || (path.startsWith("/admin/problems/") && path !== "/admin/problems/new"),
-      },
-      { to: "/admin/problems/new", label: "新建题目", icon: Plus, matches: (path) => path === "/admin/problems/new" },
-      { to: "/admin/imports", label: "批量导入", icon: FileArchive, matches: (path) => path.startsWith("/admin/imports") },
-    ],
+    to: "/admin/problems",
+    label: "题库目录",
+    icon: BookOpen,
+    matches: (path) => path === "/admin/problems" || (path.startsWith("/admin/problems/") && path !== "/admin/problems/new"),
   },
-  {
-    label: "基础设施",
-    items: [{ to: "/admin/workers", label: "判题 Worker", icon: ServerCog, matches: (path) => path.startsWith("/admin/workers") }],
-  },
+  { to: "/admin/problems/new", label: "新建题目", icon: Plus, matches: (path) => path === "/admin/problems/new" },
+  { to: "/admin/imports", label: "批量导入", icon: FileArchive, matches: (path) => path.startsWith("/admin/imports") },
+  { to: "/admin/workers", label: "判题 Worker", icon: ServerCog, matches: (path) => path.startsWith("/admin/workers") },
 ];
+
+/** 面包屑最后一级：当前子页面名称；编辑页没有对应 Tab，单独命名。 */
+const currentCrumb = computed(() => {
+  const path = route.path;
+  if (path.startsWith("/admin/problems/") && path !== "/admin/problems/new") return "编辑草稿";
+  return navItems.find((item) => item.matches(path))?.label ?? "";
+});
 </script>
 
 <template>
   <div class="admin-shell">
-    <aside class="admin-sidebar">
-      <header class="admin-sidebar-brand">
-        <span class="admin-sidebar-brand-icon"><SquareTerminal :size="18" /></span>
-        <div class="admin-sidebar-brand-text">
-          <strong>管理中心</strong>
-          <span>GZU OJ 控制台</span>
-        </div>
-      </header>
-      <nav class="admin-nav" aria-label="管理导航">
-        <section v-for="group in navGroups" :key="group.label" class="admin-nav-group">
-          <h2 class="admin-nav-label">{{ group.label }}</h2>
-          <RouterLink
-            v-for="item in group.items"
-            :key="item.to"
-            :to="item.to"
-            class="admin-nav-link"
-            :class="{ 'admin-nav-link--active': item.matches(route.path) }"
-          >
-            <component :is="item.icon" :size="16" />{{ item.label }}
-          </RouterLink>
-        </section>
+    <div class="admin-container">
+      <!-- 面包屑：主站 / 管理中心 / 当前页 -->
+      <nav class="admin-breadcrumb" aria-label="面包屑">
+        <RouterLink to="/problems">主站</RouterLink>
+        <ChevronRight :size="13" aria-hidden="true" />
+        <RouterLink to="/admin">管理中心</RouterLink>
+        <template v-if="currentCrumb">
+          <ChevronRight :size="13" aria-hidden="true" />
+          <span aria-current="page">{{ currentCrumb }}</span>
+        </template>
       </nav>
-      <footer class="admin-sidebar-footer">
-        <RouterLink to="/problems" class="admin-nav-link"><House :size="16" />返回主站</RouterLink>
-      </footer>
-    </aside>
-    <div class="admin-content"><RouterView /></div>
+
+      <!-- 下划线 Tab 导航，右端固定返回主站入口 -->
+      <nav class="admin-tabs" aria-label="管理导航">
+        <RouterLink
+          v-for="item in navItems"
+          :key="item.to"
+          :to="item.to"
+          class="admin-tab"
+          :class="{ 'admin-tab--active': item.matches(route.path) }"
+        >
+          <component :is="item.icon" :size="15" />{{ item.label }}
+        </RouterLink>
+        <RouterLink to="/problems" class="admin-tab admin-tab--back"><House :size="15" />返回主站</RouterLink>
+      </nav>
+
+      <div class="admin-content"><RouterView /></div>
+    </div>
   </div>
 </template>

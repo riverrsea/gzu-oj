@@ -127,10 +127,8 @@ onMounted(() => {
     <div class="admin-page-head">
       <div>
         <h1>题库管理</h1>
-        <p>筛选、编辑并发布题目版本；草稿发布后对选手可见且不可再编辑。</p>
       </div>
       <div class="admin-page-actions">
-        <span class="admin-count-pill">{{ total }} 个版本</span>
         <UiButton @click="$router.push('/admin/problems/new')"><Plus :size="16" />新建题目</UiButton>
       </div>
     </div>

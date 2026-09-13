@@ -82,7 +82,6 @@ async function commitImport(): Promise<void> {
     <div class="admin-page-head">
       <div>
         <h1>批量导入</h1>
-        <p>上传标准 ZIP 导入包，先校验预览，再批量创建题目草稿版本。</p>
       </div>
     </div>
 
@@ -122,7 +121,6 @@ async function commitImport(): Promise<void> {
       </header>
       <div class="admin-panel-body">
         <div class="admin-batch-stats">
-          <span class="admin-count-pill">共 {{ batch.items.length }} 项</span>
           <span class="admin-status admin-status--valid">有效 {{ validCount }}</span>
           <span v-if="hasInvalidItems" class="admin-status admin-status--invalid">无效 {{ batch.items.length - validCount }}</span>
         </div>

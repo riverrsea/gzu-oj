@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { CopyPlus, Edit3, ExternalLink, Plus, RotateCcw, Search, Send } from "@lucide/vue";
+import { CopyPlus, Edit3, ExternalLink, RotateCcw, Search, Send } from "@lucide/vue";
 import { confirmAction, toast } from "../lib/notify";
 import { formatChinaDateTime } from "../lib/time";
 import { useRouter } from "vue-router";
@@ -175,9 +175,8 @@ onMounted(() => {
 
     <div class="admin-panel admin-table-card loading-shell" :aria-busy="loading">
       <div v-if="loading" class="loading-overlay"><span class="loading-spinner" aria-label="加载中" /></div>
-      <!-- 工具栏：左侧新建入口，右侧分页（多于一页时出现） -->
-      <div class="admin-table-bar">
-        <UiButton size="sm" @click="$router.push('/admin/problems/new')"><Plus :size="15" />新建题目</UiButton>
+      <!-- 分页条：多于一页时居中显示在列表最上方 -->
+      <div v-if="total > pageSize" class="admin-table-bar">
         <UiPagination :page="page" :page-size="pageSize" :total="total" @change="changePage" />
       </div>
       <div class="admin-table-scroll">

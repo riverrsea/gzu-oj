@@ -192,20 +192,13 @@ class AiAgentController(
         if ((compile == null) == (body.task == null)) {
             throw ApiException(HttpStatus.BAD_REQUEST, "INVALID_AI_SANDBOX_TASK", "沙箱任务必须且只能提供差分参数或编译门禁参数")
         }
-        // 运行离开可领取状态后不再接受新作业：这类作业没有 Worker 会领取，
-        // 只会以 QUEUED 永远留在队列里。这里显式拒绝，让 Agent 立即停下来。
+        // 这里只加锁并读取状态用于后续判定，真正的入队校验放在幂等查询之后：
+        // 状态守卫防的是"入队一个永远没人领取的作业"，而复用既有作业并没有入队。
         val runState = jdbc.query(
             "SELECT state FROM ai_problem_run WHERE id = ? FOR UPDATE",
             { result, _ -> AiWorkflowState.valueOf(result.getString("state")) },
             runId,
         ).firstOrNull() ?: throw ApiException(HttpStatus.NOT_FOUND, "AI_RUN_NOT_FOUND", "AI 运行不存在")
-        if (!canEnqueueSandboxJob(runState)) {
-            throw ApiException(
-                HttpStatus.CONFLICT,
-                "AI_RUN_NOT_GENERATING",
-                "运行已离开可生成状态（$runState），不再接受沙箱任务",
-            )
-        }
         val stage = compile?.stage?.name ?: AI_DIFFERENTIAL_SANDBOX_STAGE
         val payload = mapper.writeValueAsString(compile ?: body.task)
         val existing = jdbc.query(
@@ -213,10 +206,16 @@ class AiAgentController(
             { result, _ -> result.getObject("id", UUID::class.java) to result.getString("status") },
             runId, body.repairRound, stage, body.attempt,
         ).firstOrNull()
-        val jobId = when {
+        val action = sandboxSubmitAction(existing?.second, runState)
+            ?: throw ApiException(
+                HttpStatus.CONFLICT,
+                "AI_RUN_NOT_GENERATING",
+                "运行已离开可生成状态（$runState），不再接受沙箱任务",
+            )
+        val jobId = when (action) {
             // 作业曾被取消（例如交给人工复核时清理过），恢复运行后 Agent 会重新提交同一个键。
             // 这里复用该行并写入新载荷，否则幂等查询会把已取消的作业还给 Agent，让它一直等结果。
-            existing != null && existing.second == "CANCELED" -> existing.first.also { id ->
+            SandboxSubmitAction.REVIVE -> requireNotNull(existing) { "复用沙箱作业时缺少既有行" }.first.also { id ->
                 jdbc.update(
                     """
                     UPDATE ai_sandbox_job
@@ -231,8 +230,8 @@ class AiAgentController(
                 )
                 enterDifferentialStageIfNeeded(compile != null, runId)
             }
-            existing != null -> existing.first
-            else -> UUID.randomUUID().also { id ->
+            SandboxSubmitAction.REUSE -> requireNotNull(existing) { "复用沙箱作业时缺少既有行" }.first
+            SandboxSubmitAction.INSERT -> UUID.randomUUID().also { id ->
                 enterDifferentialStageIfNeeded(compile != null, runId)
                 jdbc.update(
                     "INSERT INTO ai_sandbox_job(id, run_id, repair_round, stage, attempt, payload, priority) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?)",

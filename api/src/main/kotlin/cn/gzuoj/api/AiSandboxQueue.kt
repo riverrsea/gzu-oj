@@ -170,8 +170,35 @@ internal val AI_SANDBOX_CLAIMABLE_STATES: Set<AiWorkflowState> = setOf(
 internal val AI_SANDBOX_CLAIMABLE_STATES_SQL: String =
     AI_SANDBOX_CLAIMABLE_STATES.joinToString(",") { "'${it.name}'" }
 
-/** 运行处于可领取状态时才允许入队新的沙箱作业。 */
+/** 运行处于可领取状态时才允许**新入队**沙箱作业；复用已经存在的作业不受此限制。 */
 internal fun canEnqueueSandboxJob(state: AiWorkflowState): Boolean = state in AI_SANDBOX_CLAIMABLE_STATES
+
+/** 一次沙箱任务提交要执行的动作。 */
+internal enum class SandboxSubmitAction {
+    /** 同键作业已存在，把既有作业还给 Agent。 */
+    REUSE,
+
+    /** 作业曾被取消，复用该行并写入新载荷重新入队。 */
+    REVIVE,
+
+    /** 全新作业，插入一行。 */
+    INSERT,
+}
+
+/**
+ * 决定一次沙箱任务提交的动作，返回 `null` 表示应当以 409 拒绝。
+ *
+ * Agent 的沙箱节点在恢复中断时会被 LangGraph 从头重跑，重放时用同一个幂等键再提交一次。
+ * 重放必须无条件放行：差分作业完成本身就会把运行推进到 `VALIDATING`，此时已不在可领取状态，
+ * 若先校验状态再查幂等键，重放会被误判成"运行已离开生成阶段"而拒绝，整条正常跑通的流程
+ * 会在最后一步崩掉。状态校验只对真正会入队的动作有意义——它防的是"入队一个永远没人领取的作业"。
+ */
+internal fun sandboxSubmitAction(existingStatus: String?, runState: AiWorkflowState): SandboxSubmitAction? =
+    when {
+        existingStatus == null -> if (canEnqueueSandboxJob(runState)) SandboxSubmitAction.INSERT else null
+        existingStatus == "CANCELED" -> if (canEnqueueSandboxJob(runState)) SandboxSubmitAction.REVIVE else null
+        else -> SandboxSubmitAction.REUSE
+    }
 
 /**
  * 取消某个运行尚未结算的沙箱作业。

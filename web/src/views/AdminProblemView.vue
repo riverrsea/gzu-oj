@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
-import { ArrowLeft, BookOpen, FileText, Save } from "@lucide/vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { Save, SlidersHorizontal, X } from "@lucide/vue";
 import { toast } from "../lib/notify";
 import { useRoute, useRouter } from "vue-router";
 import { api } from "../api/client";
 import type { AdminProblemVersionDetail, Difficulty } from "../api/types";
-import ProblemStatementEditor from "../components/ProblemStatementEditor.vue";
+import MarkdownEditor from "../components/MarkdownEditor.vue";
 import UiButton from "../components/ui/Button.vue";
 import UiInput from "../components/ui/Input.vue";
 import UiNumberField from "../components/ui/NumberField.vue";
@@ -39,7 +39,8 @@ const form = reactive({
   year: new Date().getFullYear(),
   difficulty: "MEDIUM" as Difficulty,
   sourceUrl: "",
-  statementMarkdown: "## 题目描述\n\n请填写题目背景、目标和要求。\n\n## 输入格式\n\n\n## 输出格式\n\n\n## 数据范围\n\n",
+  // 预填章节骨架，与原结构化题面编辑器的章节保持一致
+  statementMarkdown: "## 题目描述\n\n请填写题目背景、目标和要求。\n\n\n## 输入格式\n\n\n## 输出格式\n\n\n## 数据范围\n\n\n## 补充说明\n\n",
   timeLimitMs: 1000,
   memoryLimitMiB: 256,
   dataNotice: "",
@@ -47,6 +48,31 @@ const form = reactive({
 
 /** 页面是否正在为已有逻辑题目创建新版本。 */
 const creatingNextVersion = computed(() => Boolean(baseVersion.value));
+
+/** 年份下拉选项：从当年回溯到 2000 年，倒序排列；与题库目录的年份筛选保持一致。 */
+const yearOptions = computed(() => {
+  const current = new Date().getFullYear();
+  return Array.from({ length: current - 2000 + 1 }, (_, index) => {
+    const year = current - index;
+    return { value: String(year), label: String(year) };
+  });
+});
+
+/** 年份下拉的字符串桥接：UiSelectMenu 使用字符串值，表单中保存为数字。 */
+const yearSelect = computed<string>({
+  get: () => String(form.year),
+  set: (value) => {
+    form.year = Number(value);
+  },
+});
+
+/** 元数据抽屉是否展开；抽屉悬浮于页面之上，不挤压题面编辑区。 */
+const metaOpen = ref(false);
+
+/** Esc 键收起元数据抽屉。 */
+function onGlobalKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape" && metaOpen.value) metaOpen.value = false;
+}
 
 /** 从已有版本复制元数据和题面，随后保存为新的草稿版本。 */
 async function loadBaseVersion(): Promise<void> {
@@ -99,58 +125,52 @@ async function save(): Promise<void> {
   }
 }
 
-onMounted(() => void loadBaseVersion());
+onMounted(() => {
+  void loadBaseVersion();
+  window.addEventListener("keydown", onGlobalKeydown);
+});
+
+onBeforeUnmount(() => window.removeEventListener("keydown", onGlobalKeydown));
 </script>
 
 <template>
-  <section class="admin-page admin-page--narrow loading-shell" :aria-busy="loading">
+  <section class="admin-page loading-shell" :aria-busy="loading">
     <div v-if="loading" class="loading-overlay"><span class="loading-spinner" aria-label="加载中" /></div>
-    <div class="admin-page-head">
-      <div>
-        <h1>{{ creatingNextVersion ? '新建题目版本草稿' : '新建题目草稿' }}</h1>
-      </div>
-      <div class="admin-page-actions">
-        <UiButton variant="ghost" @click="router.push('/admin/problems')"><ArrowLeft :size="16" />返回题库</UiButton>
-      </div>
-    </div>
 
+    <!-- 题面编辑区为主内容，铺满页面宽度 -->
     <form class="admin-form" @submit.prevent="save">
-      <section class="admin-panel">
-        <header class="admin-panel-head">
-          <span class="admin-panel-icon"><FileText :size="17" /></span>
-          <div class="admin-panel-titles"><h2>题目元数据</h2></div>
-        </header>
-        <div class="admin-panel-body">
-          <div class="admin-form-grid admin-form-grid--three">
-            <div class="form-field"><UiLabel>外部题目标识（可选）</UiLabel><UiInput v-model="form.externalKey" maxlength="128" placeholder="外部题号或来源标识" :disabled="creatingNextVersion" /></div>
-            <div class="form-field"><UiLabel>学校</UiLabel><UiInput v-model="form.school" maxlength="200" /></div>
-            <div class="form-field"><UiLabel>年份</UiLabel><UiNumberField v-model="form.year" :min="1900" :max="2200" /></div>
-          </div>
-          <div class="form-field"><UiLabel>标题</UiLabel><UiInput v-model="form.title" maxlength="200" /></div>
-          <div class="admin-form-grid admin-form-grid--three">
-            <div class="form-field"><UiLabel>难度</UiLabel><UiSelectMenu v-model="form.difficulty" :options="difficultyOptions" placeholder="" aria-label="难度" /></div>
-            <div class="form-field"><UiLabel>标签（逗号分隔）</UiLabel><UiInput v-model="tagText" placeholder="动态规划, 图论" /></div>
-            <div class="form-field"><UiLabel>来源链接</UiLabel><UiInput v-model="form.sourceUrl" placeholder="https://..." /></div>
-          </div>
-        </div>
-      </section>
+      <MarkdownEditor v-model="form.statementMarkdown" />
+      <div class="admin-form-grid admin-form-grid--three">
+        <div class="form-field"><UiLabel>基准时间限制（ms）</UiLabel><UiNumberField v-model="form.timeLimitMs" :min="100" :max="60000" :step="100" /></div>
+        <div class="form-field"><UiLabel>基准内存限制（MiB）</UiLabel><UiNumberField v-model="form.memoryLimitMiB" :min="16" :max="2048" :step="16" /></div>
+        <div class="form-field"><UiLabel>数据声明</UiLabel><UiInput v-model="form.dataNotice" maxlength="200" placeholder="AI 数据请注明非官方" /></div>
+      </div>
 
-      <section class="admin-panel">
-        <header class="admin-panel-head">
-          <span class="admin-panel-icon"><BookOpen :size="17" /></span>
-          <div class="admin-panel-titles"><h2>题面与限制</h2></div>
-        </header>
-        <div class="admin-panel-body">
-          <div class="form-field statement-form-item"><UiLabel>题面内容</UiLabel><ProblemStatementEditor v-model="form.statementMarkdown" /></div>
-          <div class="admin-form-grid admin-form-grid--three">
-            <div class="form-field"><UiLabel>基准时间限制（ms）</UiLabel><UiNumberField v-model="form.timeLimitMs" :min="100" :max="60000" :step="100" /></div>
-            <div class="form-field"><UiLabel>基准内存限制（MiB）</UiLabel><UiNumberField v-model="form.memoryLimitMiB" :min="16" :max="2048" :step="16" /></div>
-            <div class="form-field"><UiLabel>数据声明</UiLabel><UiInput v-model="form.dataNotice" maxlength="200" placeholder="AI 数据请注明非官方" /></div>
-          </div>
+      <!-- 元数据抽屉：悬浮于页面右侧，展开时不挤压题面编辑区；点击遮罩空白处或按 Esc 收起 -->
+      <Transition name="admin-meta-drawer-fade">
+        <div v-if="metaOpen" class="admin-meta-drawer-layer" @click.self="metaOpen = false">
+          <aside class="admin-meta-drawer" role="dialog" aria-modal="true" aria-label="题目信息">
+            <div class="admin-meta-drawer-head">
+              <strong>题目信息</strong>
+              <button type="button" class="icon-button" aria-label="收起题目信息" @click="metaOpen = false"><X :size="16" /></button>
+            </div>
+            <div class="admin-meta-drawer-body">
+              <div class="form-field"><UiLabel>标题</UiLabel><UiInput v-model="form.title" maxlength="200" /></div>
+              <div class="form-field"><UiLabel>外部题目标识（可选）</UiLabel><UiInput v-model="form.externalKey" maxlength="128" placeholder="外部题号或来源标识" :disabled="creatingNextVersion" /></div>
+              <div class="admin-form-grid">
+                <div class="form-field"><UiLabel>学校</UiLabel><UiInput v-model="form.school" maxlength="200" /></div>
+                <div class="form-field"><UiLabel>年份</UiLabel><UiSelectMenu v-model="yearSelect" :options="yearOptions" placeholder="" aria-label="年份" /></div>
+              </div>
+              <div class="form-field"><UiLabel>难度</UiLabel><UiSelectMenu v-model="form.difficulty" :options="difficultyOptions" placeholder="" aria-label="难度" /></div>
+              <div class="form-field"><UiLabel>标签（逗号分隔）</UiLabel><UiInput v-model="tagText" placeholder="动态规划, 图论" /></div>
+              <div class="form-field"><UiLabel>来源链接</UiLabel><UiInput v-model="form.sourceUrl" placeholder="https://..." /></div>
+            </div>
+          </aside>
         </div>
-      </section>
+      </Transition>
 
       <footer class="admin-form-bar">
+        <UiButton type="button" variant="outline" :aria-expanded="metaOpen" @click="metaOpen = !metaOpen"><SlidersHorizontal :size="15" />题目信息</UiButton>
         <div class="admin-form-bar-actions">
           <UiButton type="submit" :loading="saving"><Save :size="16" />创建草稿并继续</UiButton>
         </div>

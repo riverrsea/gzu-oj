@@ -276,7 +276,6 @@ onMounted(async () => {
     <div class="admin-page-head">
       <div>
         <h1>编辑题目草稿</h1>
-        <p v-if="detail">版本 v{{ detail.versionNumber }} · {{ detail.title }}</p>
       </div>
       <div class="admin-page-actions">
         <UiButton @click="overlayOpen = true"><Bot :size="16" />AI 生成测试点</UiButton>

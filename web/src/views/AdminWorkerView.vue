@@ -79,7 +79,6 @@ async function copyToken(): Promise<void> {
       <div>
         <div class="admin-eyebrow"><ServerCog :size="15" />节点凭据</div>
         <h1>判题 Worker</h1>
-        <p>为判题主机创建接入凭据，并按检查清单确认运行环境。</p>
       </div>
     </div>
 

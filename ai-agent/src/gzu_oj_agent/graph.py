@@ -216,6 +216,26 @@ def sandbox_payload(state: AgentState) -> SandboxTask:
 	)
 
 
+def compile_retries_exhausted(passed: bool, attempts: int) -> bool:
+	"""编译门禁是否已经用完重试预算，需要交人工接管。
+
+	路由（after_compile）与上报（_compile_gate）共用这一份判定。
+	"""
+	return not passed and attempts >= MAX_COMPILE_ATTEMPTS
+
+
+def sandbox_outcome(result: SandboxResult, repair_round: int) -> Literal["finish", "repair", "fail"]:
+	"""差分结果决定下一步：通过则收尾，可修复且仍有预算则重做，否则交人工接管。
+
+	路由（after_sandbox）与上报（submit）共用这一份判定，避免两处条件写歪。
+	"""
+	if result.status is SandboxStatus.PASSED:
+		return "finish"
+	if result.status is SandboxStatus.VALIDATION_FAILED and repair_round < 2:
+		return "repair"
+	return "fail"
+
+
 def compile_units(state: AgentState, stage: SandboxFailureStage) -> list[SandboxCompileUnit]:
 	"""取出该阶段刚生成的源码；源码缺失说明图被写坏，直接抛错而不是送空编译。"""
 	if stage is SandboxFailureStage.SOLUTIONS:
@@ -318,6 +338,9 @@ class Workflow:
 			failure_reason=failure
 		)
 		if result.ambiguities:
+			# 在这里上报而不是交给 fail 节点：LangGraph 恢复中断时会从 fail 节点开头重跑，
+			# 重跑时再上报会把刚恢复的 ANALYZING 打回 NEEDS_REVIEW，恢复等于没生效。
+			await self.kotlin.fail(request.run_id, failure, resume_target="ANALYZING")
 			return {
 				"analysis": response,
 				"failure_reason": failure,
@@ -456,6 +479,11 @@ class Workflow:
 			raise RuntimeError("编译门禁恢复结果与当前任务不一致")
 		passed = result.status is SandboxStatus.PASSED
 		failure = "" if passed else (result.failure_reason or "编译未通过")
+		# 编译连续失败同样要交人工接管；上报放在这里而不是 fail 节点：
+		# fail 节点在人工恢复时会被 LangGraph 从头重跑，重跑时再上报会把恢复动作撤销。
+		# 编译失败不可由重新分析恢复，因此不携带 resume_target。
+		if compile_retries_exhausted(passed, attempt + 1):
+			await self.kotlin.fail(request.run_id, failure, resume_target="")
 		compiled = set(reusable_stages(state, stage))
 		if passed:
 			compiled.add(stage.name)
@@ -490,6 +518,15 @@ class Workflow:
 			}
 		)
 		result = validate_checkpoint(SandboxResult, resumed)
+		# 是否交人工接管只有拿到差分结果后才可知，因此上报放在 interrupt 之后：
+		# 此时节点一次走完就进入 fail，上报恰好发生一次，不会像 fail 节点那样被恢复重跑。
+		if sandbox_outcome(result, state.get("repair_round", 0)) == "fail":
+			await self.kotlin.fail(
+				request.run_id,
+				# 优先用本轮差分结果里的具体原因，比笼统的兜底文案更便于管理员定位。
+				result.failure_reason or state.get("failure_reason") or "沙箱差分失败",
+				resume_target=state.get("failure_target") or None
+			)
 		return {
 			"sandbox_job_id": str(job_id),
 			"sandbox_result": result.model_dump(mode="json")
@@ -505,14 +542,16 @@ class Workflow:
 		return {}
 
 	async def fail(self, state: AgentState) -> AgentState:
-		request = validate_checkpoint(StartRunRequest, state["request"])
-		reason = state.get("failure_reason", "模型流程需要人工接管")
+		# 注意用 or 兜底：编译门禁通过时会把 failure_reason 清成空串，
+		# 而 dict.get 的默认值只在键缺失时生效，空串会一路传成空进度消息。
+		reason = state.get("failure_reason") or "模型流程需要人工接管"
 		target = state.get("failure_target")
-		await self.kotlin.fail(request.run_id, reason, resume_target=target)
+		# 这里刻意不再上报 Kotlin。LangGraph 恢复中断时会从节点开头重跑，而恢复动作已经由
+		# /resume 把状态推进过一次；重跑时再上报会把状态打回 NEEDS_REVIEW，恢复等于没生效。
+		# 上报改由真正发现失败的节点（analyze / submit）负责，那些节点不会因恢复而重跑。
 		await self._progress(state, "FAILED", "NEEDS_REVIEW", reason)
 		# 人工接管：暂停并写检查点，等待管理员修复后通过 RESUME_RUN 恢复。
-		# 注意：LangGraph 恢复中断时会从节点开头重跑，因此节点开头的 kotlin.fail 与进度
-		# 事件对 Kotlin 是幂等的（重复写入相同值，进度事件按相同 event_id 被去重）。
+		# 进度事件按相同 event_id 去重，重复执行无副作用。
 		decision = interrupt({"reason": reason, "resumeTarget": target})
 		# 只有实际恢复才会执行到这里；递增尝试序号使重跑进度事件避免与首轮去重冲突。
 		return {
@@ -527,14 +566,7 @@ class Workflow:
 	@staticmethod
 	def after_sandbox(state: AgentState) -> Literal["finish", "repair", "fail"]:
 		result = validate_checkpoint(SandboxResult, state["sandbox_result"])
-		if result.status is SandboxStatus.PASSED:
-			return "finish"
-		if result.status is SandboxStatus.VALIDATION_FAILED and state.get(
-				"repair_round",
-				0
-		) < 2:
-			return "repair"
-		return "fail"
+		return sandbox_outcome(result, state.get("repair_round", 0))
 
 	@staticmethod
 	def after_fail(state: AgentState) -> Literal["analyze", "finish"]:
@@ -579,7 +611,7 @@ class Workflow:
 		result = validate_checkpoint(SandboxResult, state["compile_result"])
 		stage = SandboxFailureStage(state["compile_stage"])
 		if result.status is not SandboxStatus.PASSED:
-			if state.get(f"{stage.name.lower()}_attempts", 0) < MAX_COMPILE_ATTEMPTS:
+			if not compile_retries_exhausted(False, state.get(f"{stage.name.lower()}_attempts", 0)):
 				return COMPILE_GENERATOR[stage]
 			return "fail"
 		compiled = set(state.get("compiled_stages", []))

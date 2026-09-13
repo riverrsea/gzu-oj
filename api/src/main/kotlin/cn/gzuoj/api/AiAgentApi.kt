@@ -26,6 +26,7 @@ import tools.jackson.databind.ObjectMapper
 import java.util.UUID
 import cn.gzuoj.shared.AiWorkflow
 import cn.gzuoj.shared.AiWorkflowState
+import org.slf4j.LoggerFactory
 
 /** Python Agent 回传的模型无关进度事件。 */
 data class AiAgentEventRequest(
@@ -119,6 +120,9 @@ class AiAgentController(
     /** Agent 地址和共享令牌配置。 */
     private val properties: AppProperties,
 ) {
+    /** 记录被状态机丢弃的阶段投影，避免"Agent 在跑、Kotlin 状态不动"只能靠倒推排查。 */
+    private val log = LoggerFactory.getLogger(javaClass)
+
     /** 记录事件；重复 eventId 直接视为成功。 */
     @PostMapping("/events")
     @Transactional
@@ -152,7 +156,11 @@ class AiAgentController(
             { result, _ -> AiWorkflowState.valueOf(result.getString("state")) },
             event.runId,
         ).firstOrNull() ?: return
-        if (current == target || !AiWorkflow.canTransition(current, target)) return
+        if (current == target || !AiWorkflow.canTransition(current, target)) {
+            // 静默丢弃会让"Agent 已经往下跑、Kotlin 状态却停在上一个状态"完全无迹可循。
+            log.warn("丢弃 AI 阶段投影 runId={} {} -> {}（当前状态不允许该转换）", event.runId, current, target)
+            return
+        }
         jdbc.update(
             "UPDATE ai_problem_run SET state = ?, updated_at = now() WHERE id = ?",
             target.name,

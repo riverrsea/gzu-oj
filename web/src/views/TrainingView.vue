@@ -33,7 +33,7 @@ import UiDialog from "../components/ui/Dialog.vue";
 import UiEmptyState from "../components/ui/EmptyState.vue";
 import UiInput from "../components/ui/Input.vue";
 import UiNumberField from "../components/ui/NumberField.vue";
-import UiSelect from "../components/ui/Select.vue";
+import UiSelectMenu from "../components/ui/SelectMenu.vue";
 import UiLabel from "../components/ui/Label.vue";
 import ProblemPicker from "../components/ProblemPicker.vue";
 
@@ -92,6 +92,18 @@ const contestQuery = reactive({
   keyword: "",
   visibility: "" as ContestVisibility | "",
 });
+
+/** 比赛类型筛选的下拉选项。 */
+const contestVisibilityFilterOptions = [
+  { value: "PUBLIC", label: "公开赛" },
+  { value: "PASSWORD", label: "口令赛" },
+];
+
+/** 创建比赛表单中的可见性选项；无占位空值项，可见性必选。 */
+const contestVisibilityOptions = [
+  { value: "PUBLIC", label: "公开" },
+  { value: "PASSWORD", label: "口令" },
+];
 /** 已应用到列表请求的训练赛查询条件。 */
 const appliedContestQuery = ref<{ keyword?: string; visibility?: ContestVisibility }>({});
 
@@ -607,10 +619,7 @@ onBeforeUnmount(() => window.clearInterval(ticker));
         <form class="training-contest-filters" role="search" @submit.prevent="queryContests">
           <UiInput v-model="contestQuery.keyword" maxlength="120" aria-label="比赛关键词"
                    placeholder="搜索比赛名称或创建者"/>
-          <UiSelect v-model="contestQuery.visibility" aria-label="比赛类型" placeholder="全部比赛">
-            <option value="PUBLIC">公开赛</option>
-            <option value="PASSWORD">口令赛</option>
-          </UiSelect>
+          <UiSelectMenu v-model="contestQuery.visibility" :options="contestVisibilityFilterOptions" aria-label="比赛类型" placeholder="全部比赛" />
           <UiButton type="submit" size="sm" :loading="contestLoading">
             <Search :size="14"/>
             查询
@@ -905,10 +914,7 @@ onBeforeUnmount(() => window.clearInterval(ticker));
         <div class="training-form-grid">
           <div class="form-field">
             <UiLabel>可见性</UiLabel>
-            <UiSelect v-model="contestForm.visibility" placeholder="">
-              <option value="PUBLIC">公开</option>
-              <option value="PASSWORD">口令</option>
-            </UiSelect>
+            <UiSelectMenu v-model="contestForm.visibility" :options="contestVisibilityOptions" placeholder="" aria-label="可见性" />
           </div>
           <div v-if="contestForm.visibility === 'PASSWORD'" class="form-field">
             <UiLabel>邀请码</UiLabel>

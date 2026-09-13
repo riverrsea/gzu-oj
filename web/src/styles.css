@@ -379,7 +379,6 @@ a { color: inherit; text-decoration: none; }
 .form-field > label { color: var(--text); font-size: 13px; font-weight: 650; }
 .checkbox-field { display: inline-flex; align-items: center; gap: 8px; color: var(--text); font-size: 13px; }
 .multi-select { min-height: 120px; width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 13px; }
-.compact-select { height: 32px; min-width: 132px; padding: 0 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text); font-size: 12px; }
 .editor-settings { position: relative; }
 .editor-settings-popover { position: absolute; z-index: 20; top: calc(100% + 7px); right: 0; min-width: 150px; padding: 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); box-shadow: 0 10px 30px color-mix(in srgb, var(--text) 12%, transparent); }
 .editor-settings-popover .font-setting { display: grid; grid-template-columns: auto 76px; gap: 8px; align-items: center; color: var(--muted); font-size: 12px; }
@@ -1383,6 +1382,15 @@ a { color: inherit; text-decoration: none; }
   border-radius: 8px;
   background: var(--surface);
 }
+
+/* 年份下拉（SelectMenu）与搜索行中的输入框保持一致的尺寸与图标留白。 */
+.app-shell--modern .problem-catalog-search .ui-select-menu { flex: 1 1 auto; min-width: 0; }
+.app-shell--modern .problem-catalog-search .ui-select-menu-trigger {
+  height: 38px;
+  padding-left: 36px;
+  border-radius: 8px;
+  background: var(--surface);
+}
 .app-shell--modern .problem-catalog-list {
   display: grid;
   gap: 8px;
@@ -1888,7 +1896,6 @@ a { color: inherit; text-decoration: none; }
 
 .dock-panel--code { display: grid; grid-template-rows: 46px minmax(0, 1fr); overflow: hidden; }
 .dock-code-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--surface-subtle); }
-.compact-select { min-width: 132px; height: 30px; padding: 0 28px 0 9px; border: 1px solid var(--input); border-radius: 5px; background: var(--surface); color: var(--text); font-size: 12px; }
 .dock-code-editor { min-width: 0; min-height: 0; overflow: hidden; }
 .code-save-status { display: inline-flex; align-items: center; gap: 5px; min-width: 0; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .code-save-status--pending,
@@ -2015,8 +2022,61 @@ a { color: inherit; text-decoration: none; }
 .app-shell--modern .ui-control:disabled,
 .training-create-dialog .ui-control:disabled { cursor: not-allowed; opacity: 0.52; }
 .app-shell--modern .ui-control--textarea { min-height: 80px; height: auto; padding-top: 9px; padding-bottom: 9px; resize: vertical; }
-.app-shell--modern .ui-control--select,
-.training-create-dialog .ui-control--select { padding-right: 30px; cursor: pointer; }
+/* 自绘下拉选择（SelectMenu）：触发按钮复用输入控件样式，选项面板为浮层卡片。 */
+.ui-select-menu { position: relative; }
+.app-shell--modern .ui-select-menu-trigger { display: flex; align-items: center; gap: 8px; cursor: pointer; text-align: left; }
+.ui-select-menu-value { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-select-menu-trigger--placeholder .ui-select-menu-value { color: var(--muted); opacity: 0.74; }
+.ui-select-menu-chevron { flex: 0 0 auto; color: var(--muted); transition: transform 140ms ease; }
+.ui-select-menu-trigger--open .ui-select-menu-chevron { transform: rotate(180deg); }
+
+.ui-select-menu-panel {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 6px);
+  left: 0;
+  width: max-content;
+  min-width: 100%;
+  max-width: 280px;
+  max-height: 264px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.ui-select-menu-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 5px;
+  color: var(--text);
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ui-select-menu-option:hover,
+.ui-select-menu-option--highlighted { background: var(--surface-subtle); }
+.ui-select-menu-option--selected { color: var(--accent); font-weight: 650; }
+.ui-select-menu-option-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ui-select-menu-option svg { flex: 0 0 auto; color: var(--accent); }
+
+/* 紧凑变体：贴合工作区工具栏的 30px 高度。 */
+.app-shell--modern .ui-select-menu--compact .ui-select-menu-trigger {
+  height: 30px;
+  min-width: 132px;
+  padding: 0 9px;
+  background: var(--surface);
+  font-size: 12px;
+}
+
+.ui-select-menu--compact .ui-select-menu-value { min-width: 0; }
 
 /* 尚未封装为公共组件的表单控件也与新样式保持一致。 */
 .app-shell--modern input:not([type]):not(.ui-control),
@@ -2033,12 +2093,6 @@ a { color: inherit; text-decoration: none; }
 .app-shell--modern textarea:not(.ui-control):focus-visible,
 .app-shell--modern select:not(.ui-control):focus-visible { background: var(--surface); }
 
-.compact-select {
-  border-color: var(--input);
-  background: color-mix(in srgb, var(--surface) 74%, var(--surface-subtle));
-  box-shadow: inset 0 1px 1px rgb(15 23 42 / 4%);
-}
-.compact-select:focus-visible { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 16%, transparent); }
 .case-editor-item textarea:focus-visible { outline: none; border-color: var(--ring); background: var(--surface); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 16%, transparent); }
 
 /* 判题面板使用图标和语义色表达状态，不再依赖卡片侧边色条。 */
@@ -2968,9 +3022,6 @@ a { color: inherit; text-decoration: none; }
   height: 38px;
   border-radius: 8px;
   background: var(--surface);
-}
-.training-create-dialog .ui-control--select {
-  background-color: var(--surface);
 }
 .training-form-grid {
   display: grid;

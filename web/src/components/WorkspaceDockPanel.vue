@@ -6,6 +6,7 @@ import CodeEditor from "./CodeEditor.vue";
 import UiButton from "./ui/Button.vue";
 import UiNumberField from "./ui/NumberField.vue";
 import UiEmptyState from "./ui/EmptyState.vue";
+import UiSelectMenu from "./ui/SelectMenu.vue";
 import { formatChinaDateTime } from "../lib/time";
 
 const props = defineProps<{
@@ -38,6 +39,14 @@ function statusIcon(status: string): Component {
   if (["WA", "CE", "RE", "SYSTEM_ERROR", "CANCELED"].includes(status)) return CircleX;
   return Info;
 }
+
+/** 编程语言下拉选项；无占位空值项，语言必选。 */
+const languageOptions = [
+  { value: "C17", label: "GNU C17" },
+  { value: "CPP17", label: "GNU C++17" },
+  { value: "JAVA21", label: "OpenJDK 21" },
+  { value: "PYTHON3", label: "CPython 3" },
+];
 
 /** 判断状态图标是否需要展示持续运行的加载动画。 */
 function isPendingStatus(status: string): boolean {
@@ -125,12 +134,14 @@ function codeSaveStatusIcon(state: WorkspacePanelContext["codeSaveState"]): Comp
   <article v-else-if="kind === 'code'" class="dock-panel dock-panel--code">
     <header class="dock-code-toolbar">
       <div class="toolbar-group">
-        <select :value="context.language" class="compact-select" aria-label="编程语言" @change="context.setLanguage(($event.target as HTMLSelectElement).value as typeof context.language)">
-          <option value="C17">GNU C17</option>
-          <option value="CPP17">GNU C++17</option>
-          <option value="JAVA21">OpenJDK 21</option>
-          <option value="PYTHON3">CPython 3</option>
-        </select>
+        <UiSelectMenu
+          :model-value="context.language"
+          :options="languageOptions"
+          placeholder=""
+          compact
+          aria-label="编程语言"
+          @update:model-value="context.setLanguage($event as typeof context.language)"
+        />
         <span v-if="context.activeLimit" class="limit-text">{{ context.activeLimit.timeLimitMs }} ms · {{ context.activeLimit.memoryLimitMiB }} MiB</span>
         <span :class="['code-save-status', 'code-save-status--' + context.codeSaveState]" role="status" aria-live="polite">
           <component :is="codeSaveStatusIcon(context.codeSaveState)" :class="{ 'status-icon--loading': context.codeSaveState === 'pending' || context.codeSaveState === 'saving' }" :size="14" aria-hidden="true" />

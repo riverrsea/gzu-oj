@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { BookOpen, CopyPlus, Edit3, ExternalLink, ListFilter, Plus, RotateCcw, Search, Send } from "@lucide/vue";
+import { CopyPlus, Edit3, ExternalLink, Plus, RotateCcw, Search, Send } from "@lucide/vue";
 import { confirmAction, toast } from "../lib/notify";
 import { formatChinaDateTime } from "../lib/time";
 import { useRouter } from "vue-router";
@@ -10,9 +10,8 @@ import UiButton from "../components/ui/Button.vue";
 import UiEmptyState from "../components/ui/EmptyState.vue";
 import UiInput from "../components/ui/Input.vue";
 import UiLabel from "../components/ui/Label.vue";
-import UiNumberField from "../components/ui/NumberField.vue";
 import UiPagination from "../components/ui/Pagination.vue";
-import UiSelect from "../components/ui/Select.vue";
+import UiSelectMenu from "../components/ui/SelectMenu.vue";
 
 /** 管理员题库的分页大小。 */
 const pageSize = 20;
@@ -35,13 +34,31 @@ const filters = reactive<{
   status?: ProblemVersionStatus;
 }>({ keyword: "", school: "", year: undefined, tag: "", difficulty: undefined, status: undefined });
 
-/** 总页数，用于表脚的分页信息展示。 */
-const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
+/** 年份筛选项：从当年回溯到 2000 年，倒序排列。 */
+const yearOptions = computed(() => {
+  const current = new Date().getFullYear();
+  return Array.from({ length: current - 1999 }, (_, index) => {
+    const year = current - index;
+    return { value: String(year), label: String(year) };
+  });
+});
+
+/** 年份筛选的下拉桥接：UiSelectMenu 使用字符串值，空串表示不限年份。 */
+const yearFilter = computed<string>({
+  get: () => (filters.year === undefined ? "" : String(filters.year)),
+  set: (value) => {
+    filters.year = value === "" ? undefined : Number(value);
+  },
+});
 
 /** 难度显示文本。 */
 const difficultyText: Record<Difficulty, string> = { EASY: "简单", MEDIUM: "中等", HARD: "困难" };
 /** 题目版本状态显示文本。 */
 const statusText: Record<ProblemVersionStatus, string> = { DRAFT: "草稿", PUBLISHED: "已发布", WITHDRAWN: "已撤回" };
+
+/** 状态与难度筛选的下拉选项，标签与列表中的徽标文案保持一致。 */
+const statusOptions = Object.entries(statusText).map(([value, label]) => ({ value, label }));
+const difficultyOptions = Object.entries(difficultyText).map(([value, label]) => ({ value, label }));
 
 /** 将后端状态转换为管理员页面显示文本。 */
 function statusLabel(status: string): string {
@@ -124,60 +141,45 @@ onMounted(() => {
 
 <template>
   <section class="admin-page">
-    <div class="admin-page-head">
-      <div>
-        <h1>题库管理</h1>
+    <!-- 筛选卡片：单行弹性排布，操作按钮与输入框底对齐 -->
+    <form class="admin-panel admin-filters" @submit.prevent="search">
+      <div class="admin-filter-field admin-filter-field--keyword">
+        <UiLabel for="filter-keyword">关键词</UiLabel>
+        <UiInput id="filter-keyword" v-model="filters.keyword" placeholder="标题或外部题目标识" />
       </div>
-      <div class="admin-page-actions">
-        <UiButton @click="$router.push('/admin/problems/new')"><Plus :size="16" />新建题目</UiButton>
+      <div class="admin-filter-field">
+        <UiLabel for="filter-school">学校</UiLabel>
+        <UiInput id="filter-school" v-model="filters.school" placeholder="全部学校" />
       </div>
-    </div>
-
-    <form class="admin-panel" @submit.prevent="search">
-      <header class="admin-panel-head">
-        <span class="admin-panel-icon"><ListFilter :size="17" /></span>
-        <div class="admin-panel-titles"><h2>筛选条件</h2></div>
-      </header>
-      <div class="admin-panel-body">
-        <div class="admin-filters-grid">
-          <div class="admin-filter-field admin-filter-field--keyword">
-            <UiLabel for="filter-keyword">关键词</UiLabel>
-            <UiInput id="filter-keyword" v-model="filters.keyword" placeholder="标题或外部题目标识" />
-          </div>
-          <div class="admin-filter-field">
-            <UiLabel for="filter-school">学校</UiLabel>
-            <UiInput id="filter-school" v-model="filters.school" placeholder="全部学校" />
-          </div>
-          <div class="admin-filter-field admin-filter-field--year">
-            <UiLabel for="filter-year">年份</UiLabel>
-            <UiNumberField id="filter-year" v-model="filters.year" :min="1900" :max="2200" placeholder="全部" />
-          </div>
-          <div class="admin-filter-field">
-            <UiLabel for="filter-tag">标签</UiLabel>
-            <UiInput id="filter-tag" v-model="filters.tag" placeholder="全部标签" />
-          </div>
-          <div class="admin-filter-field">
-            <UiLabel for="filter-status">版本状态</UiLabel>
-            <UiSelect id="filter-status" v-model="filters.status" placeholder="全部状态"><option value="DRAFT">草稿</option><option value="PUBLISHED">已发布</option><option value="WITHDRAWN">已撤回</option></UiSelect>
-          </div>
-          <div class="admin-filter-field">
-            <UiLabel for="filter-difficulty">难度</UiLabel>
-            <UiSelect id="filter-difficulty" v-model="filters.difficulty" placeholder="全部难度"><option value="EASY">简单</option><option value="MEDIUM">中等</option><option value="HARD">困难</option></UiSelect>
-          </div>
-        </div>
-        <div class="admin-filters-actions">
-          <UiButton variant="ghost" :disabled="loading" @click="resetFilters"><RotateCcw :size="15" />重置</UiButton>
-          <UiButton type="submit" :loading="loading"><Search :size="16" />筛选</UiButton>
-        </div>
+      <div class="admin-filter-field admin-filter-field--year">
+        <UiLabel for="filter-year">年份</UiLabel>
+        <UiSelectMenu id="filter-year" v-model="yearFilter" :options="yearOptions" placeholder="全部年份" aria-label="年份" />
+      </div>
+      <div class="admin-filter-field">
+        <UiLabel for="filter-tag">标签</UiLabel>
+        <UiInput id="filter-tag" v-model="filters.tag" placeholder="全部标签" />
+      </div>
+      <div class="admin-filter-field">
+        <UiLabel for="filter-status">版本状态</UiLabel>
+        <UiSelectMenu id="filter-status" v-model="filters.status" :options="statusOptions" placeholder="全部状态" aria-label="版本状态" />
+      </div>
+      <div class="admin-filter-field">
+        <UiLabel for="filter-difficulty">难度</UiLabel>
+        <UiSelectMenu id="filter-difficulty" v-model="filters.difficulty" :options="difficultyOptions" placeholder="全部难度" aria-label="难度" />
+      </div>
+      <div class="admin-filters-actions">
+        <UiButton variant="ghost" :disabled="loading" @click="resetFilters"><RotateCcw :size="15" />重置</UiButton>
+        <UiButton type="submit" :loading="loading"><Search :size="16" />筛选</UiButton>
       </div>
     </form>
 
     <div class="admin-panel admin-table-card loading-shell" :aria-busy="loading">
       <div v-if="loading" class="loading-overlay"><span class="loading-spinner" aria-label="加载中" /></div>
-      <header class="admin-panel-head">
-        <span class="admin-panel-icon"><BookOpen :size="17" /></span>
-        <div class="admin-panel-titles"><h2>版本列表</h2></div>
-      </header>
+      <!-- 工具栏：左侧新建入口，右侧分页（多于一页时出现） -->
+      <div class="admin-table-bar">
+        <UiButton size="sm" @click="$router.push('/admin/problems/new')"><Plus :size="15" />新建题目</UiButton>
+        <UiPagination :page="page" :page-size="pageSize" :total="total" @change="changePage" />
+      </div>
       <div class="admin-table-scroll">
         <table class="admin-table">
           <thead>
@@ -219,10 +221,6 @@ onMounted(() => {
         </table>
       </div>
       <UiEmptyState v-if="!loading && problems.length === 0" description="没有符合条件的题目版本" />
-      <footer v-if="total > 0" class="admin-table-foot">
-        <span class="admin-table-total">第 {{ page }} / {{ pageCount }} 页 · 共 {{ total }} 个版本</span>
-        <UiPagination :page="page" :page-size="pageSize" :total="total" @change="changePage" />
-      </footer>
     </div>
   </section>
 </template>

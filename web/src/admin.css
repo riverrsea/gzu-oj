@@ -306,9 +306,10 @@
   vertical-align: middle;
 }
 
-/* 操作列表头与右对齐的图标按钮对齐。 */
-.admin-th-actions {
-  text-align: right;
+/* 短数字列：表头与内容一同居中，保持列内视觉对齐；需压过 .admin-table th 的左对齐。 */
+.admin-table .admin-cell-center {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .admin-table tbody tr {
@@ -358,13 +359,26 @@
   white-space: nowrap;
 }
 
-/* 操作列右对齐，配合纯图标按钮保持列宽紧凑。 */
+/* 操作列：纯图标按钮左对齐排列，保持列宽紧凑。 */
 .admin-table-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 2px;
   flex-wrap: nowrap;
+}
+
+/* 空状态下的清除筛选动作。 */
+.admin-empty-reset {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admin-empty-reset:hover {
+  text-decoration: underline;
 }
 
 /* 状态徽标：圆点 + 语义色。 */

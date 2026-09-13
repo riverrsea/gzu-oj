@@ -60,6 +60,11 @@ const statusText: Record<ProblemVersionStatus, string> = { DRAFT: "草稿", PUBL
 const statusOptions = Object.entries(statusText).map(([value, label]) => ({ value, label }));
 const difficultyOptions = Object.entries(difficultyText).map(([value, label]) => ({ value, label }));
 
+/** 当前是否有生效的筛选条件，用于空状态展示清除动作。 */
+const hasActiveFilters = computed(() =>
+  Boolean(filters.keyword || filters.school || filters.year || filters.tag || filters.difficulty || filters.status),
+);
+
 /** 将后端状态转换为管理员页面显示文本。 */
 function statusLabel(status: string): string {
   return statusText[status as ProblemVersionStatus] ?? status;
@@ -122,15 +127,26 @@ function createNextVersion(problem: AdminProblemSummary): void {
   void router.push({ path: "/admin/problems/new", query: { fromVersionId: problem.versionId } });
 }
 
+/** 正在发布的版本标识，用于行内发布按钮的加载态。 */
+const publishingId = ref<string | null>(null);
+
 /** 发布已经校验过的草稿版本。 */
 async function publishDraft(versionId: string): Promise<void> {
   try {
     await confirmAction("发布后该版本不可再编辑，并会成为当前公开版本。\n\n确认发布吗？");
+  } catch {
+    // 用户在确认对话框中取消或关闭。
+    return;
+  }
+  publishingId.value = versionId;
+  try {
     await api.publishDraft(versionId);
     toast.success("题目版本已发布");
     await load();
   } catch (error) {
-    if (error !== "cancel" && error !== "close") toast.error(error instanceof Error ? error.message : "题目发布失败");
+    toast.error(error instanceof Error ? error.message : "题目发布失败");
+  } finally {
+    publishingId.value = null;
   }
 }
 
@@ -182,7 +198,7 @@ onMounted(() => {
       <div class="admin-table-scroll">
         <table class="admin-table">
           <thead>
-            <tr><th>题目</th><th>学校</th><th>年份</th><th>版本</th><th>状态</th><th>测点</th><th>难度</th><th>创建时间</th><th class="admin-th-actions">操作</th></tr>
+            <tr><th>题目</th><th>学校</th><th class="admin-cell-center">年份</th><th class="admin-cell-center">版本</th><th>状态</th><th class="admin-cell-center">测点</th><th>难度</th><th>创建时间</th><th>操作</th></tr>
           </thead>
           <tbody>
             <tr v-for="row in problems" :key="row.versionId">
@@ -196,10 +212,10 @@ onMounted(() => {
                 </div>
               </td>
               <td>{{ row.school }}</td>
-              <td>{{ row.year }}</td>
-              <td>v{{ row.versionNumber }}</td>
+              <td class="admin-cell-center">{{ row.year }}</td>
+              <td class="admin-cell-center">{{ row.versionNumber }}</td>
               <td><span :class="['admin-status', 'admin-status--' + row.status.toLowerCase()]">{{ statusLabel(row.status) }}</span></td>
-              <td>{{ row.testCaseCount }} 个</td>
+              <td class="admin-cell-center">{{ row.testCaseCount }}</td>
               <td><span :class="['admin-difficulty', 'admin-difficulty--' + row.difficulty.toLowerCase()]">{{ difficultyLabel(row.difficulty) }}</span></td>
               <td>{{ formatDate(row.createdAt) }}</td>
               <td>
@@ -210,7 +226,7 @@ onMounted(() => {
                   </template>
                   <template v-else-if="row.status === 'DRAFT'">
                     <UiButton variant="ghost" size="icon" title="编辑" aria-label="编辑" @click.stop="editDraft(row.versionId)"><Edit3 :size="15" /></UiButton>
-                    <UiButton variant="ghost" size="icon" title="发布" aria-label="发布" @click.stop="publishDraft(row.versionId)"><Send :size="15" /></UiButton>
+                    <UiButton variant="ghost" size="icon" title="发布" aria-label="发布" :loading="publishingId === row.versionId" :disabled="publishingId === row.versionId" @click.stop="publishDraft(row.versionId)"><Send :size="15" /></UiButton>
                   </template>
                   <UiButton v-else variant="ghost" size="icon" title="基于此版本新建草稿" aria-label="基于此版本新建草稿" @click.stop="createNextVersion(row)"><CopyPlus :size="15" /></UiButton>
                 </div>
@@ -219,7 +235,9 @@ onMounted(() => {
           </tbody>
         </table>
       </div>
-      <UiEmptyState v-if="!loading && problems.length === 0" description="没有符合条件的题目版本" />
+      <UiEmptyState v-if="!loading && problems.length === 0" description="没有符合条件的题目版本">
+        <button v-if="hasActiveFilters" type="button" class="admin-empty-reset" @click="resetFilters">清除全部筛选</button>
+      </UiEmptyState>
     </div>
   </section>
 </template>

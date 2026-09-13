@@ -13,7 +13,7 @@ import UiCheckbox from "../components/ui/Checkbox.vue";
 import UiEmptyState from "../components/ui/EmptyState.vue";
 import UiInput from "../components/ui/Input.vue";
 import UiNumberField from "../components/ui/NumberField.vue";
-import UiSelect from "../components/ui/Select.vue";
+import UiSelectMenu from "../components/ui/SelectMenu.vue";
 import UiLabel from "../components/ui/Label.vue";
 import UiTextarea from "../components/ui/Textarea.vue";
 
@@ -35,6 +35,13 @@ const aiRun = ref<AiRun>();
 /** AI 生成测试点遮罩是否打开。 */
 const overlayOpen = ref(false);
 const tagText = ref("");
+/** 难度下拉选项；无占位空值项，难度必选。 */
+const difficultyOptions = [
+  { value: "EASY", label: "基础" },
+  { value: "MEDIUM", label: "综合" },
+  { value: "HARD", label: "高难" },
+];
+
 const form = reactive({
   title: "",
   school: "",
@@ -298,7 +305,7 @@ onMounted(async () => {
           </div>
           <div class="form-field"><UiLabel>标题</UiLabel><UiInput v-model="form.title" maxlength="200" :disabled="aiLocked" /></div>
           <div class="admin-form-grid admin-form-grid--three">
-            <div class="form-field"><UiLabel>难度</UiLabel><UiSelect v-model="form.difficulty" placeholder="" :disabled="aiLocked"><option value="EASY">基础</option><option value="MEDIUM">综合</option><option value="HARD">高难</option></UiSelect></div>
+            <div class="form-field"><UiLabel>难度</UiLabel><UiSelectMenu v-model="form.difficulty" :options="difficultyOptions" placeholder="" :disabled="aiLocked" aria-label="难度" /></div>
             <div class="form-field"><UiLabel>标签（逗号分隔）</UiLabel><UiInput v-model="tagText" :disabled="aiLocked" /></div>
             <div class="form-field"><UiLabel>来源链接</UiLabel><UiInput v-model="form.sourceUrl" placeholder="https://..." :disabled="aiLocked" /></div>
           </div>

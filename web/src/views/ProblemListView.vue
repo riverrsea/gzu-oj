@@ -6,6 +6,7 @@ import { toast } from "../lib/notify";
 import { api } from "../api/client";
 import type { Difficulty, ProblemSummary } from "../api/types";
 import UiInput from "../components/ui/Input.vue";
+import UiSelectMenu from "../components/ui/SelectMenu.vue";
 import { session } from "../stores/session";
 
 const router = useRouter();
@@ -18,7 +19,7 @@ const problems = ref<ProblemSummary[]>([]);
 const search = ref("");
 /** 用户输入的学校关键字。 */
 const schoolSearch = ref("");
-/** 用户输入的年份关键字，保留字符串以支持输入年份前缀。 */
+/** 当前选中的年份筛选，空字符串代表全部年份。 */
 const yearSearch = ref("");
 /** 当前选中的难度筛选项，空字符串代表全部难度。 */
 const difficulty = ref<Difficulty | "">("");
@@ -31,6 +32,14 @@ const difficultyOptions: Array<{ value: Difficulty | ""; label: string }> = [
   { value: "MEDIUM", label: "中等" },
   { value: "HARD", label: "困难" },
 ];
+/** 年份筛选项：从当年回溯到 2000 年，倒序排列。 */
+const yearOptions = computed(() => {
+  const current = new Date().getFullYear();
+  return Array.from({ length: current - 1999 }, (_, index) => {
+    const year = current - index;
+    return { value: String(year), label: String(year) };
+  });
+});
 /** 当前用户已经收藏的题目标识。收藏属于题目而不是题目版本。 */
 const favoriteIds = ref<Set<string>>(new Set());
 /** 正在切换收藏的题目，避免连续点击产生重复请求。 */
@@ -47,7 +56,7 @@ const visibleProblems = computed(() => {
     const matchesDifficulty = !difficulty.value || problem.difficulty === difficulty.value;
     const matchesTitle = !keyword || problem.title.toLocaleLowerCase().includes(keyword);
     const matchesSchool = !schoolKeyword || problem.school.toLocaleLowerCase().includes(schoolKeyword);
-    const matchesYear = !yearKeyword || String(problem.year).includes(yearKeyword);
+    const matchesYear = !yearKeyword || String(problem.year) === yearKeyword;
     return matchesDifficulty && matchesTitle && matchesSchool && matchesYear;
   });
 });
@@ -164,10 +173,10 @@ watch(() => session.user?.id, () => {
           <Building2 :size="16" aria-hidden="true" />
           <UiInput v-model="schoolSearch" type="search" placeholder="搜索学校" aria-label="搜索学校" />
         </label>
-        <label class="problem-catalog-search problem-catalog-search--year">
+        <div class="problem-catalog-search problem-catalog-search--year">
           <CalendarDays :size="16" aria-hidden="true" />
-          <UiInput v-model="yearSearch" type="number" min="1900" max="2200" placeholder="年份" aria-label="搜索年份" />
-        </label>
+          <UiSelectMenu v-model="yearSearch" :options="yearOptions" placeholder="全部年份" aria-label="搜索年份" />
+        </div>
       </div>
     </div>
     <div v-if="loading" class="problem-catalog-list" aria-busy="true" aria-label="正在加载题库">

@@ -9,7 +9,7 @@ import ProblemStatementEditor from "../components/ProblemStatementEditor.vue";
 import UiButton from "../components/ui/Button.vue";
 import UiInput from "../components/ui/Input.vue";
 import UiNumberField from "../components/ui/NumberField.vue";
-import UiSelect from "../components/ui/Select.vue";
+import UiSelectMenu from "../components/ui/SelectMenu.vue";
 import UiLabel from "../components/ui/Label.vue";
 
 /** 页面路由器。 */
@@ -25,6 +25,13 @@ const saving = ref(false);
 /** 逗号分隔的标签输入。 */
 const tagText = ref("");
 /** 单题录入表单。 */
+/** 难度下拉选项；无占位空值项，难度必选。 */
+const difficultyOptions = [
+  { value: "EASY", label: "基础" },
+  { value: "MEDIUM", label: "综合" },
+  { value: "HARD", label: "高难" },
+];
+
 const form = reactive({
   externalKey: "",
   title: "",
@@ -121,7 +128,7 @@ onMounted(() => void loadBaseVersion());
           </div>
           <div class="form-field"><UiLabel>标题</UiLabel><UiInput v-model="form.title" maxlength="200" /></div>
           <div class="admin-form-grid admin-form-grid--three">
-            <div class="form-field"><UiLabel>难度</UiLabel><UiSelect v-model="form.difficulty" placeholder=""><option value="EASY">基础</option><option value="MEDIUM">综合</option><option value="HARD">高难</option></UiSelect></div>
+            <div class="form-field"><UiLabel>难度</UiLabel><UiSelectMenu v-model="form.difficulty" :options="difficultyOptions" placeholder="" aria-label="难度" /></div>
             <div class="form-field"><UiLabel>标签（逗号分隔）</UiLabel><UiInput v-model="tagText" placeholder="动态规划, 图论" /></div>
             <div class="form-field"><UiLabel>来源链接</UiLabel><UiInput v-model="form.sourceUrl" placeholder="https://..." /></div>
           </div>

@@ -221,18 +221,20 @@
 
 /* ===== 题库管理页 ===== */
 
-/* 筛选区：12 列网格，字段按重要度分配跨度。 */
-.admin-filters-grid {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 12px;
+/* 筛选卡片：单行弹性排布，字段按需伸缩，窄屏自动换行。 */
+.admin-filters {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px 12px;
+  padding: 14px 16px;
+  flex-wrap: wrap;
 }
 
 .admin-filter-field {
   display: grid;
   min-width: 0;
-  gap: 6px;
-  grid-column: span 2;
+  gap: 5px;
+  flex: 1 1 130px;
 }
 
 .admin-filter-field label {
@@ -242,22 +244,32 @@
 }
 
 .admin-filter-field--keyword {
-  grid-column: span 3;
+  flex: 2 1 220px;
 }
 
 .admin-filter-field--year {
-  grid-column: span 1;
+  flex: 0 1 110px;
 }
 
 .admin-filters-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  margin-left: auto;
 }
 
 /* 表格面板：表头吸顶式分组行 + 悬停行高亮。 */
 .admin-table-card {
   overflow: hidden;
+}
+
+/* 列表顶部工具栏：分页右对齐。 */
+.admin-table-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
 }
 
 .admin-table-scroll {
@@ -349,22 +361,6 @@
   justify-content: flex-end;
   gap: 2px;
   flex-wrap: nowrap;
-}
-
-.admin-table-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 14px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--border);
-  flex-wrap: wrap;
-}
-
-.admin-table-total {
-  color: var(--muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
 }
 
 /* 状态徽标：圆点 + 语义色。 */
@@ -695,17 +691,6 @@
 
 /* ===== 响应式 ===== */
 
-@media (max-width: 1280px) {
-  .admin-filter-field,
-  .admin-filter-field--keyword {
-    grid-column: span 4;
-  }
-
-  .admin-filter-field--year {
-    grid-column: span 2;
-  }
-}
-
 @media (max-width: 760px) {
   .admin-container {
     padding: 18px 14px 48px;
@@ -726,10 +711,11 @@
     font-size: 22px;
   }
 
+  /* 窄屏下筛选字段独占一行，操作按钮靠右。 */
   .admin-filter-field,
   .admin-filter-field--keyword,
   .admin-filter-field--year {
-    grid-column: span 12;
+    flex: 1 1 100%;
   }
 
   .admin-form-grid,

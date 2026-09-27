@@ -197,6 +197,7 @@ class JudgeEngine(
                 JudgeStatus.WA
             }
         }
+
         "Time Limit Exceeded" -> JudgeStatus.TLE
         "Memory Limit Exceeded" -> JudgeStatus.MLE
         "Output Limit Exceeded" -> JudgeStatus.OLE
@@ -243,6 +244,7 @@ class JudgeEngine(
             processLimit = 1,
             addressSpaceLimit = true,
         )
+
         JudgeLanguage.CPP17 -> LanguageSpecification(
             sourceName = "main.cpp",
             artifactName = "main",
@@ -251,6 +253,7 @@ class JudgeEngine(
             processLimit = 1,
             addressSpaceLimit = true,
         )
+
         JudgeLanguage.JAVA21 -> LanguageSpecification(
             sourceName = "Main.java",
             artifactName = "app.jar",
@@ -263,6 +266,7 @@ class JudgeEngine(
             processLimit = 64,
             addressSpaceLimit = false,
         )
+
         JudgeLanguage.PYTHON3 -> LanguageSpecification(
             sourceName = "main.py",
             artifactName = "main.py",
